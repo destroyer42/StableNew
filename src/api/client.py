@@ -1,0 +1,171 @@
+"""API client for Stable Diffusion WebUI"""
+
+import logging
+import time
+from typing import Dict, Any, Optional, List
+import requests
+import base64
+from io import BytesIO
+
+logger = logging.getLogger(__name__)
+
+
+class SDWebUIClient:
+    """Client for interacting with Stable Diffusion WebUI API"""
+    
+    def __init__(self, base_url: str = "http://127.0.0.1:7860", timeout: int = 300):
+        """
+        Initialize the SD WebUI API client.
+        
+        Args:
+            base_url: Base URL of the SD WebUI API
+            timeout: Request timeout in seconds
+        """
+        self.base_url = base_url.rstrip('/')
+        self.timeout = timeout
+        
+    def check_api_ready(self, max_retries: int = 5, retry_delay: int = 2) -> bool:
+        """
+        Check if the API is ready to accept requests.
+        
+        Args:
+            max_retries: Maximum number of retry attempts
+            retry_delay: Delay between retries in seconds
+            
+        Returns:
+            True if API is ready, False otherwise
+        """
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(
+                    f"{self.base_url}/sdapi/v1/sd-models",
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    logger.info("SD WebUI API is ready")
+                    return True
+            except Exception as e:
+                logger.warning(f"API check attempt {attempt + 1}/{max_retries} failed: {e}")
+                
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                
+        logger.error("SD WebUI API is not ready after max retries")
+        return False
+    
+    def txt2img(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Generate image from text prompt.
+        
+        Args:
+            payload: Request payload with generation parameters
+            
+        Returns:
+            Response data including base64 encoded images
+        """
+        try:
+            response = requests.post(
+                f"{self.base_url}/sdapi/v1/txt2img",
+                json=payload,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"txt2img completed successfully, generated {len(data.get('images', []))} images")
+            return data
+        except Exception as e:
+            logger.error(f"txt2img request failed: {e}")
+            return None
+    
+    def img2img(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Refine image using img2img.
+        
+        Args:
+            payload: Request payload with generation parameters and init image
+            
+        Returns:
+            Response data including base64 encoded images
+        """
+        try:
+            response = requests.post(
+                f"{self.base_url}/sdapi/v1/img2img",
+                json=payload,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"img2img completed successfully")
+            return data
+        except Exception as e:
+            logger.error(f"img2img request failed: {e}")
+            return None
+    
+    def upscale(self, image_base64: str, upscaler: str = "R-ESRGAN 4x+", 
+                upscaling_resize: float = 2.0) -> Optional[Dict[str, Any]]:
+        """
+        Upscale image using extra upscalers.
+        
+        Args:
+            image_base64: Base64 encoded image
+            upscaler: Name of the upscaler to use
+            upscaling_resize: Scale factor
+            
+        Returns:
+            Response data with upscaled image
+        """
+        try:
+            payload = {
+                "resize_mode": 0,
+                "upscaling_resize": upscaling_resize,
+                "upscaler_1": upscaler,
+                "image": image_base64
+            }
+            response = requests.post(
+                f"{self.base_url}/sdapi/v1/extra-single-image",
+                json=payload,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Upscale completed successfully with {upscaler}")
+            return data
+        except Exception as e:
+            logger.error(f"Upscale request failed: {e}")
+            return None
+    
+    def get_models(self) -> List[Dict[str, Any]]:
+        """
+        Get list of available models.
+        
+        Returns:
+            List of available models
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/sdapi/v1/sd-models",
+                timeout=10
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get models: {e}")
+            return []
+    
+    def get_samplers(self) -> List[Dict[str, Any]]:
+        """
+        Get list of available samplers.
+        
+        Returns:
+            List of available samplers
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/sdapi/v1/samplers",
+                timeout=10
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get samplers: {e}")
+            return []
