@@ -99,6 +99,41 @@ StableNew/
 - <embedding:stable_yogis_anatomy_negatives_v1-neg>
 - deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils
 
+## Recommended Prompt Pack Format
+
+For optimal parsing and organization, structure your `.txt` prompt packs using blank lines to separate individual prompts. Each prompt block can span multiple lines that will be concatenated with spaces:
+
+```text
+# Complex character with embeddings and LoRA
+<embedding:character_base> <embedding:quality_boost>
+detailed character portrait, professional lighting, natural skin texture
+young warrior, confident expression, detailed armor and weapons
+<lora:character_detail:0.7> <lora:lighting_enhance:0.5>
+neg: <embedding:bad_anatomy> <embedding:low_quality-neg>
+neg: deformed hands, ugly face, blurry, low quality
+
+# Landscape with style enhancement  
+beautiful mountain landscape at golden hour, dramatic clouds
+majestic peaks, crystal clear lake reflection, cinematic composition
+<lora:landscape_realism:0.8> <lora:dramatic_sky:0.6>
+neg: <embedding:negative_base> oversaturated, cartoon style, artificial
+
+# Simple portrait without embeddings
+professional headshot, studio lighting, clean background
+business attire, confident pose, sharp focus
+neg: ugly, distorted, amateur lighting, low resolution
+```
+
+**Key formatting rules:**
+
+- Use `# comments` for organization (ignored during parsing)
+- Separate different prompts with blank lines
+- Multiple positive lines are joined with spaces
+- Use `neg:` prefix for negative prompt lines
+- Embeddings: `<embedding:name>` or `<embedding:name-neg>`
+- LoRAs: `<lora:name:weight>` with decimal weights (0.1-1.5)
+- UTF-8 characters fully supported for international content
+
 ## Testing
 
 ```bash

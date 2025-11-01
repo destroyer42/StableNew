@@ -109,7 +109,134 @@ class ConfigManager:
                 "quality": "medium"
             },
             "api": {
-                "base_url": "http://127.0.0.1:7860",
+                "base_url": "http://127.0.0.1:7862",
                 "timeout": 300
             }
         }
+    
+    def resolve_config(self, preset_name: str = None, pack_overrides: Dict[str, Any] = None, 
+                      runtime_params: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Resolve configuration with hierarchy: Default → Preset → Pack overrides → Runtime params.
+        
+        Args:
+            preset_name: Name of preset to load
+            pack_overrides: Pack-specific configuration overrides
+            runtime_params: Runtime parameter overrides
+            
+        Returns:
+            Resolved configuration dictionary
+        """
+        # Start with default config
+        config = self.get_default_config()
+        
+        # Apply preset overrides
+        if preset_name:
+            preset_config = self.load_preset(preset_name)
+            if preset_config:
+                config = self._merge_configs(config, preset_config)
+        
+        # Apply pack-specific overrides
+        if pack_overrides:
+            config = self._merge_configs(config, pack_overrides)
+        
+        # Apply runtime parameters
+        if runtime_params:
+            config = self._merge_configs(config, runtime_params)
+        
+        return config
+    
+    def _merge_configs(self, base_config: Dict[str, Any], override_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Deep merge two configuration dictionaries.
+        
+        Args:
+            base_config: Base configuration
+            override_config: Override configuration
+            
+        Returns:
+            Merged configuration
+        """
+        import copy
+        merged = copy.deepcopy(base_config)
+        
+        for key, value in override_config.items():
+            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+                merged[key] = self._merge_configs(merged[key], value)
+            else:
+                merged[key] = value
+        
+        return merged
+    
+    def get_pack_overrides(self, pack_name: str) -> Dict[str, Any]:
+        """
+        Get pack-specific configuration overrides.
+        
+        Args:
+            pack_name: Name of the prompt pack
+            
+        Returns:
+            Pack override configuration
+        """
+        overrides_file = self.presets_dir / "pack_overrides.json"
+        if not overrides_file.exists():
+            return {}
+        
+        try:
+            with open(overrides_file, 'r', encoding='utf-8') as f:
+                all_overrides = json.load(f)
+            
+            return all_overrides.get(pack_name, {})
+        except Exception as e:
+            logger.error(f"Failed to load pack overrides: {e}")
+            return {}
+    
+    def save_pack_overrides(self, pack_name: str, overrides: Dict[str, Any]) -> bool:
+        """
+        Save pack-specific configuration overrides.
+        
+        Args:
+            pack_name: Name of the prompt pack
+            overrides: Override configuration
+            
+        Returns:
+            True if saved successfully
+        """
+        overrides_file = self.presets_dir / "pack_overrides.json"
+        
+        try:
+            # Load existing overrides
+            all_overrides = {}
+            if overrides_file.exists():
+                with open(overrides_file, 'r', encoding='utf-8') as f:
+                    all_overrides = json.load(f)
+            
+            # Update with new overrides
+            all_overrides[pack_name] = overrides
+            
+            # Save back
+            with open(overrides_file, 'w', encoding='utf-8') as f:
+                json.dump(all_overrides, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Saved pack overrides for: {pack_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save pack overrides: {e}")
+            return False
+    
+    def add_global_negative(self, negative_prompt: str) -> str:
+        """
+        Add global NSFW prevention to negative prompt.
+        
+        Args:
+            negative_prompt: Existing negative prompt
+            
+        Returns:
+            Enhanced negative prompt with safety additions
+        """
+        global_neg = ("nsfw, nude, naked, explicit, sexual content, adult content, "
+                     "inappropriate, offensive, disturbing, violent, graphic")
+        
+        if negative_prompt:
+            return f"{negative_prompt}, {global_neg}"
+        return global_neg

@@ -48,6 +48,117 @@ class VideoCreator:
         Args:
             image_paths: List of paths to images
             output_path: Path for output video
+            fps: Frames per second (default: 24)
+            codec: Video codec (default: libx264)
+            quality: Quality preset (default: medium)
+            
+        Returns:
+            True if video created successfully
+        """
+        if not self.ffmpeg_available:
+            logger.error("FFmpeg not available, cannot create video")
+            return False
+        
+        if not image_paths:
+            logger.error("No images provided for video creation")
+            return False
+        
+        try:
+            # Sort images by name for proper sequence
+            sorted_paths = sorted(image_paths, key=lambda x: x.name)
+            
+            # Create temporary file list for FFmpeg
+            temp_dir = output_path.parent / "temp"
+            temp_dir.mkdir(exist_ok=True)
+            
+            # Copy/symlink images with sequential names
+            temp_images = []
+            for i, img_path in enumerate(sorted_paths):
+                if not img_path.exists():
+                    logger.warning(f"Image not found: {img_path}")
+                    continue
+                
+                temp_name = f"frame_{i:06d}{img_path.suffix}"
+                temp_path = temp_dir / temp_name
+                
+                # Create symlink or copy
+                try:
+                    if hasattr(temp_path, 'symlink_to'):
+                        temp_path.symlink_to(img_path.absolute())
+                    else:
+                        import shutil
+                        shutil.copy2(img_path, temp_path)
+                    temp_images.append(temp_path)
+                except Exception as e:
+                    logger.warning(f"Failed to link/copy {img_path.name}: {e}")
+            
+            if not temp_images:
+                logger.error("No valid images for video creation")
+                return False
+            
+            # Build FFmpeg command
+            input_pattern = str(temp_dir / "frame_%06d*")
+            
+            cmd = [
+                'ffmpeg',
+                '-y',  # Overwrite output
+                '-framerate', str(fps),
+                '-pattern_type', 'glob',
+                '-i', input_pattern,
+                '-c:v', codec,
+                '-preset', quality,
+                '-pix_fmt', 'yuv420p',  # Compatibility
+                str(output_path)
+            ]
+            
+            logger.info(f"Creating video with {len(temp_images)} frames")
+            logger.info(f"FFmpeg command: {' '.join(cmd)}")
+            
+            # Execute FFmpeg
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+            
+            # Cleanup temp directory
+            try:
+                import shutil
+                shutil.rmtree(temp_dir)
+            except Exception as e:
+                logger.warning(f"Failed to cleanup temp directory: {e}")
+            
+            if result.returncode == 0:
+                logger.info(f"Video created successfully: {output_path.name}")
+                return True
+            else:
+                logger.error(f"FFmpeg failed: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error("FFmpeg timed out")
+            return False
+        except Exception as e:
+            logger.error(f"Video creation failed: {e}")
+            return False
+    
+    def create_slideshow_video(self, image_paths: List[Path], output_path: Path,
+                              duration_per_image: float = 3.0, 
+                              transition_duration: float = 0.5,
+                              fps: int = 24) -> bool:
+        """
+        Create a slideshow video with transitions.
+        
+        Args:
+            image_paths: List of paths to images
+            output_path: Path for output video
+            duration_per_image: Duration each image is shown (seconds)
+            transition_duration: Duration of fade transitions (seconds)
+            fps: Frames per second
+            
+        Returns:
+            True if video created successfully
             fps: Frames per second
             codec: Video codec to use
             quality: Video quality preset

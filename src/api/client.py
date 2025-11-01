@@ -101,15 +101,63 @@ class SDWebUIClient:
             logger.error(f"img2img request failed: {e}")
             return None
     
-    def upscale(self, image_base64: str, upscaler: str = "R-ESRGAN 4x+", 
-                upscaling_resize: float = 2.0) -> Optional[Dict[str, Any]]:
+    def upscale(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Upscale image using extra upscalers.
+        Upscale image using extra-single-image endpoint.
+        
+        Args:
+            payload: Request payload with image and upscaling parameters
+            
+        Returns:
+            Response data including base64 encoded upscaled image
+        """
+        try:
+            response = requests.post(
+                f"{self.base_url}/sdapi/v1/extra-single-image",
+                json=payload,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Upscaling completed successfully")
+            return data
+        except Exception as e:
+            logger.error(f"Upscale request failed: {e}")
+            return None
+    
+    def get_models(self) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get list of available models.
+        
+        Returns:
+            List of model information
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/sdapi/v1/sd-models",
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Retrieved {len(data)} models")
+            return data
+        except Exception as e:
+            logger.error(f"img2img request failed: {e}")
+            return None
+    
+    def upscale_image(self, image_base64: str, upscaler: str, upscaling_resize: float, 
+                     gfpgan_visibility: float = 0.0, codeformer_visibility: float = 0.0, 
+                     codeformer_weight: float = 0.5) -> Optional[Dict[str, Any]]:
+        """
+        Upscale image using extra upscalers with optional face restoration.
         
         Args:
             image_base64: Base64 encoded image
             upscaler: Name of the upscaler to use
             upscaling_resize: Scale factor
+            gfpgan_visibility: GFPGAN strength (0.0-1.0)
+            codeformer_visibility: CodeFormer strength (0.0-1.0)
+            codeformer_weight: CodeFormer fidelity (0.0-1.0)
             
         Returns:
             Response data with upscaled image
@@ -119,7 +167,10 @@ class SDWebUIClient:
                 "resize_mode": 0,
                 "upscaling_resize": upscaling_resize,
                 "upscaler_1": upscaler,
-                "image": image_base64
+                "image": image_base64,
+                "gfpgan_visibility": gfpgan_visibility,
+                "codeformer_visibility": codeformer_visibility,
+                "codeformer_weight": codeformer_weight
             }
             response = requests.post(
                 f"{self.base_url}/sdapi/v1/extra-single-image",
@@ -128,7 +179,16 @@ class SDWebUIClient:
             )
             response.raise_for_status()
             data = response.json()
-            logger.info(f"Upscale completed successfully with {upscaler}")
+            
+            # Log face restoration usage
+            face_restoration_used = []
+            if gfpgan_visibility > 0:
+                face_restoration_used.append(f"GFPGAN({gfpgan_visibility})")
+            if codeformer_visibility > 0:
+                face_restoration_used.append(f"CodeFormer({codeformer_visibility})")
+            
+            restoration_info = f" + {', '.join(face_restoration_used)}" if face_restoration_used else ""
+            logger.info(f"Upscale completed successfully with {upscaler}{restoration_info}")
             return data
         except Exception as e:
             logger.error(f"Upscale request failed: {e}")
@@ -169,3 +229,22 @@ class SDWebUIClient:
         except Exception as e:
             logger.error(f"Failed to get samplers: {e}")
             return []
+    
+    def get_current_model(self) -> Optional[str]:
+        """
+        Get the currently loaded model.
+        
+        Returns:
+            Current model name
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/sdapi/v1/options",
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("sd_model_checkpoint")
+        except Exception as e:
+            logger.error(f"Failed to get current model: {e}")
+            return None

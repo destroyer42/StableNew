@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .api import SDWebUIClient
 from .pipeline import Pipeline, VideoCreator
-from .utils import ConfigManager, StructuredLogger, setup_logging
+from .utils import ConfigManager, StructuredLogger, setup_logging, find_webui_api_port
 
 
 def main():
@@ -105,20 +105,30 @@ def main():
         config.pop("upscale", None)
         logger.info("Upscale stage disabled")
     
-    # Update API URL if provided
+    # Modify config based on arguments
     if args.api_url:
         config["api"]["base_url"] = args.api_url
     
-    # Initialize API client
-    client = SDWebUIClient(
-        base_url=config["api"]["base_url"],
-        timeout=config["api"]["timeout"]
-    )
+    # Initialize API client with port discovery
+    api_url = config["api"]["base_url"]
+    logger.info(f"Connecting to SD WebUI API...")
+    
+    # Try to find the actual API port if using default
+    if api_url == "http://127.0.0.1:7860":
+        discovered_url = find_webui_api_port()
+        if discovered_url:
+            logger.info(f"Found WebUI API at {discovered_url}")
+            api_url = discovered_url
+        else:
+            logger.info(f"Using configured URL: {api_url}")
+    
+    client = SDWebUIClient(base_url=api_url, timeout=config["api"]["timeout"])
     
     # Check API readiness
     logger.info("Checking API readiness...")
     if not client.check_api_ready():
         logger.error("SD WebUI API is not ready. Exiting.")
+        logger.info("Common ports to check: 7860, 7861, 7862, 7863, 7864")
         return 1
     
     # Initialize pipeline

@@ -82,30 +82,123 @@ class StructuredLogger:
             images_data: List of image metadata dictionaries
             
         Returns:
-            True if saved successfully
+            True if created successfully
         """
-        csv_path = run_dir / "summary.csv"
-        try:
-            if not images_data:
-                self.logger.warning("No images data to write to CSV")
-                return False
-                
-            # Determine all unique keys
-            all_keys = set()
-            for data in images_data:
-                all_keys.update(data.keys())
-            
-            fieldnames = sorted(all_keys)
-            
-            with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(images_data)
-            
-            self.logger.info(f"Created CSV summary with {len(images_data)} entries")
+        if not images_data:
+            self.logger.warning("No image data to summarize")
             return True
+        
+        try:
+            summary_file = run_dir / "summary.csv"
+            
+            # Define CSV headers
+            headers = [
+                'image_name', 'stage', 'timestamp', 'prompt', 'negative_prompt',
+                'steps', 'sampler', 'cfg_scale', 'width', 'height', 'seed',
+                'model', 'file_path', 'file_size'
+            ]
+            
+            with open(summary_file, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=headers)
+                writer.writeheader()
+                
+                for img_data in images_data:
+                    # Extract config data safely
+                    config = img_data.get('config', {})
+                    
+                    # Get file size if file exists
+                    file_size = ""
+                    if 'path' in img_data:
+                        try:
+                            file_path = Path(img_data['path'])
+                            if file_path.exists():
+                                file_size = file_path.stat().st_size
+                        except:
+                            pass
+                    
+                    row = {
+                        'image_name': img_data.get('name', ''),
+                        'stage': img_data.get('stage', ''),
+                        'timestamp': img_data.get('timestamp', ''),
+                        'prompt': img_data.get('prompt', ''),
+                        'negative_prompt': config.get('negative_prompt', ''),
+                        'steps': config.get('steps', ''),
+                        'sampler': config.get('sampler_name', ''),
+                        'cfg_scale': config.get('cfg_scale', ''),
+                        'width': config.get('width', ''),
+                        'height': config.get('height', ''),
+                        'seed': config.get('seed', ''),
+                        'model': img_data.get('model', ''),
+                        'file_path': img_data.get('path', ''),
+                        'file_size': file_size
+                    }
+                    writer.writerow(row)
+            
+            self.logger.info(f"Created CSV summary: {summary_file.name}")
+            return True
+            
         except Exception as e:
             self.logger.error(f"Failed to create CSV summary: {e}")
+            return False
+    
+    def create_rollup_manifest(self, run_dir: Path) -> bool:
+        """
+        Create rollup manifest from all individual JSON manifests.
+        
+        Args:
+            run_dir: Run directory
+            
+        Returns:
+            True if created successfully
+        """
+        try:
+            manifests_dir = run_dir / "manifests"
+            if not manifests_dir.exists():
+                self.logger.warning("No manifests directory found")
+                return True
+            
+            # Collect all manifest files
+            manifest_files = list(manifests_dir.glob("*.json"))
+            if not manifest_files:
+                self.logger.warning("No manifest files found")
+                return True
+            
+            # Read all manifests
+            all_images = []
+            for manifest_file in manifest_files:
+                try:
+                    with open(manifest_file, 'r', encoding='utf-8') as f:
+                        manifest_data = json.load(f)
+                        all_images.append(manifest_data)
+                except Exception as e:
+                    self.logger.error(f"Failed to read manifest {manifest_file.name}: {e}")
+            
+            if not all_images:
+                self.logger.warning("No valid manifest data found")
+                return True
+            
+            # Create rollup manifest
+            rollup_data = {
+                'run_info': {
+                    'run_directory': str(run_dir),
+                    'timestamp': datetime.now().isoformat(),
+                    'total_images': len(all_images)
+                },
+                'images': all_images
+            }
+            
+            rollup_file = run_dir / "rollup_manifest.json"
+            with open(rollup_file, 'w', encoding='utf-8') as f:
+                json.dump(rollup_data, f, indent=2, ensure_ascii=False)
+            
+            # Create CSV summary
+            self.create_csv_summary(run_dir, all_images)
+            
+            self.logger.info(f"Created rollup manifest with {len(all_images)} images")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create rollup manifest: {e}")
             return False
 
 

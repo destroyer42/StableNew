@@ -1,7 +1,59 @@
-"""Tests for file I/O utilities"""
+"""Test file I/O utilities"""
 
 import pytest
+import tempfile
+import json
 from pathlib import Path
+from src.utils.file_io import (
+    read_prompt_pack, get_prompt_packs, write_text_file, 
+    read_text_file, get_safe_filename
+)
+
+
+class TestFileIO:
+    
+    def test_read_prompt_pack_txt_format(self, tmp_path):
+        """Test reading .txt format prompt pack"""
+        pack_content = """beautiful landscape, mountains, lakes
+(masterpiece, best quality) natural scenery
+neg: blurry, low quality, artificial
+
+portrait of elegant woman, professional photography
+studio lighting, high resolution, detailed
+neg: cartoon, anime, distorted"""
+        
+        pack_file = tmp_path / "test_pack.txt"
+        pack_file.write_text(pack_content, encoding='utf-8')
+        
+        prompts = read_prompt_pack(pack_file)
+        
+        assert len(prompts) == 2
+        assert prompts[0]['positive'] == "beautiful landscape, mountains, lakes (masterpiece, best quality) natural scenery"
+        assert prompts[0]['negative'] == "blurry, low quality, artificial"
+        assert prompts[1]['positive'] == "portrait of elegant woman, professional photography studio lighting, high resolution, detailed"
+        assert prompts[1]['negative'] == "cartoon, anime, distorted"
+    
+    def test_get_safe_filename(self):
+        """Test safe filename generation"""
+        # Test invalid characters
+        unsafe_name = 'test<>:"/\\|?*file.txt'
+        safe_name = get_safe_filename(unsafe_name)
+        assert safe_name == "test___________file.txt"
+        
+        # Test long filename
+        long_name = "a" * 300
+        safe_name = get_safe_filename(long_name)
+        assert len(safe_name) <= 200
+        
+        # Test empty filename
+        empty_name = ""
+        safe_name = get_safe_filename(empty_name)
+        assert safe_name == "unnamed"
+        
+        # Test normal filename
+        normal_name = "valid_filename.txt"
+        safe_name = get_safe_filename(normal_name)
+        assert safe_name == normal_name
 import base64
 from PIL import Image
 from io import BytesIO

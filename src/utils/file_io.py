@@ -102,3 +102,140 @@ def write_text_file(file_path: Path, content: str) -> bool:
     except Exception as e:
         logger.error(f"Failed to write text file: {e}")
         return False
+
+
+def read_prompt_pack(pack_path: Path) -> list:
+    """
+    Read prompt pack from .txt or .tsv file with UTF-8 safety.
+    
+    Supports:
+    - Line-based .txt files with blank line separators
+    - Tab-separated .tsv files
+    - 'neg:' prefix for negative prompts
+    - Comments starting with #
+    
+    Args:
+        pack_path: Path to the prompt pack file
+        
+    Returns:
+        List of prompt dictionaries with 'positive' and 'negative' keys
+    """
+    try:
+        if not pack_path.exists():
+            logger.error(f"Prompt pack not found: {pack_path}")
+            return []
+        
+        # Read file with UTF-8 encoding
+        with open(pack_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        prompts = []
+        
+        if pack_path.suffix.lower() == '.tsv':
+            # Tab-separated format
+            for line in content.splitlines():
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                parts = line.split('\t', 1)
+                positive = parts[0].strip()
+                negative = parts[1].strip() if len(parts) > 1 else ""
+                
+                prompts.append({
+                    'positive': positive,
+                    'negative': negative
+                })
+        else:
+            # Block-based .txt format
+            blocks = content.split('\n\n')
+            
+            for block in blocks:
+                if not block.strip():
+                    continue
+                
+                lines = [line.strip() for line in block.strip().splitlines()]
+                lines = [line for line in lines if line and not line.startswith('#')]
+                
+                if not lines:
+                    continue
+                
+                positive_parts = []
+                negative_parts = []
+                
+                for line in lines:
+                    if line.startswith('neg:'):
+                        negative_parts.append(line[4:].strip())
+                    else:
+                        positive_parts.append(line)
+                
+                positive = ' '.join(positive_parts)
+                negative = ' '.join(negative_parts)
+                
+                prompts.append({
+                    'positive': positive,
+                    'negative': negative
+                })
+        
+        logger.info(f"Read {len(prompts)} prompts from {pack_path.name}")
+        return prompts
+        
+    except Exception as e:
+        logger.error(f"Failed to read prompt pack {pack_path.name}: {e}")
+        return []
+
+
+def get_prompt_packs(packs_dir: Path) -> list:
+    """
+    Get list of available prompt pack files.
+    
+    Args:
+        packs_dir: Directory containing prompt packs
+        
+    Returns:
+        List of prompt pack file paths
+    """
+    try:
+        if not packs_dir.exists():
+            packs_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created packs directory: {packs_dir}")
+            return []
+        
+        pack_files = []
+        for ext in ['*.txt', '*.tsv']:
+            pack_files.extend(packs_dir.glob(ext))
+        
+        pack_files.sort()
+        logger.info(f"Found {len(pack_files)} prompt packs in {packs_dir}")
+        return pack_files
+        
+    except Exception as e:
+        logger.error(f"Failed to scan prompt packs directory: {e}")
+        return []
+
+
+def get_safe_filename(name: str) -> str:
+    """
+    Convert string to safe filename by removing/replacing invalid characters.
+    
+    Args:
+        name: Input string
+        
+    Returns:
+        Safe filename string
+    """
+    # Replace invalid characters
+    invalid_chars = '<>:"/\\|?*'
+    safe_name = name
+    
+    for char in invalid_chars:
+        safe_name = safe_name.replace(char, '_')
+    
+    # Remove leading/trailing whitespace and dots
+    safe_name = safe_name.strip(' .')
+    
+    # Limit length
+    if len(safe_name) > 200:
+        safe_name = safe_name[:200]
+    
+    return safe_name or "unnamed"
