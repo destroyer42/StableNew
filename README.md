@@ -83,7 +83,7 @@ pip install -r requirements.txt
 For the easiest experience, create a desktop shortcut:
 
 ```bash
-powershell -ExecutionPolicy Bypass -File "create_shortcuts.ps1"
+powershell -ExecutionPolicy Bypass -File "scripts/create_shortcuts.ps1"
 ```
 
 Then double-click the "StableNew" icon on your desktop to launch the GUI.
@@ -122,19 +122,34 @@ python -m src.cli --prompt "your prompt here" --preset default
 
 ```
 StableNew/
-├── src/
+├── src/              # Core application code
 │   ├── api/          # API client and utilities
 │   ├── pipeline/     # Pipeline stages (txt2img, img2img, upscale, video)
 │   ├── gui/          # Tkinter GUI components
 │   ├── utils/        # Logging, config, file I/O utilities
 │   └── main.py       # Main application entry point
-├── tests/            # pytest test suite
+├── tests/            # Complete test suite (pytest + validation)
+├── docs/             # Documentation and guides
+├── scripts/          # Launch scripts and utilities
+├── archive/          # Archived/old files (suffixed with _OLD)
 ├── presets/          # Configuration presets
+├── packs/            # User prompt packs (.txt or .tsv)
 ├── output/           # Generated images and videos
-├── packs/                # user prompt packs (.txt or .tsv)
-├── manifests/            # rollup JSONs + CSV summaries
-└─── logs/                 # runtime logs
+└── tmp/              # Temporary files
 ```
+
+## Documentation
+
+Additional documentation is available in the [`docs/`](docs/) directory:
+
+- **[Configuration Testing Guide](docs/CONFIGURATION_TESTING_GUIDE.md)** - Detailed guide for maintaining configuration integrity and validation testing
+- **[Launchers Guide](docs/LAUNCHERS.md)** - Information about desktop shortcuts and launch scripts
+
+**Scripts available in [`scripts/`](scripts/) directory:**
+
+- `create_shortcuts.ps1` - Create desktop shortcuts (recommended)
+- `launch_stablenew.bat` - Direct launcher for Windows
+- `launch_webui.py` - WebUI management script
 
 ## External File dependencies
 
@@ -231,7 +246,36 @@ Each run can be replicated, audited, and extended by humans **or** automated scr
 - All runs produce logs and manifests in **`manifests/`**.
 - Tests must pass via `pytest -q`.
 - Never overwrite user data; always write to new timestamped folders.
-- Always assume the WebUI API is external — **fail gracefully** if it’s not reachable.
+- Always assume the WebUI API is external — **fail gracefully** if it's not reachable.
+
+#### Configuration Change Requirements
+
+**CRITICAL**: When modifying configuration-related code, always run the validation test:
+
+```bash
+python tests/test_config_passthrough.py
+```
+
+This test ensures that configuration parameters properly flow from the GUI forms through the pipeline to the WebUI API. It validates:
+
+- Parameter pass-through accuracy (should be 90-100%)
+- Proper handling of all txt2img, img2img, and upscale parameters
+- Detection of configuration drift or missing parameters
+
+**When adding new configuration parameters:**
+
+1. Update `src/utils/config.py` with the new parameter in `get_default_config()`
+2. Add corresponding GUI controls in `src/gui/main_window.py`
+3. Update pipeline methods in `src/pipeline/executor.py` to include the new parameter
+4. **Update the validation test** `tests/test_config_passthrough.py`:
+   - Add expected parameter names to `EXPECTED_TXT2IMG_PARAMS`, `EXPECTED_IMG2IMG_PARAMS`, or `EXPECTED_UPSCALE_PARAMS`
+   - Update any preset-specific validation logic if needed
+5. Run the validation test to ensure 90-100% pass-through accuracy
+6. Update presets in `presets/` directory if the new parameter should have non-default values
+
+**Parameter integrity is critical** - the validation test prevents silent configuration drift that could cause unexpected generation results.
+
+For detailed maintenance instructions, see: [`docs/CONFIGURATION_TESTING_GUIDE.md`](docs/CONFIGURATION_TESTING_GUIDE.md)
 
 ---
 

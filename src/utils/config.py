@@ -79,6 +79,19 @@ class ConfigManager:
     
     def get_default_config(self) -> Dict[str, Any]:
         """
+        Get the default configuration for all pipeline stages.
+        
+        IMPORTANT: When adding new parameters to this configuration,
+        run the validation test to ensure proper parameter pass-through:
+        
+        python tests/test_config_passthrough.py
+        
+        See CONFIGURATION_TESTING_GUIDE.md for detailed maintenance instructions.
+        
+        Returns:
+            Dictionary containing default configuration for all stages
+        """
+        """
         Get default configuration.
         
         Returns:
@@ -88,20 +101,45 @@ class ConfigManager:
             "txt2img": {
                 "steps": 20,
                 "sampler_name": "Euler a",
+                "scheduler": "Normal",
                 "cfg_scale": 7.0,
                 "width": 512,
                 "height": 512,
-                "negative_prompt": "blurry, bad quality, distorted"
+                "negative_prompt": "blurry, bad quality, distorted",
+                "seed": -1,  # -1 for random
+                "seed_resize_from_h": -1,
+                "seed_resize_from_w": -1,
+                "enable_hr": False,  # High-res fix / hires.fix
+                "hr_scale": 2.0,  # Hires.fix upscale factor
+                "hr_upscaler": "Latent",  # Hires.fix upscaler
+                "hr_second_pass_steps": 0,  # 0 = use same as steps
+                "hr_resize_x": 0,  # 0 = automatic based on hr_scale
+                "hr_resize_y": 0,  # 0 = automatic based on hr_scale  
+                "denoising_strength": 0.7,  # For hires.fix second pass
+                "clip_skip": 2,  # CLIP layers to skip
+                "model": "",  # SD model checkpoint (empty = use current)
+                "vae": "",  # VAE model (empty = use model default)
+                "styles": []  # Style names to apply
             },
             "img2img": {
                 "steps": 15,
                 "sampler_name": "Euler a",
+                "scheduler": "Normal", 
                 "cfg_scale": 7.0,
-                "denoising_strength": 0.3
+                "denoising_strength": 0.3,
+                "seed": -1,  # -1 for random
+                "clip_skip": 2,
+                "model": "",  # SD model checkpoint (empty = use current)
+                "vae": "",  # VAE model (empty = use model default)
             },
             "upscale": {
                 "upscaler": "R-ESRGAN 4x+",
-                "upscaling_resize": 2.0
+                "upscaling_resize": 2.0,
+                "mode": "extras",  # "extras" (direct) or "img2img" (more control)
+                "denoising_strength": 0.35,  # For img2img-based upscaling
+                "gfpgan_visibility": 0.0,  # Face restoration strength
+                "codeformer_visibility": 0.0,  # Face restoration alternative
+                "codeformer_weight": 0.5,  # CodeFormer fidelity
             },
             "video": {
                 "fps": 24,

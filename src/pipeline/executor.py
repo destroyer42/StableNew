@@ -1,5 +1,6 @@
 """Pipeline execution module"""
 
+import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -98,19 +99,48 @@ class Pipeline:
         # Parse sampler configuration
         sampler_config = self._parse_sampler_config(config)
         
+        # Set model and VAE if specified
+        model_name = config.get("model") or config.get("sd_model_checkpoint")
+        if model_name:
+            self.client.set_model(model_name)
+        if config.get("vae"):
+            self.client.set_vae(config["vae"])
+        
         payload = {
             "prompt": prompt,
             "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 20),
+            "sampler_name": config.get("sampler_name", "Euler a"),
+            "scheduler": config.get("scheduler", "Normal"),
             "cfg_scale": config.get("cfg_scale", 7.0),
             "width": config.get("width", 512),
             "height": config.get("height", 512),
+            "seed": config.get("seed", -1),
+            "seed_resize_from_h": config.get("seed_resize_from_h", -1),
+            "seed_resize_from_w": config.get("seed_resize_from_w", -1),
+            "clip_skip": config.get("clip_skip", 2),
             "batch_size": batch_size,
-            "n_iter": 1
+            "n_iter": config.get("n_iter", 1),
+            "restore_faces": config.get("restore_faces", False),
+            "tiling": config.get("tiling", False),
+            "do_not_save_samples": config.get("do_not_save_samples", False),
+            "do_not_save_grid": config.get("do_not_save_grid", False)
         }
         
-        # Add sampler configuration
-        payload.update(sampler_config)
+        # Always include hires.fix parameters (will be ignored if enable_hr is False)
+        payload.update({
+            "enable_hr": config.get("enable_hr", False),
+            "hr_scale": config.get("hr_scale", 2.0),
+            "hr_upscaler": config.get("hr_upscaler", "Latent"),
+            "hr_second_pass_steps": config.get("hr_second_pass_steps", 0),
+            "hr_resize_x": config.get("hr_resize_x", 0),
+            "hr_resize_y": config.get("hr_resize_y", 0),
+            "denoising_strength": config.get("denoising_strength", 0.7)
+        })
+            
+        # Add styles if specified
+        if config.get("styles"):
+            payload["styles"] = config["styles"]
         
         response = self.client.txt2img(payload)
         if not response or 'images' not in response:
@@ -167,22 +197,26 @@ class Pipeline:
         enhanced_negative = self.config_manager.add_global_negative(base_negative)
         logger.info(f"🛡️ Applied global NSFW prevention (img2img) - Enhanced: '{enhanced_negative[:100]}...'")
         
-        # Parse sampler configuration
-        sampler_config = self._parse_sampler_config(config)
+        # Set model and VAE if specified
+        if config.get("model"):
+            self.client.set_model(config["model"])
+        if config.get("vae"):
+            self.client.set_vae(config["vae"])
         
         payload = {
             "init_images": [input_base64],
             "prompt": prompt,
             "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 15),
+            "sampler_name": config.get("sampler_name", "Euler a"),
+            "scheduler": config.get("scheduler", "Normal"),
             "cfg_scale": config.get("cfg_scale", 7.0),
             "denoising_strength": config.get("denoising_strength", 0.3),
             "width": config.get("width", 512),
-            "height": config.get("height", 512)
+            "height": config.get("height", 512),
+            "seed": config.get("seed", -1),
+            "clip_skip": config.get("clip_skip", 2)
         }
-        
-        # Add sampler configuration
-        payload.update(sampler_config)
         
         response = self.client.img2img(payload)
         if not response or 'images' not in response:
@@ -375,7 +409,6 @@ class Pipeline:
         # Save config for this pack run
         config_path = pack_dir / "config.json"
         with open(config_path, 'w', encoding='utf-8') as f:
-            import json
             json.dump(config, f, indent=2, ensure_ascii=False)
         
         results = {
@@ -498,17 +531,54 @@ class Pipeline:
             enhanced_negative = self.config_manager.add_global_negative(negative_prompt)
             logger.info(f"🛡️ Applied global NSFW prevention (stage) - Enhanced: '{enhanced_negative[:100]}...'")
             
+            # Set model and VAE if specified
+            model_name = txt2img_config.get("model") or txt2img_config.get("sd_model_checkpoint")
+            if model_name:
+                self.client.set_model(model_name)
+            if txt2img_config.get("vae"):
+                self.client.set_vae(txt2img_config["vae"])
+            
+            # Log configuration validation
+            logger.debug(f"📝 Input txt2img config: {json.dumps(txt2img_config, indent=2)}")
+            
             payload = {
                 "prompt": prompt,
                 "negative_prompt": enhanced_negative,
                 "steps": txt2img_config.get("steps", 20),
                 "sampler_name": txt2img_config.get("sampler_name", "Euler a"),
+                "scheduler": txt2img_config.get("scheduler", "normal"),
                 "cfg_scale": txt2img_config.get("cfg_scale", 7.0),
                 "width": txt2img_config.get("width", 512),
                 "height": txt2img_config.get("height", 512),
-                "batch_size": 1,
-                "n_iter": 1
+                "seed": txt2img_config.get("seed", -1),
+                "seed_resize_from_h": txt2img_config.get("seed_resize_from_h", -1),
+                "seed_resize_from_w": txt2img_config.get("seed_resize_from_w", -1),
+                "clip_skip": txt2img_config.get("clip_skip", 2),
+                "batch_size": txt2img_config.get("batch_size", 1),
+                "n_iter": txt2img_config.get("n_iter", 1),
+                "restore_faces": txt2img_config.get("restore_faces", False),
+                "tiling": txt2img_config.get("tiling", False),
+                "do_not_save_samples": txt2img_config.get("do_not_save_samples", False),
+                "do_not_save_grid": txt2img_config.get("do_not_save_grid", False)
             }
+            
+            # Always include hires.fix parameters (will be ignored if enable_hr is False)
+            payload.update({
+                "enable_hr": txt2img_config.get("enable_hr", False),
+                "hr_scale": txt2img_config.get("hr_scale", 2.0),
+                "hr_upscaler": txt2img_config.get("hr_upscaler", "Latent"),
+                "hr_second_pass_steps": txt2img_config.get("hr_second_pass_steps", 0),
+                "hr_resize_x": txt2img_config.get("hr_resize_x", 0),
+                "hr_resize_y": txt2img_config.get("hr_resize_y", 0),
+                "denoising_strength": txt2img_config.get("denoising_strength", 0.7)
+            })
+                
+            # Add styles if specified
+            if txt2img_config.get("styles"):
+                payload["styles"] = txt2img_config["styles"]
+            
+            # Log final payload for validation
+            logger.debug(f"🚀 Sending txt2img payload: {json.dumps(payload, indent=2)}")
             
             # Generate image
             response = self.client.txt2img(payload)
@@ -539,7 +609,6 @@ class Pipeline:
                 manifest_dir = pack_dir / "manifests"
                 manifest_path = manifest_dir / f"{image_name}.json"
                 with open(manifest_path, 'w', encoding='utf-8') as f:
-                    import json
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
                 
                 return metadata
@@ -577,6 +646,12 @@ class Pipeline:
                 logger.error(f"Failed to load input image: {input_image_path}")
                 return None
             
+            # Set model and VAE if specified
+            if config.get("model"):
+                self.client.set_model(config["model"])
+            if config.get("vae"):
+                self.client.set_vae(config["vae"])
+            
             # Build img2img payload
             payload = {
                 "init_images": [input_image_b64],
@@ -588,6 +663,9 @@ class Pipeline:
                 "width": config.get("width", 512),
                 "height": config.get("height", 512),
                 "sampler_name": config.get("sampler_name", "Euler a"),
+                "scheduler": config.get("scheduler", "normal"),
+                "seed": config.get("seed", -1),
+                "clip_skip": config.get("clip_skip", 2),
                 "batch_size": 1,
                 "n_iter": 1
             }
@@ -618,7 +696,6 @@ class Pipeline:
                 manifest_dir = pack_dir / "manifests"
                 manifest_path = manifest_dir / f"{image_name}.json"
                 with open(manifest_path, 'w', encoding='utf-8') as f:
-                    import json
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
                 
                 logger.info(f"✅ img2img completed: {image_path.name}")
@@ -655,25 +732,78 @@ class Pipeline:
                 logger.error(f"Failed to load input image: {input_image_path}")
                 return None
             
-            # Build upscale payload
-            payload = {
-                "image": input_image_b64,
-                "upscaling_resize": config.get("upscaling_resize", 2.0),
-                "upscaler_1": config.get("upscaler_1", "R-ESRGAN 4x+"),
-                "upscaler_2": config.get("upscaler_2", "None"),
-                "extras_upscaler_2_visibility": config.get("extras_upscaler_2_visibility", 0)
-            }
+            upscale_mode = config.get("upscale_mode", "single")
             
-            # Execute upscale
-            response = self.client.upscale(payload)
-            if not response or 'image' not in response:
+            if upscale_mode == "img2img":
+                # Use img2img for upscaling with denoising
+                # First get original image dimensions to calculate target size
+                from PIL import Image
+                import base64
+                from io import BytesIO
+                
+                # Decode image to get dimensions
+                image_data = base64.b64decode(input_image_b64)
+                pil_image = Image.open(BytesIO(image_data))
+                orig_width, orig_height = pil_image.size
+                
+                upscale_factor = config.get("upscaling_resize", 2.0)
+                target_width = int(orig_width * upscale_factor)
+                target_height = int(orig_height * upscale_factor)
+                
+                payload = {
+                    "init_images": [input_image_b64],
+                    "prompt": config.get("prompt", ""),
+                    "negative_prompt": config.get("negative_prompt", ""),
+                    "steps": config.get("steps", 20),
+                    "cfg_scale": config.get("cfg_scale", 7.0),
+                    "denoising_strength": config.get("denoising_strength", 0.35),
+                    "width": target_width,
+                    "height": target_height,
+                    "sampler_name": config.get("sampler_name", "Euler a"),
+                    "scheduler": config.get("scheduler", "normal"),
+                    "seed": config.get("seed", -1),
+                    "clip_skip": config.get("clip_skip", 2),
+                    "batch_size": 1,
+                    "n_iter": 1
+                }
+                
+                response = self.client.img2img(payload)
+                response_key = 'images'
+                image_key = 0
+            else:
+                # Use traditional upscaling
+                payload = {
+                    "image": input_image_b64,
+                    "upscaling_resize": config.get("upscaling_resize", 2.0),
+                    "upscaler_1": config.get("upscaler", "R-ESRGAN 4x+"),
+                    "upscaler_2": config.get("upscaler_2", "None"),
+                    "extras_upscaler_2_visibility": config.get("extras_upscaler_2_visibility", 0),
+                    "gfpgan_visibility": config.get("gfpgan_visibility", 0.0),
+                    "codeformer_visibility": config.get("codeformer_visibility", 0.0),
+                    "codeformer_weight": config.get("codeformer_weight", 0.5)
+                }
+                
+                response = self.client.upscale(payload)
+                response_key = 'image'
+                image_key = None
+            
+            if not response or response_key not in response:
                 logger.error("Upscale request failed or returned no image")
                 return None
             
             # Save image
             image_path = output_dir / f"{image_name}.png"
             
-            if save_image_from_base64(response['image'], image_path):
+            # Extract the correct image data based on upscale mode
+            if image_key is None:
+                image_data = response[response_key]
+            else:
+                if not response[response_key] or len(response[response_key]) <= image_key:
+                    logger.error("No image data returned from upscale")
+                    return None
+                image_data = response[response_key][image_key]
+            
+            if save_image_from_base64(image_data, image_path):
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 metadata = {
                     "name": image_name,
@@ -689,7 +819,6 @@ class Pipeline:
                 manifest_dir = pack_dir / "manifests"
                 manifest_path = manifest_dir / f"{image_name}.json"
                 with open(manifest_path, 'w', encoding='utf-8') as f:
-                    import json
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
                 
                 logger.info(f"✅ Upscale completed: {image_path.name}")

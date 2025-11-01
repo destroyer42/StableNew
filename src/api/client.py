@@ -196,6 +196,159 @@ class SDWebUIClient:
     
     def get_models(self) -> List[Dict[str, Any]]:
         """
+        Get list of available SD models.
+        
+        Returns:
+            List of model information
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/sdapi/v1/sd-models",
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Retrieved {len(data)} models")
+            return data
+        except Exception as e:
+            logger.error(f"Failed to get models: {e}")
+            return []
+    
+    def get_vae_models(self) -> List[Dict[str, Any]]:
+        """
+        Get list of available VAE models.
+        
+        Returns:
+            List of VAE model information
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/sdapi/v1/sd-vae",
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Retrieved {len(data)} VAE models")
+            return data
+        except Exception as e:
+            logger.error(f"Failed to get VAE models: {e}")
+            return []
+    
+    def get_samplers(self) -> List[Dict[str, Any]]:
+        """
+        Get list of available samplers.
+        
+        Returns:
+            List of sampler information
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/sdapi/v1/samplers",
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Retrieved {len(data)} samplers")
+            return data
+        except Exception as e:
+            logger.error(f"Failed to get samplers: {e}")
+            return []
+    
+    def get_upscalers(self) -> List[Dict[str, Any]]:
+        """
+        Get list of available upscalers.
+        
+        Returns:
+            List of upscaler information
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/sdapi/v1/upscalers",
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Retrieved {len(data)} upscalers")
+            return data
+        except Exception as e:
+            logger.error(f"Failed to get upscalers: {e}")
+            return []
+    
+    def get_schedulers(self) -> List[str]:
+        """
+        Get list of available schedulers.
+        
+        Returns:
+            List of scheduler names
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/sdapi/v1/schedulers",
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+            schedulers = [scheduler.get('name', scheduler.get('label', '')) for scheduler in data if scheduler]
+            logger.info(f"Retrieved {len(schedulers)} schedulers")
+            return schedulers
+        except Exception as e:
+            logger.warning(f"Failed to get schedulers from API: {e}")
+            # Fallback to common schedulers with proper capitalization
+            return [
+                "Normal", "Karras", "Exponential", "SGM Uniform", 
+                "Simple", "DDIM Uniform", "Beta", "Linear", "Cosine"
+            ]
+    
+    def set_model(self, model_name: str) -> bool:
+        """
+        Set the current SD model.
+        
+        Args:
+            model_name: Name of the model to set
+            
+        Returns:
+            True if successful
+        """
+        try:
+            payload = {"sd_model_checkpoint": model_name}
+            response = requests.post(
+                f"{self.base_url}/sdapi/v1/options",
+                json=payload,
+                timeout=30  # Model switching can take time
+            )
+            response.raise_for_status()
+            logger.info(f"Set model to: {model_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set model: {e}")
+            return False
+    
+    def set_vae(self, vae_name: str) -> bool:
+        """
+        Set the current VAE model.
+        
+        Args:
+            vae_name: Name of the VAE to set
+            
+        Returns:
+            True if successful
+        """
+        try:
+            payload = {"sd_vae": vae_name}
+            response = requests.post(
+                f"{self.base_url}/sdapi/v1/options",
+                json=payload,
+                timeout=10
+            )
+            response.raise_for_status()
+            logger.info(f"Set VAE to: {vae_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set VAE: {e}")
+            return False
+    
+    def get_models_old(self) -> List[Dict[str, Any]]:
+        """
         Get list of available models.
         
         Returns:

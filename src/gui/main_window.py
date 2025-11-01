@@ -657,6 +657,19 @@ class StableNewGUI:
             if url and url != self.api_url_var.get():
                 self.api_url_var.set(url)
                 self.log_message(f"Updated API URL to working port: {url}", "INFO")
+                
+            # Refresh models, VAE, upscalers, and schedulers when connected
+            def refresh_all():
+                try:
+                    self._refresh_models()
+                    self._refresh_vae_models() 
+                    self._refresh_upscalers()
+                    self._refresh_schedulers()
+                except Exception as e:
+                    self.log_message(f"⚠️ Failed to refresh model lists: {e}", "WARNING")
+            
+            # Run refresh in a separate thread to avoid blocking UI
+            threading.Thread(target=refresh_all, daemon=True).start()
         else:
             self.api_status_label.config(text="● Disconnected", foreground="#f44336")
             self.run_pipeline_btn.config(state=tk.DISABLED)
@@ -865,18 +878,17 @@ class StableNewGUI:
                     "width": self.txt2img_vars.get('width', tk.IntVar(value=512)).get(),
                     "height": self.txt2img_vars.get('height', tk.IntVar(value=512)).get(),
                     "negative_prompt": self.txt2img_vars.get('negative_prompt', tk.StringVar()).get(),
+                    "sampler_name": self.txt2img_vars.get('sampler_name', tk.StringVar(value="Euler a")).get(),
+                    "scheduler": self.txt2img_vars.get('scheduler', tk.StringVar(value="normal")).get(),
+                    "seed": self.txt2img_vars.get('seed', tk.IntVar(value=-1)).get(),
+                    "clip_skip": self.txt2img_vars.get('clip_skip', tk.IntVar(value=2)).get(),
+                    "model": self.txt2img_vars.get('model', tk.StringVar(value="")).get(),
+                    "vae": self.txt2img_vars.get('vae', tk.StringVar(value="")).get(),
+                    "enable_hr": self.txt2img_vars.get('enable_hr', tk.BooleanVar(value=False)).get(),
+                    "hr_scale": self.txt2img_vars.get('hr_scale', tk.DoubleVar(value=2.0)).get(),
+                    "hr_upscaler": self.txt2img_vars.get('hr_upscaler', tk.StringVar(value="Latent")).get(),
+                    "denoising_strength": self.txt2img_vars.get('denoising_strength', tk.DoubleVar(value=0.7)).get(),
                 }
-                
-                # Handle sampler name
-                sampler_display = self.txt2img_vars.get('sampler_name', tk.StringVar(value="Euler a")).get()
-                if ' ' in sampler_display:
-                    # Split "sampler scheduler" format
-                    parts = sampler_display.split(' ', 1)
-                    config["txt2img"]["sampler_name"] = parts[0]
-                    config["txt2img"]["scheduler"] = parts[1]
-                else:
-                    config["txt2img"]["sampler_name"] = sampler_display
-                    config["txt2img"]["scheduler"] = "Automatic"
                 
                 # Get prompt from text widget if available
                 if hasattr(self, 'pos_text'):
@@ -887,6 +899,13 @@ class StableNewGUI:
                 config["img2img"] = {
                     "steps": self.img2img_vars.get('steps', tk.IntVar(value=15)).get(),
                     "denoising_strength": self.img2img_vars.get('denoising_strength', tk.DoubleVar(value=0.3)).get(),
+                    "sampler_name": self.img2img_vars.get('sampler_name', tk.StringVar(value="Euler a")).get(),
+                    "scheduler": self.img2img_vars.get('scheduler', tk.StringVar(value="normal")).get(),
+                    "cfg_scale": self.img2img_vars.get('cfg_scale', tk.DoubleVar(value=7.0)).get(),
+                    "seed": self.img2img_vars.get('seed', tk.IntVar(value=-1)).get(),
+                    "clip_skip": self.img2img_vars.get('clip_skip', tk.IntVar(value=2)).get(),
+                    "model": self.img2img_vars.get('model', tk.StringVar(value="")).get(),
+                    "vae": self.img2img_vars.get('vae', tk.StringVar(value="")).get(),
                 }
             
             # upscale config
@@ -894,6 +913,11 @@ class StableNewGUI:
                 config["upscale"] = {
                     "upscaler": self.upscale_vars.get('upscaler', tk.StringVar(value="R-ESRGAN 4x+")).get(),
                     "upscaling_resize": self.upscale_vars.get('upscaling_resize', tk.DoubleVar(value=2.0)).get(),
+                    "mode": self.upscale_vars.get('upscale_mode', tk.StringVar(value="single")).get(),
+                    "denoising_strength": self.upscale_vars.get('denoising_strength', tk.DoubleVar(value=0.2)).get(),
+                    "gfpgan_visibility": self.upscale_vars.get('gfpgan_visibility', tk.DoubleVar(value=0.0)).get(),
+                    "codeformer_visibility": self.upscale_vars.get('codeformer_visibility', tk.DoubleVar(value=0.0)).get(),
+                    "codeformer_weight": self.upscale_vars.get('codeformer_weight', tk.DoubleVar(value=0.5)).get(),
                 }
             
             # api config
@@ -1424,6 +1448,114 @@ class StableNewGUI:
         height_combo.pack(side=tk.LEFT, padx=2)
         self.txt2img_widgets['height'] = height_combo
         
+        # Advanced Settings
+        advanced_frame = ttk.LabelFrame(scrollable_frame, text="Advanced Settings", style='Dark.TFrame', padding=5)
+        advanced_frame.pack(fill=tk.X, pady=2)
+        
+        # Seed controls
+        seed_row = ttk.Frame(advanced_frame, style='Dark.TFrame')
+        seed_row.pack(fill=tk.X, pady=2)
+        ttk.Label(seed_row, text="Seed:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.txt2img_vars['seed'] = tk.IntVar(value=-1)
+        seed_spin = ttk.Spinbox(seed_row, from_=-1, to=2147483647, width=12, textvariable=self.txt2img_vars['seed'])
+        seed_spin.pack(side=tk.LEFT, padx=(5, 5))
+        self.txt2img_widgets['seed'] = seed_spin
+        ttk.Button(seed_row, text="🎲 Random", command=lambda: self.txt2img_vars['seed'].set(-1), 
+                  width=10, style='Dark.TButton').pack(side=tk.LEFT, padx=(5, 0))
+        
+        # CLIP Skip
+        clip_row = ttk.Frame(advanced_frame, style='Dark.TFrame')
+        clip_row.pack(fill=tk.X, pady=2)
+        ttk.Label(clip_row, text="CLIP Skip:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.txt2img_vars['clip_skip'] = tk.IntVar(value=2)
+        clip_spin = ttk.Spinbox(clip_row, from_=1, to=12, width=8, textvariable=self.txt2img_vars['clip_skip'])
+        clip_spin.pack(side=tk.LEFT, padx=(5, 0))
+        self.txt2img_widgets['clip_skip'] = clip_spin
+        
+        # Scheduler
+        scheduler_row = ttk.Frame(advanced_frame, style='Dark.TFrame')
+        scheduler_row.pack(fill=tk.X, pady=2)
+        ttk.Label(scheduler_row, text="Scheduler:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.txt2img_vars['scheduler'] = tk.StringVar(value="normal")
+        scheduler_combo = ttk.Combobox(scheduler_row, textvariable=self.txt2img_vars['scheduler'],
+                                     values=["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform", "beta", "linear", "cosine"],
+                                     width=15, state="readonly")
+        scheduler_combo.pack(side=tk.LEFT, padx=(5, 0))
+        self.txt2img_widgets['scheduler'] = scheduler_combo
+        
+        # Model Selection  
+        model_frame = ttk.LabelFrame(scrollable_frame, text="Model & VAE Selection", style='Dark.TFrame', padding=5)
+        model_frame.pack(fill=tk.X, pady=2)
+        
+        # SD Model
+        model_row = ttk.Frame(model_frame, style='Dark.TFrame')
+        model_row.pack(fill=tk.X, pady=2)
+        ttk.Label(model_row, text="SD Model:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.txt2img_vars['model'] = tk.StringVar(value="")
+        self.model_combo = ttk.Combobox(model_row, textvariable=self.txt2img_vars['model'], width=25, state="readonly")
+        self.model_combo.pack(side=tk.LEFT, padx=(5, 5))
+        self.txt2img_widgets['model'] = self.model_combo
+        ttk.Button(model_row, text="🔄", command=self._refresh_models, width=3, style='Dark.TButton').pack(side=tk.LEFT)
+        
+        # VAE Model
+        vae_row = ttk.Frame(model_frame, style='Dark.TFrame')
+        vae_row.pack(fill=tk.X, pady=2)
+        ttk.Label(vae_row, text="VAE Model:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.txt2img_vars['vae'] = tk.StringVar(value="")
+        self.vae_combo = ttk.Combobox(vae_row, textvariable=self.txt2img_vars['vae'], width=25, state="readonly")
+        self.vae_combo.pack(side=tk.LEFT, padx=(5, 5))
+        self.txt2img_widgets['vae'] = self.vae_combo
+        ttk.Button(vae_row, text="🔄", command=self._refresh_vae_models, width=3, style='Dark.TButton').pack(side=tk.LEFT)
+        
+        # Hires.Fix Settings
+        hires_frame = ttk.LabelFrame(scrollable_frame, text="High-Res Fix (Hires.fix)", style='Dark.TFrame', padding=5)
+        hires_frame.pack(fill=tk.X, pady=2)
+        
+        # Enable Hires.fix checkbox
+        hires_enable_row = ttk.Frame(hires_frame, style='Dark.TFrame')
+        hires_enable_row.pack(fill=tk.X, pady=2)
+        self.txt2img_vars['enable_hr'] = tk.BooleanVar(value=False)
+        hires_check = ttk.Checkbutton(hires_enable_row, text="Enable High-Resolution Fix", 
+                                    variable=self.txt2img_vars['enable_hr'], style='Dark.TCheckbutton',
+                                    command=self._on_hires_toggle)
+        hires_check.pack(side=tk.LEFT)
+        self.txt2img_widgets['enable_hr'] = hires_check
+        
+        # Hires scale
+        scale_row = ttk.Frame(hires_frame, style='Dark.TFrame')
+        scale_row.pack(fill=tk.X, pady=2)
+        ttk.Label(scale_row, text="Scale Factor:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.txt2img_vars['hr_scale'] = tk.DoubleVar(value=2.0)
+        scale_spin = ttk.Spinbox(scale_row, from_=1.1, to=4.0, increment=0.1, width=8, textvariable=self.txt2img_vars['hr_scale'])
+        scale_spin.pack(side=tk.LEFT, padx=(5, 0))
+        self.txt2img_widgets['hr_scale'] = scale_spin
+        
+        # Hires upscaler
+        upscaler_row = ttk.Frame(hires_frame, style='Dark.TFrame')
+        upscaler_row.pack(fill=tk.X, pady=2)
+        ttk.Label(upscaler_row, text="HR Upscaler:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.txt2img_vars['hr_upscaler'] = tk.StringVar(value="Latent")
+        hr_upscaler_combo = ttk.Combobox(upscaler_row, textvariable=self.txt2img_vars['hr_upscaler'],
+                                       values=["Latent", "Latent (antialiased)", "Latent (bicubic)", "Latent (bicubic antialiased)", 
+                                              "Latent (nearest)", "Latent (nearest-exact)", "None", "Lanczos", "Nearest", "LDSR", 
+                                              "BSRGAN", "ESRGAN_4x", "R-ESRGAN General 4xV3", "ScuNET GAN", "ScuNET PSNR", 
+                                              "SwinIR 4x"],
+                                       width=20, state="readonly")
+        hr_upscaler_combo.pack(side=tk.LEFT, padx=(5, 0))
+        self.txt2img_widgets['hr_upscaler'] = hr_upscaler_combo
+        
+        # Hires denoising strength
+        hr_denoise_row = ttk.Frame(hires_frame, style='Dark.TFrame')
+        hr_denoise_row.pack(fill=tk.X, pady=2)
+        ttk.Label(hr_denoise_row, text="HR Denoising:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.txt2img_vars['denoising_strength'] = tk.DoubleVar(value=0.7)
+        hr_denoise_scale = ttk.Scale(hr_denoise_row, from_=0.0, to=1.0, variable=self.txt2img_vars['denoising_strength'], orient=tk.HORIZONTAL, length=150)
+        hr_denoise_scale.pack(side=tk.LEFT, padx=(5, 5))
+        hr_denoise_label = ttk.Label(hr_denoise_row, text="0.7", style='Dark.TLabel', width=4)
+        hr_denoise_label.pack(side=tk.LEFT)
+        hr_denoise_scale.configure(command=lambda val: hr_denoise_label.configure(text=f"{float(val):.2f}"))
+        self.txt2img_widgets['denoising_strength'] = hr_denoise_scale
+        
         # Additional Positive Prompt - compact
         pos_frame = ttk.LabelFrame(scrollable_frame, text="Additional Positive Prompt (appended to pack prompts)", style='Dark.TFrame', padding=5)
         pos_frame.pack(fill=tk.X, pady=2)
@@ -1460,25 +1592,114 @@ class StableNewGUI:
         
         # Initialize config variables
         self.img2img_vars = {}
+        self.img2img_widgets = {}
+        
+        # Generation Settings
+        gen_frame = ttk.LabelFrame(scrollable_frame, text="Generation Settings", style='Dark.TFrame', padding=5)
+        gen_frame.pack(fill=tk.X, pady=2)
         
         # Steps
-        steps_frame = ttk.LabelFrame(scrollable_frame, text="Cleanup Steps", style='Dark.TFrame', padding=10)
-        steps_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(steps_frame, text="Steps:", style='Dark.TLabel').pack(side=tk.LEFT)
+        steps_row = ttk.Frame(gen_frame, style='Dark.TFrame')
+        steps_row.pack(fill=tk.X, pady=2)
+        ttk.Label(steps_row, text="Steps:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.img2img_vars['steps'] = tk.IntVar(value=15)
-        steps_spin = ttk.Spinbox(steps_frame, from_=1, to=150, width=10, textvariable=self.img2img_vars['steps'])
-        steps_spin.pack(side=tk.LEFT, padx=5)
+        steps_spin = ttk.Spinbox(steps_row, from_=1, to=150, width=8, textvariable=self.img2img_vars['steps'])
+        steps_spin.pack(side=tk.LEFT, padx=(5, 0))
+        self.img2img_widgets['steps'] = steps_spin
         
         # Denoising Strength
-        denoise_frame = ttk.LabelFrame(scrollable_frame, text="Denoising Strength", style='Dark.TFrame', padding=10)
-        denoise_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(denoise_frame, text="Denoising:", style='Dark.TLabel').pack(side=tk.LEFT)
+        denoise_row = ttk.Frame(gen_frame, style='Dark.TFrame')
+        denoise_row.pack(fill=tk.X, pady=2)
+        ttk.Label(denoise_row, text="Denoising:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.img2img_vars['denoising_strength'] = tk.DoubleVar(value=0.3)
-        denoise_scale = ttk.Scale(denoise_frame, from_=0.0, to=1.0, variable=self.img2img_vars['denoising_strength'], orient=tk.HORIZONTAL)
-        denoise_scale.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        denoise_label = ttk.Label(denoise_frame, text="0.3", style='Dark.TLabel')
-        denoise_label.pack(side=tk.LEFT, padx=5)
+        denoise_scale = ttk.Scale(denoise_row, from_=0.0, to=1.0, variable=self.img2img_vars['denoising_strength'], orient=tk.HORIZONTAL, length=150)
+        denoise_scale.pack(side=tk.LEFT, padx=(5, 5))
+        denoise_label = ttk.Label(denoise_row, text="0.3", style='Dark.TLabel', width=4)
+        denoise_label.pack(side=tk.LEFT)
         denoise_scale.configure(command=lambda val: denoise_label.configure(text=f"{float(val):.2f}"))
+        self.img2img_widgets['denoising_strength'] = denoise_scale
+        
+        # Sampler
+        sampler_row = ttk.Frame(gen_frame, style='Dark.TFrame')
+        sampler_row.pack(fill=tk.X, pady=2)
+        ttk.Label(sampler_row, text="Sampler:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.img2img_vars['sampler_name'] = tk.StringVar(value="Euler a")
+        sampler_combo = ttk.Combobox(sampler_row, textvariable=self.img2img_vars['sampler_name'], 
+                                   values=["Euler a", "Euler", "LMS", "Heun", "DPM2", "DPM2 a", "DPM++ 2S a", "DPM++ 2M", "DPM++ SDE", "DPM fast", "DPM adaptive", "LMS Karras", "DPM2 Karras", "DPM2 a Karras", "DPM++ 2S a Karras", "DPM++ 2M Karras", "DPM++ SDE Karras", "DDIM", "PLMS"],
+                                   width=18, state="readonly")
+        sampler_combo.pack(side=tk.LEFT, padx=(5, 0))
+        self.img2img_widgets['sampler_name'] = sampler_combo
+        
+        # CFG Scale
+        cfg_row = ttk.Frame(gen_frame, style='Dark.TFrame')
+        cfg_row.pack(fill=tk.X, pady=2)
+        ttk.Label(cfg_row, text="CFG Scale:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.img2img_vars['cfg_scale'] = tk.DoubleVar(value=7.0)
+        cfg_scale = ttk.Scale(cfg_row, from_=1.0, to=20.0, variable=self.img2img_vars['cfg_scale'], orient=tk.HORIZONTAL, length=150)
+        cfg_scale.pack(side=tk.LEFT, padx=(5, 5))
+        cfg_label = ttk.Label(cfg_row, text="7.0", style='Dark.TLabel', width=4)
+        cfg_label.pack(side=tk.LEFT)
+        cfg_scale.configure(command=lambda val: cfg_label.configure(text=f"{float(val):.1f}"))
+        self.img2img_widgets['cfg_scale'] = cfg_scale
+        
+        # Advanced Settings
+        advanced_frame = ttk.LabelFrame(scrollable_frame, text="Advanced Settings", style='Dark.TFrame', padding=5)
+        advanced_frame.pack(fill=tk.X, pady=2)
+        
+        # Seed
+        seed_row = ttk.Frame(advanced_frame, style='Dark.TFrame')
+        seed_row.pack(fill=tk.X, pady=2)
+        ttk.Label(seed_row, text="Seed:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.img2img_vars['seed'] = tk.IntVar(value=-1)
+        seed_spin = ttk.Spinbox(seed_row, from_=-1, to=2147483647, width=12, textvariable=self.img2img_vars['seed'])
+        seed_spin.pack(side=tk.LEFT, padx=(5, 5))
+        self.img2img_widgets['seed'] = seed_spin
+        ttk.Button(seed_row, text="🎲 Random", command=lambda: self.img2img_vars['seed'].set(-1), 
+                  width=10, style='Dark.TButton').pack(side=tk.LEFT, padx=(5, 0))
+        
+        # CLIP Skip
+        clip_row = ttk.Frame(advanced_frame, style='Dark.TFrame')
+        clip_row.pack(fill=tk.X, pady=2)
+        ttk.Label(clip_row, text="CLIP Skip:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.img2img_vars['clip_skip'] = tk.IntVar(value=2)
+        clip_spin = ttk.Spinbox(clip_row, from_=1, to=12, width=8, textvariable=self.img2img_vars['clip_skip'])
+        clip_spin.pack(side=tk.LEFT, padx=(5, 0))
+        self.img2img_widgets['clip_skip'] = clip_spin
+        
+        # Scheduler
+        scheduler_row = ttk.Frame(advanced_frame, style='Dark.TFrame')
+        scheduler_row.pack(fill=tk.X, pady=2)
+        ttk.Label(scheduler_row, text="Scheduler:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.img2img_vars['scheduler'] = tk.StringVar(value="normal")
+        scheduler_combo = ttk.Combobox(scheduler_row, textvariable=self.img2img_vars['scheduler'],
+                                     values=["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform", "beta", "linear", "cosine"],
+                                     width=15, state="readonly")
+        scheduler_combo.pack(side=tk.LEFT, padx=(5, 0))
+        self.img2img_widgets['scheduler'] = scheduler_combo
+        
+        # Model Selection 
+        model_frame = ttk.LabelFrame(scrollable_frame, text="Model & VAE Selection", style='Dark.TFrame', padding=5)
+        model_frame.pack(fill=tk.X, pady=2)
+        
+        # SD Model
+        model_row = ttk.Frame(model_frame, style='Dark.TFrame')
+        model_row.pack(fill=tk.X, pady=2)
+        ttk.Label(model_row, text="SD Model:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.img2img_vars['model'] = tk.StringVar(value="")
+        self.img2img_model_combo = ttk.Combobox(model_row, textvariable=self.img2img_vars['model'], width=25, state="readonly")
+        self.img2img_model_combo.pack(side=tk.LEFT, padx=(5, 5))
+        self.img2img_widgets['model'] = self.img2img_model_combo
+        ttk.Button(model_row, text="🔄", command=self._refresh_models, width=3, style='Dark.TButton').pack(side=tk.LEFT)
+        
+        # VAE Model
+        vae_row = ttk.Frame(model_frame, style='Dark.TFrame')
+        vae_row.pack(fill=tk.X, pady=2)
+        ttk.Label(vae_row, text="VAE Model:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.img2img_vars['vae'] = tk.StringVar(value="")
+        self.img2img_vae_combo = ttk.Combobox(vae_row, textvariable=self.img2img_vars['vae'], width=25, state="readonly")
+        self.img2img_vae_combo.pack(side=tk.LEFT, padx=(5, 5))
+        self.img2img_widgets['vae'] = self.img2img_vae_combo
+        ttk.Button(vae_row, text="🔄", command=self._refresh_vae_models, width=3, style='Dark.TButton').pack(side=tk.LEFT)
         
         canvas.pack(fill="both", expand=True)
     
@@ -1500,24 +1721,96 @@ class StableNewGUI:
         
         # Initialize config variables
         self.upscale_vars = {}
+        self.upscale_widgets = {}
+        
+        # Upscaling Method
+        method_frame = ttk.LabelFrame(scrollable_frame, text="Upscaling Method", style='Dark.TFrame', padding=5)
+        method_frame.pack(fill=tk.X, pady=2)
+        
+        method_row = ttk.Frame(method_frame, style='Dark.TFrame')
+        method_row.pack(fill=tk.X, pady=2)
+        ttk.Label(method_row, text="Method:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.upscale_vars['upscale_mode'] = tk.StringVar(value="single")
+        method_combo = ttk.Combobox(method_row, textvariable=self.upscale_vars['upscale_mode'],
+                                  values=["single", "img2img"], width=20, state="readonly")
+        method_combo.pack(side=tk.LEFT, padx=(5, 5))
+        self.upscale_widgets['upscale_mode'] = method_combo
+        ttk.Label(method_row, text="ℹ️ img2img allows denoising", style='Dark.TLabel').pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Basic Upscaling Settings
+        basic_frame = ttk.LabelFrame(scrollable_frame, text="Basic Settings", style='Dark.TFrame', padding=5)
+        basic_frame.pack(fill=tk.X, pady=2)
         
         # Upscaler selection
-        upscaler_frame = ttk.LabelFrame(scrollable_frame, text="Upscaler Model", style='Dark.TFrame', padding=10)
-        upscaler_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(upscaler_frame, text="Upscaler:", style='Dark.TLabel').pack(side=tk.LEFT)
+        upscaler_row = ttk.Frame(basic_frame, style='Dark.TFrame')
+        upscaler_row.pack(fill=tk.X, pady=2)
+        ttk.Label(upscaler_row, text="Upscaler:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.upscale_vars['upscaler'] = tk.StringVar(value="R-ESRGAN 4x+")
-        upscaler_combo = ttk.Combobox(upscaler_frame, textvariable=self.upscale_vars['upscaler'],
-                                    values=["R-ESRGAN 4x+", "R-ESRGAN 4x+ Anime6B", "ESRGAN_4x", "LDSR", "ScuNET GAN", "ScuNET PSNR", "SwinIR 4x"])
-        upscaler_combo.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        self.upscaler_combo = ttk.Combobox(upscaler_row, textvariable=self.upscale_vars['upscaler'], width=25, state="readonly")
+        self.upscaler_combo.pack(side=tk.LEFT, padx=(5, 5))
+        self.upscale_widgets['upscaler'] = self.upscaler_combo
+        ttk.Button(upscaler_row, text="🔄", command=self._refresh_upscalers, width=3, style='Dark.TButton').pack(side=tk.LEFT)
         
         # Scale factor
-        scale_frame = ttk.LabelFrame(scrollable_frame, text="Scale Factor", style='Dark.TFrame', padding=10)
-        scale_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(scale_frame, text="Scale:", style='Dark.TLabel').pack(side=tk.LEFT)
+        scale_row = ttk.Frame(basic_frame, style='Dark.TFrame')
+        scale_row.pack(fill=tk.X, pady=2)
+        ttk.Label(scale_row, text="Scale Factor:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.upscale_vars['upscaling_resize'] = tk.DoubleVar(value=2.0)
-        scale_combo = ttk.Combobox(scale_frame, textvariable=self.upscale_vars['upscaling_resize'],
-                                 values=[1.5, 2.0, 3.0, 4.0], width=10)
-        scale_combo.pack(side=tk.LEFT, padx=5)
+        scale_spin = ttk.Spinbox(scale_row, from_=1.1, to=4.0, increment=0.1, width=8, textvariable=self.upscale_vars['upscaling_resize'])
+        scale_spin.pack(side=tk.LEFT, padx=(5, 0))
+        self.upscale_widgets['upscaling_resize'] = scale_spin
+        
+        # Denoising (for img2img mode)
+        denoise_row = ttk.Frame(basic_frame, style='Dark.TFrame')
+        denoise_row.pack(fill=tk.X, pady=2)
+        ttk.Label(denoise_row, text="Denoising:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.upscale_vars['denoising_strength'] = tk.DoubleVar(value=0.35)
+        denoise_scale = ttk.Scale(denoise_row, from_=0.0, to=1.0, variable=self.upscale_vars['denoising_strength'], orient=tk.HORIZONTAL, length=150)
+        denoise_scale.pack(side=tk.LEFT, padx=(5, 5))
+        denoise_label = ttk.Label(denoise_row, text="0.35", style='Dark.TLabel', width=4)
+        denoise_label.pack(side=tk.LEFT)
+        denoise_scale.configure(command=lambda val: denoise_label.configure(text=f"{float(val):.2f}"))
+        self.upscale_widgets['denoising_strength'] = denoise_scale
+        
+        # Face Restoration
+        face_frame = ttk.LabelFrame(scrollable_frame, text="Face Restoration", style='Dark.TFrame', padding=5)
+        face_frame.pack(fill=tk.X, pady=2)
+        
+        # GFPGAN
+        gfpgan_row = ttk.Frame(face_frame, style='Dark.TFrame')
+        gfpgan_row.pack(fill=tk.X, pady=2)
+        ttk.Label(gfpgan_row, text="GFPGAN:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.upscale_vars['gfpgan_visibility'] = tk.DoubleVar(value=0.0)
+        gfpgan_scale = ttk.Scale(gfpgan_row, from_=0.0, to=1.0, variable=self.upscale_vars['gfpgan_visibility'], orient=tk.HORIZONTAL, length=150)
+        gfpgan_scale.pack(side=tk.LEFT, padx=(5, 5))
+        gfpgan_label = ttk.Label(gfpgan_row, text="0.0", style='Dark.TLabel', width=4)
+        gfpgan_label.pack(side=tk.LEFT)
+        gfpgan_scale.configure(command=lambda val: gfpgan_label.configure(text=f"{float(val):.2f}"))
+        self.upscale_widgets['gfpgan_visibility'] = gfpgan_scale
+        
+        # CodeFormer
+        codeformer_row = ttk.Frame(face_frame, style='Dark.TFrame')
+        codeformer_row.pack(fill=tk.X, pady=2)
+        ttk.Label(codeformer_row, text="CodeFormer:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.upscale_vars['codeformer_visibility'] = tk.DoubleVar(value=0.0)
+        codeformer_scale = ttk.Scale(codeformer_row, from_=0.0, to=1.0, variable=self.upscale_vars['codeformer_visibility'], orient=tk.HORIZONTAL, length=150)
+        codeformer_scale.pack(side=tk.LEFT, padx=(5, 5))
+        codeformer_label = ttk.Label(codeformer_row, text="0.0", style='Dark.TLabel', width=4)
+        codeformer_label.pack(side=tk.LEFT)
+        codeformer_scale.configure(command=lambda val: codeformer_label.configure(text=f"{float(val):.2f}"))
+        self.upscale_widgets['codeformer_visibility'] = codeformer_scale
+        
+        # CodeFormer Weight
+        cf_weight_row = ttk.Frame(face_frame, style='Dark.TFrame')
+        cf_weight_row.pack(fill=tk.X, pady=2)
+        ttk.Label(cf_weight_row, text="CF Fidelity:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
+        self.upscale_vars['codeformer_weight'] = tk.DoubleVar(value=0.5)
+        cf_weight_scale = ttk.Scale(cf_weight_row, from_=0.0, to=1.0, variable=self.upscale_vars['codeformer_weight'], orient=tk.HORIZONTAL, length=150)
+        cf_weight_scale.pack(side=tk.LEFT, padx=(5, 5))
+        cf_weight_label = ttk.Label(cf_weight_row, text="0.5", style='Dark.TLabel', width=4)
+        cf_weight_label.pack(side=tk.LEFT)
+        cf_weight_scale.configure(command=lambda val: cf_weight_label.configure(text=f"{float(val):.2f}"))
+        self.upscale_widgets['codeformer_weight'] = cf_weight_scale
         
         canvas.pack(fill="both", expand=True)
     
@@ -1668,6 +1961,19 @@ class StableNewGUI:
                 self.txt2img_vars['height'].set(txt2img_config.get('height', 512))
                 self.txt2img_vars['negative_prompt'].set(txt2img_config.get('negative_prompt', ''))
                 
+                # New parameters
+                self.txt2img_vars['seed'].set(txt2img_config.get('seed', -1))
+                self.txt2img_vars['clip_skip'].set(txt2img_config.get('clip_skip', 2))
+                self.txt2img_vars['scheduler'].set(txt2img_config.get('scheduler', 'normal'))
+                self.txt2img_vars['model'].set(txt2img_config.get('model', ''))
+                self.txt2img_vars['vae'].set(txt2img_config.get('vae', ''))
+                
+                # Hires.fix parameters
+                self.txt2img_vars['enable_hr'].set(txt2img_config.get('enable_hr', False))
+                self.txt2img_vars['hr_scale'].set(txt2img_config.get('hr_scale', 2.0))
+                self.txt2img_vars['hr_upscaler'].set(txt2img_config.get('hr_upscaler', 'R-ESRGAN 4x+'))
+                self.txt2img_vars['denoising_strength'].set(txt2img_config.get('denoising_strength', 0.7))
+                
                 # Update text widgets if they exist
                 if hasattr(self, 'pos_text'):
                     self.pos_text.delete(1.0, tk.END)
@@ -1682,12 +1988,26 @@ class StableNewGUI:
             if hasattr(self, 'img2img_vars'):
                 self.img2img_vars['steps'].set(img2img_config.get('steps', 15))
                 self.img2img_vars['denoising_strength'].set(img2img_config.get('denoising_strength', 0.3))
+                self.img2img_vars['sampler_name'].set(img2img_config.get('sampler_name', 'Euler a'))
+                self.img2img_vars['scheduler'].set(img2img_config.get('scheduler', 'normal'))
+                self.img2img_vars['cfg_scale'].set(img2img_config.get('cfg_scale', 7.0))
+                self.img2img_vars['seed'].set(img2img_config.get('seed', -1))
+                self.img2img_vars['clip_skip'].set(img2img_config.get('clip_skip', 2))
+                self.img2img_vars['model'].set(img2img_config.get('model', ''))
+                self.img2img_vars['vae'].set(img2img_config.get('vae', ''))
             
             # upscale config
             upscale_config = config.get("upscale", {})
             if hasattr(self, 'upscale_vars'):
                 self.upscale_vars['upscaler'].set(upscale_config.get('upscaler', 'R-ESRGAN 4x+'))
                 self.upscale_vars['upscaling_resize'].set(upscale_config.get('upscaling_resize', 2.0))
+                if 'upscale_mode' in self.upscale_vars:
+                    self.upscale_vars['upscale_mode'].set(upscale_config.get('mode', 'single'))
+                self.upscale_vars['denoising_strength'].set(upscale_config.get('denoising_strength', 0.2))
+                self.upscale_vars['gfpgan_visibility'].set(upscale_config.get('gfpgan_visibility', 0.0))
+                self.upscale_vars['codeformer_visibility'].set(upscale_config.get('codeformer_visibility', 0.0))
+                if 'codeformer_weight' in self.upscale_vars:
+                    self.upscale_vars['codeformer_weight'].set(upscale_config.get('codeformer_weight', 0.5))
             
             # api config
             api_config = config.get("api", {})
@@ -1876,14 +2196,10 @@ class StableNewGUI:
             messagebox.showerror("Error", "Please enter a prompt")
             return
         
-        preset_name = self.preset_var.get()
-        if not preset_name:
-            messagebox.showerror("Error", "Please select a preset")
-            return
-        
-        config = self.config_manager.load_preset(preset_name)
+        # Get configuration from GUI forms (current user settings)
+        config = self._get_config_from_forms()
         if not config:
-            messagebox.showerror("Error", f"Failed to load preset: {preset_name}")
+            messagebox.showerror("Error", "Failed to read configuration from forms")
             return
         
         # Modify config based on options
@@ -1962,6 +2278,107 @@ class StableNewGUI:
                 return
         
         messagebox.showerror("Error", "No image directories found")
+    
+    def _refresh_models(self):
+        """Refresh the list of available SD models"""
+        if not self.client:
+            messagebox.showerror("Error", "API client not connected")
+            return
+        
+        try:
+            models = self.client.get_models()
+            model_names = [""] + [model.get('title', model.get('model_name', '')) for model in models]
+            
+            # Update all model comboboxes
+            if hasattr(self, 'model_combo'):
+                self.model_combo['values'] = model_names
+            if hasattr(self, 'img2img_model_combo'):
+                self.img2img_model_combo['values'] = model_names
+                
+            self._add_log_message(f"🔄 Loaded {len(models)} SD models")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to refresh models: {e}")
+    
+    def _refresh_vae_models(self):
+        """Refresh the list of available VAE models"""
+        if not self.client:
+            messagebox.showerror("Error", "API client not connected")
+            return
+        
+        try:
+            vae_models = self.client.get_vae_models()
+            vae_names = [""] + [vae.get('model_name', '') for vae in vae_models]
+            
+            # Update all VAE comboboxes
+            if hasattr(self, 'vae_combo'):
+                self.vae_combo['values'] = vae_names
+            if hasattr(self, 'img2img_vae_combo'):
+                self.img2img_vae_combo['values'] = vae_names
+                
+            self._add_log_message(f"🔄 Loaded {len(vae_models)} VAE models")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to refresh VAE models: {e}")
+    
+    def _refresh_upscalers(self):
+        """Refresh the list of available upscalers"""
+        if not self.client:
+            messagebox.showerror("Error", "API client not connected")
+            return
+        
+        try:
+            upscalers = self.client.get_upscalers()
+            upscaler_names = [upscaler.get('name', '') for upscaler in upscalers if upscaler.get('name')]
+            
+            # Update upscaler combobox
+            if hasattr(self, 'upscaler_combo'):
+                self.upscaler_combo['values'] = upscaler_names
+                
+            self._add_log_message(f"🔄 Loaded {len(upscalers)} upscalers")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to refresh upscalers: {e}")
+    
+    def _refresh_schedulers(self):
+        """Refresh the list of available schedulers"""
+        if not self.client:
+            messagebox.showerror("Error", "API client not connected")
+            return
+        
+        try:
+            schedulers = self.client.get_schedulers()
+            
+            # Update all scheduler comboboxes
+            if hasattr(self, 'scheduler_combo'):
+                self.scheduler_combo['values'] = schedulers
+            if hasattr(self, 'img2img_scheduler_combo'):
+                self.img2img_scheduler_combo['values'] = schedulers
+                
+            self._add_log_message(f"🔄 Loaded {len(schedulers)} schedulers")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to refresh schedulers: {e}")
+    
+    def _on_hires_toggle(self):
+        """Handle hires.fix enable/disable toggle"""
+        # This method can be used to enable/disable hires.fix related controls
+        # For now, just log the change
+        enabled = self.txt2img_vars.get('enable_hr', tk.BooleanVar()).get()
+        self._add_log_message(f"📏 Hires.fix {'enabled' if enabled else 'disabled'}")
+    
+    def _randomize_seed(self, var_dict_name):
+        """Generate a random seed for the specified variable dictionary"""
+        import random
+        random_seed = random.randint(1, 2147483647)  # Max int32 value
+        var_dict = getattr(self, f"{var_dict_name}_vars", {})
+        if 'seed' in var_dict:
+            var_dict['seed'].set(random_seed)
+            self._add_log_message(f"🎲 Random seed generated: {random_seed}")
+    
+    def _randomize_txt2img_seed(self):
+        """Generate random seed for txt2img"""
+        self._randomize_seed('txt2img')
+    
+    def _randomize_img2img_seed(self):
+        """Generate random seed for img2img"""
+        self._randomize_seed('img2img')
     
     def run(self):
         """Run the GUI application"""
