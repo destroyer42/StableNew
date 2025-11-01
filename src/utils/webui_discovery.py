@@ -104,9 +104,8 @@ def launch_webui_safely(webui_path: Path, wait_time: int = 10) -> bool:
         process = subprocess.Popen(
             [str(webui_path), "--api"],
             cwd=webui_path.parent,
-            creationflags=subprocess.CREATE_NEW_CONSOLE if subprocess.sys.platform == "win32" else 0,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            creationflags=subprocess.CREATE_NEW_CONSOLE if subprocess.sys.platform == "win32" else 0
+            # Remove stdout/stderr pipes to allow terminal output to be visible
         )
         
         # Wait for startup with periodic checks
@@ -115,10 +114,7 @@ def launch_webui_safely(webui_path: Path, wait_time: int = 10) -> bool:
             
             # Check if process crashed
             if process.poll() is not None:
-                stdout, stderr = process.communicate()
-                logger.error(f"WebUI process crashed during startup")
-                if stderr:
-                    logger.error(f"stderr: {stderr.decode()}")
+                logger.error(f"WebUI process crashed during startup (exit code: {process.returncode})")
                 return False
             
             # Check for API availability

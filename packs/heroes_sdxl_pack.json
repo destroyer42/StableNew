@@ -1,13 +1,13 @@
 {
   "txt2img": {
-    "steps": 30,
+    "steps": 20,
     "cfg_scale": 7.0,
     "width": 512,
     "height": 512,
     "negative_prompt": "blurry, bad quality, distorted, ugly, malformed",
-    "sampler_name": "Euler",
-    "scheduler": "a",
-    "prompt": "ultra high quality, 8k, hyper-realistic, incredible detail"
+    "sampler_name": "DPM++",
+    "scheduler": "2M",
+    "prompt": ""
   },
   "img2img": {
     "steps": 15,

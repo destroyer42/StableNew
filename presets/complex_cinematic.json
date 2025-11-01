@@ -1,7 +1,8 @@
 {
   "txt2img": {
     "steps": 35,
-    "sampler_name": "DPM++ 2M Karras",
+    "sampler_name": "DPM++ 2M",
+    "scheduler": "Karras",
     "cfg_scale": 8.5,
     "width": 768,
     "height": 768,
@@ -9,7 +10,8 @@
   },
   "img2img": {
     "steps": 28,
-    "sampler_name": "DPM++ 2M Karras",
+    "sampler_name": "DPM++ 2M",
+    "scheduler": "Karras",
     "cfg_scale": 8.0,
     "denoising_strength": 0.4
   },

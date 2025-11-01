@@ -31,16 +31,38 @@ The architecture emphasizes:
 
 ## Features
 
-- **Automated Pipeline**: txt2img → img2img cleanup → upscale → video creation
-- **GUI Interface**: Tkinter-based UI for easy prompt selection and preset management
-- **One-Click Execution**: Run complete pipelines with a single click
+### Core Pipeline
+```
+
+### Core Pipeline
+
+- **Automated Workflow**: txt2img → img2img cleanup → upscale → video creation
+- **SDXL Support**: Optimized presets and configurations for SDXL models
+- **Advanced Integrations**: Embeddings, LORAs, and custom model support
+- **Global NSFW Prevention**: Automatic negative prompt enhancement for all generations
+
+### User Interface
+
+- **Modern GUI**: Dark-themed Tkinter interface with tabbed configuration
+- **Interactive Config**: Real-time configuration editing with pack-specific overrides
+- **Pack Management**: Dynamic prompt pack selection with status indicators
+- **Configuration Override**: Apply current settings across multiple packs
+- **Smart Sampler Handling**: Proper sampler/scheduler separation (no more warnings!)
+
+### Technical Features
+
+- **API Integration**: Built-in readiness checks and auto-discovery for SD WebUI API
 - **Structured Logging**: JSON manifests per image and CSV rollup summaries
-- **Modular Design**: Clean separation of concerns for easy maintenance and expansion
-- **API Integration**: Built-in readiness checks for Stable Diffusion WebUI API, Interact with `/sdapi/v1/txt2img`, `/img2img`, and `/extra-single-image`.
-- **UTF-8 Support**: Full UTF-8 file I/O for international character support
-- **Clean Output**: Organized folder structure for reproducible runs
-- **Testing**; `pytest` suite validates endpoints, file integrity, and manifest structure
-- **Global_NEG**; prevents any NSFW material or content being created, is appended to negative prompt for every generation of image
+- **UTF-8 Support**: Full international character support for prompts and filenames
+- **Modular Architecture**: Clean separation for easy maintenance and expansion
+- **Comprehensive Testing**: `pytest` suite with journey tests for full validation
+
+### Content Creation
+
+- **Prompt Packs**: Organized collections with embeddings and LORAs integration
+- **Preset System**: SDXL-optimized and specialized configurations
+- **Heroes Pack**: Professional hero portraits with quality embeddings
+- **Clean Output**: Timestamped directories with complete metadata tracking
 
 ## Requirements
 
@@ -56,11 +78,39 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Desktop Launcher (Recommended)
+
+For the easiest experience, create a desktop shortcut:
+
+```bash
+powershell -ExecutionPolicy Bypass -File "create_shortcuts.ps1"
+```
+
+Then double-click the "StableNew" icon on your desktop to launch the GUI.
+
 ### GUI Mode
 
 ```bash
 python -m src.main
 ```
+
+The GUI provides an intuitive interface with:
+
+- **Pack Management Panel**: Multi-select prompt packs from the `packs/` directory with persistent selection
+- **Pack Status Display**: Shows currently loaded packs with "✓" indicators
+- **Configuration Tabs**:
+  - **Display Tab**: View current settings (defaults + pack overrides)
+  - **Edit Tab**: Modify configurations with override checkboxes for pack-specific customization
+- **Prompt Display**: Shows both positive and negative prompts from selected packs
+- **Live Log Console**: Real-time pipeline status and API connectivity feedback
+- **Loop Controls**: Configure execution patterns (single runs, batch processing, cross-stage loops)
+
+**Key Features:**
+
+- Override system allows pack-specific configuration without affecting defaults
+- Pack selection persists across configuration changes
+- Automatic WebUI detection and API readiness checking
+- Dark theme with modern styling and clear visual feedback
 
 ### CLI Mode
 
@@ -87,10 +137,12 @@ StableNew/
 ```
 
 ## External File dependencies
+
 - "C:\Users\rober\stable-diffusion-webui\webui-user.bat" -location of file that launches WebUI and opens a webpage for stable-diffusion
 - (potential) symlink from StableNew (either root or src) pointing to "C:\Users\rober\stable-diffusion-webui"
 
 ## Example Prompt Pack format
+
 - <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 - (masterpiece, best quality, 8k, HDR) character portrait, natural skin, realistic hands, clean lighting, subtle pores
 - young shieldmaiden, matte steel, cloak clasp, hand resting on rim, steady gaze, 3/4 angle

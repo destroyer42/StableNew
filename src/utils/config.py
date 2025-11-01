@@ -224,6 +224,89 @@ class ConfigManager:
             logger.error(f"Failed to save pack overrides: {e}")
             return False
     
+    def get_pack_config(self, pack_name: str) -> Dict[str, Any]:
+        """
+        Get individual pack configuration from its .json file.
+        
+        Args:
+            pack_name: Name of the prompt pack (e.g., "heroes.txt")
+            
+        Returns:
+            Pack configuration or empty dict if not found
+        """
+        from pathlib import Path
+        
+        # Convert pack_name to config filename (heroes.txt -> heroes.json)
+        pack_stem = Path(pack_name).stem
+        config_path = Path("packs") / f"{pack_stem}.json"
+        
+        if not config_path.exists():
+            return {}
+            
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            logger.debug(f"Loaded pack config: {pack_name}")
+            return config
+        except Exception as e:
+            logger.error(f"Failed to load pack config '{pack_name}': {e}")
+            return {}
+    
+    def save_pack_config(self, pack_name: str, config: Dict[str, Any]) -> bool:
+        """
+        Save individual pack configuration to its .json file.
+        
+        Args:
+            pack_name: Name of the prompt pack (e.g., "heroes.txt") 
+            config: Configuration to save
+            
+        Returns:
+            True if successful
+        """
+        from pathlib import Path
+        
+        try:
+            # Convert pack_name to config filename (heroes.txt -> heroes.json)
+            pack_stem = Path(pack_name).stem
+            config_path = Path("packs") / f"{pack_stem}.json"
+            
+            # Ensure packs directory exists
+            config_path.parent.mkdir(exist_ok=True)
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Saved pack config: {pack_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save pack config '{pack_name}': {e}")
+            return False
+    
+    def ensure_pack_config(self, pack_name: str, preset_name: str = "default") -> Dict[str, Any]:
+        """
+        Ensure pack has a configuration file, creating one with preset defaults if needed.
+        
+        Args:
+            pack_name: Name of the prompt pack
+            preset_name: Preset to use as base for new pack config
+            
+        Returns:
+            Pack configuration
+        """
+        config = self.get_pack_config(pack_name)
+        
+        if not config:
+            # Create pack config from preset defaults
+            preset_config = self.load_preset(preset_name)
+            if preset_config:
+                self.save_pack_config(pack_name, preset_config)
+                logger.info(f"Created pack config for '{pack_name}' based on preset '{preset_name}'")
+                return preset_config
+            else:
+                logger.warning(f"Failed to create pack config - preset '{preset_name}' not found")
+                
+        return config
+
     def add_global_negative(self, negative_prompt: str) -> str:
         """
         Add global NSFW prevention to negative prompt.

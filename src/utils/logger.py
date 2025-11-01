@@ -4,7 +4,7 @@ import logging
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import csv
 
 
@@ -26,7 +26,8 @@ class StructuredLogger:
         
     def create_run_directory(self, run_name: Optional[str] = None) -> Path:
         """
-        Create a new run directory.
+        Create a new run directory with improved architecture:
+        single_date_time_folder/pack_name/combined_steps_folder/numbered_images.png
         
         Args:
             run_name: Optional name for the run
@@ -41,15 +42,41 @@ class StructuredLogger:
         run_dir = self.output_dir / run_name
         run_dir.mkdir(exist_ok=True, parents=True)
         
-        # Create subdirectories
-        (run_dir / "txt2img").mkdir(exist_ok=True)
-        (run_dir / "img2img").mkdir(exist_ok=True)
-        (run_dir / "upscaled").mkdir(exist_ok=True)
-        (run_dir / "video").mkdir(exist_ok=True)
-        (run_dir / "manifests").mkdir(exist_ok=True)
+        # NOTE: Pack-specific subdirectories will be created as needed
+        # Structure: run_dir / pack_name / steps_folder / images
+        # No longer pre-creating generic subdirectories
         
         self.logger.info(f"Created run directory: {run_dir}")
         return run_dir
+    
+    def create_pack_directory(self, run_dir: Path, pack_name: str) -> Path:
+        """
+        Create directory structure for a specific pack with traditional pipeline folders.
+        
+        Args:
+            run_dir: Main run directory
+            pack_name: Name of the prompt pack (without .txt extension)
+            
+        Returns:
+            Path to the pack directory
+        """
+        # Remove .txt extension if present and add _pack suffix
+        clean_pack_name = pack_name.replace('.txt', '')
+        if not clean_pack_name.endswith('_pack'):
+            clean_pack_name += '_pack'
+        
+        pack_dir = run_dir / clean_pack_name
+        pack_dir.mkdir(exist_ok=True, parents=True)
+        
+        # Create traditional pipeline subdirectories within pack
+        (pack_dir / "txt2img").mkdir(exist_ok=True)
+        (pack_dir / "img2img").mkdir(exist_ok=True)
+        (pack_dir / "upscaled").mkdir(exist_ok=True)
+        (pack_dir / "video").mkdir(exist_ok=True)
+        (pack_dir / "manifests").mkdir(exist_ok=True)
+        
+        self.logger.info(f"Created pack directory with pipeline folders: {pack_dir}")
+        return pack_dir
     
     def save_manifest(self, run_dir: Path, image_name: str, metadata: Dict[str, Any]) -> bool:
         """
@@ -134,7 +161,38 @@ class StructuredLogger:
                     }
                     writer.writerow(row)
             
-            self.logger.info(f"Created CSV summary: {summary_file.name}")
+            self.logger.info(f"Created CSV summary: {summary_file}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to create CSV summary: {e}")
+            return False
+    
+    def create_pack_csv_summary(self, summary_path: Path, summary_data: List[Dict[str, Any]]) -> bool:
+        """
+        Create CSV summary for a specific pack.
+        
+        Args:
+            summary_path: Path where to save the CSV
+            summary_data: List of summary entries
+            
+        Returns:
+            True if created successfully
+        """
+        try:
+            with open(summary_path, 'w', newline='', encoding='utf-8') as csvfile:
+                if not summary_data:
+                    return False
+                
+                fieldnames = summary_data[0].keys()
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(summary_data)
+            
+            self.logger.info(f"Created pack CSV summary: {summary_path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to create pack CSV summary: {e}")
+            return False
             return True
             
         except Exception as e:
