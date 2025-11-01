@@ -2,7 +2,11 @@
 
 import logging
 import requests
-from typing import Optional
+import subprocess
+import time
+# import psutil  # Optional dependency for process detection
+from pathlib import Path
+from typing import Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -71,3 +75,114 @@ def wait_for_webui_ready(api_url: str, max_wait_seconds: int = 60) -> bool:
     
     logger.error(f"WebUI did not become ready within {max_wait_seconds} seconds")
     return False
+
+
+def launch_webui_safely(webui_path: Path, wait_time: int = 10) -> bool:
+    """
+    Launch WebUI with improved error handling and validation.
+    
+    Args:
+        webui_path: Path to webui-user.bat
+        wait_time: Time to wait for startup
+        
+    Returns:
+        True if launch was successful
+    """
+    if not webui_path.exists():
+        logger.error(f"WebUI not found at: {webui_path}")
+        return False
+    
+    try:
+        # Check if WebUI is already running
+        existing_url = find_webui_api_port()
+        if existing_url:
+            logger.info(f"WebUI already running at {existing_url}")
+            return True
+        
+        # Launch WebUI
+        logger.info(f"Launching WebUI from: {webui_path}")
+        process = subprocess.Popen(
+            [str(webui_path), "--api"],
+            cwd=webui_path.parent,
+            creationflags=subprocess.CREATE_NEW_CONSOLE if subprocess.sys.platform == "win32" else 0,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        
+        # Wait for startup with periodic checks
+        for attempt in range(wait_time):
+            time.sleep(1)
+            
+            # Check if process crashed
+            if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                logger.error(f"WebUI process crashed during startup")
+                if stderr:
+                    logger.error(f"stderr: {stderr.decode()}")
+                return False
+            
+            # Check for API availability
+            api_url = find_webui_api_port()
+            if api_url:
+                logger.info(f"WebUI successfully started at {api_url}")
+                return True
+            
+            logger.debug(f"Waiting for WebUI startup... ({attempt + 1}/{wait_time})")
+        
+        logger.warning("WebUI startup timeout - process may still be initializing")
+        return False
+        
+    except Exception as e:
+        logger.error(f"Failed to launch WebUI: {e}")
+        return False
+
+
+def validate_webui_health(api_url: str) -> dict:
+    """
+    Perform comprehensive health check on WebUI API.
+    
+    Args:
+        api_url: WebUI API URL
+        
+    Returns:
+        Dictionary with health check results
+    """
+    health_status = {
+        'url': api_url,
+        'accessible': False,
+        'models_loaded': False,
+        'samplers_available': False,
+        'errors': []
+    }
+    
+    try:
+        # Basic connectivity
+        response = requests.get(f"{api_url}/sdapi/v1/sd-models", timeout=5)
+        if response.status_code == 200:
+            health_status['accessible'] = True
+            models = response.json()
+            health_status['models_loaded'] = len(models) > 0
+            health_status['model_count'] = len(models)
+        else:
+            health_status['errors'].append(f"Models endpoint returned {response.status_code}")
+    
+    except requests.exceptions.ConnectionError:
+        health_status['errors'].append("Connection refused - WebUI not running")
+    except requests.exceptions.Timeout:
+        health_status['errors'].append("Connection timeout - WebUI may be starting up")
+    except Exception as e:
+        health_status['errors'].append(f"Unexpected error: {e}")
+    
+    try:
+        # Samplers check
+        if health_status['accessible']:
+            response = requests.get(f"{api_url}/sdapi/v1/samplers", timeout=5)
+            if response.status_code == 200:
+                samplers = response.json()
+                health_status['samplers_available'] = len(samplers) > 0
+                health_status['sampler_count'] = len(samplers)
+    
+    except Exception as e:
+        health_status['errors'].append(f"Samplers check failed: {e}")
+    
+    return health_status

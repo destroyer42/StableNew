@@ -9,7 +9,8 @@ from ..api import SDWebUIClient
 from ..utils import (
     save_image_from_base64,
     load_image_to_base64,
-    StructuredLogger
+    StructuredLogger,
+    ConfigManager
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ class Pipeline:
         """
         self.client = client
         self.logger = structured_logger
+        self.config_manager = ConfigManager()  # For global negative prompt handling
         
     def run_txt2img(self, prompt: str, config: Dict[str, Any], 
                     run_dir: Path, batch_size: int = 1) -> List[Dict[str, Any]]:
@@ -45,9 +47,14 @@ class Pipeline:
         """
         logger.info(f"Starting txt2img with prompt: {prompt[:50]}...")
         
+        # Apply global NSFW prevention to negative prompt
+        base_negative = config.get("negative_prompt", "")
+        enhanced_negative = self.config_manager.add_global_negative(base_negative)
+        logger.info(f"🛡️ Applied global NSFW prevention - Original: '{base_negative}' → Enhanced: '{enhanced_negative[:100]}...'")
+        
         payload = {
             "prompt": prompt,
-            "negative_prompt": config.get("negative_prompt", ""),
+            "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 20),
             "sampler_name": config.get("sampler_name", "Euler a"),
             "cfg_scale": config.get("cfg_scale", 7.0),
@@ -107,10 +114,15 @@ class Pipeline:
             logger.error("Failed to load input image for img2img")
             return None
         
+        # Apply global NSFW prevention to negative prompt
+        base_negative = config.get("negative_prompt", "")
+        enhanced_negative = self.config_manager.add_global_negative(base_negative)
+        logger.info(f"🛡️ Applied global NSFW prevention (img2img) - Enhanced: '{enhanced_negative[:100]}...'")
+        
         payload = {
             "init_images": [input_base64],
             "prompt": prompt,
-            "negative_prompt": config.get("negative_prompt", ""),
+            "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 15),
             "sampler_name": config.get("sampler_name", "Euler a"),
             "cfg_scale": config.get("cfg_scale", 7.0),
@@ -146,60 +158,7 @@ class Pipeline:
         
         return None
     
-    def run_upscale(self, input_image_path: Path, config: Dict[str, Any], 
-                    run_dir: Path) -> Optional[Dict[str, Any]]:
-        """
-        Run upscaling on an image.
-        
-        Args:
-            input_image_path: Path to input image
-            config: Configuration for upscaling
-            run_dir: Run directory
-            
-        Returns:
-            Upscaled image metadata
-        """
-        logger.info(f"Starting img2img cleanup for: {input_image_path.name}")
-        
-        init_image = load_image_to_base64(input_image_path)
-        if not init_image:
-            logger.error("Failed to load input image")
-            return None
-        
-        payload = {
-            "init_images": [init_image],
-            "prompt": prompt,
-            "steps": config.get("steps", 15),
-            "sampler_name": config.get("sampler_name", "Euler a"),
-            "cfg_scale": config.get("cfg_scale", 7.0),
-            "denoising_strength": config.get("denoising_strength", 0.3)
-        }
-        
-        response = self.client.img2img(payload)
-        if not response or 'images' not in response:
-            logger.error("img2img failed")
-            return None
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        image_name = f"img2img_{input_image_path.stem}_{timestamp}"
-        image_path = run_dir / "img2img" / f"{image_name}.png"
-        
-        if save_image_from_base64(response['images'][0], image_path):
-            metadata = {
-                "name": image_name,
-                "stage": "img2img",
-                "timestamp": timestamp,
-                "input_image": str(input_image_path),
-                "prompt": prompt,
-                "config": payload,
-                "path": str(image_path)
-            }
-            
-            self.logger.save_manifest(run_dir, image_name, metadata)
-            logger.info("img2img completed successfully")
-            return metadata
-        
-        return None
+
     
     def run_upscale(self, input_image_path: Path, config: Dict[str, Any], 
                     run_dir: Path) -> Optional[Dict[str, Any]]:
@@ -361,9 +320,14 @@ class Pipeline:
             
             # Build txt2img payload
             txt2img_config = config.get("txt2img", {})
+            
+            # Apply global NSFW prevention to negative prompt
+            enhanced_negative = self.config_manager.add_global_negative(negative_prompt)
+            logger.info(f"🛡️ Applied global NSFW prevention (stage) - Enhanced: '{enhanced_negative[:100]}...'")
+            
             payload = {
                 "prompt": prompt,
-                "negative_prompt": negative_prompt,
+                "negative_prompt": enhanced_negative,
                 "steps": txt2img_config.get("steps", 20),
                 "sampler_name": txt2img_config.get("sampler_name", "Euler a"),
                 "cfg_scale": txt2img_config.get("cfg_scale", 7.0),
@@ -390,7 +354,8 @@ class Pipeline:
                     "stage": "txt2img", 
                     "timestamp": timestamp,
                     "prompt": prompt,
-                    "negative_prompt": negative_prompt,
+                    "negative_prompt": enhanced_negative,  # Log the enhanced negative prompt
+                    "original_negative_prompt": negative_prompt,  # Also keep original
                     "config": payload,
                     "output_path": str(image_path),
                     "path": str(image_path)

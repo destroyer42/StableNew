@@ -15,6 +15,7 @@ import tkinter.simpledialog
 from ..api import SDWebUIClient
 from ..pipeline import Pipeline, VideoCreator
 from ..utils import ConfigManager, StructuredLogger, setup_logging
+from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
 from ..utils.file_io import get_prompt_packs, read_prompt_pack
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,20 @@ class StableNewGUI:
         self.custom_lists = {}
         self.current_config = None
         self.api_connected = False
+        
+        # Initialize GUI variables early
+        self.api_url_var = tk.StringVar(value="http://127.0.0.1:7860")
+        
+        # Initialize other GUI variables that are used before UI building
+        self.txt2img_enabled = tk.BooleanVar(value=True)
+        self.img2img_enabled = tk.BooleanVar(value=True)
+        self.upscale_enabled = tk.BooleanVar(value=True)
+        self.video_enabled = tk.BooleanVar(value=False)
+        self.loop_type_var = tk.StringVar(value="single")
+        self.loop_count_var = tk.StringVar(value="1")
+        self.pack_mode_var = tk.StringVar(value="selected")
+        self.images_per_prompt_var = tk.StringVar(value="1")
+        self.saved_lists_var = tk.StringVar()
         
         # Apply dark theme
         self._setup_dark_theme()
@@ -101,28 +116,41 @@ class StableNewGUI:
                  background=[('selected', select_bg), ('active', button_active)])
         
     def _launch_webui(self):
-        """Auto-launch Stable Diffusion WebUI"""
+        """Auto-launch Stable Diffusion WebUI with improved detection"""
         webui_path = Path("C:/Users/rober/stable-diffusion-webui/webui-user.bat")
         
+        # First check if WebUI is already running
+        existing_url = find_webui_api_port()
+        if existing_url:
+            logger.info(f"WebUI already running at {existing_url}")
+            self.api_url_var.set(existing_url)
+            self.root.after(2000, self._check_api_connection)
+            return
+        
+        # Try to launch WebUI
         if webui_path.exists():
-            try:
-                # Launch WebUI in background
-                subprocess.Popen([str(webui_path), "--api"], 
-                               cwd=webui_path.parent,
-                               creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0)
-                logger.info("Launched Stable Diffusion WebUI")
-                
-                # Start API checking after a delay
-                self.root.after(5000, self._check_api_connection)
-                
-            except Exception as e:
-                logger.error(f"Failed to launch WebUI: {e}")
-                messagebox.showwarning("WebUI Launch", 
-                                     f"Failed to auto-launch WebUI: {e}\n\n"
-                                     "Please start it manually and click 'Check API'")
+            self.log_message("🚀 Launching Stable Diffusion WebUI...", "INFO")
+            
+            # Launch in separate thread to avoid blocking UI
+            def launch_thread():
+                success = launch_webui_safely(webui_path, wait_time=15)
+                if success:
+                    # Find the actual URL and update UI
+                    api_url = find_webui_api_port()
+                    if api_url:
+                        self.root.after(0, lambda: self.api_url_var.set(api_url))
+                        self.root.after(1000, self._check_api_connection)
+                    else:
+                        self.root.after(0, lambda: self.log_message("⚠️ WebUI launched but API not found", "WARNING"))
+                else:
+                    self.root.after(0, lambda: self.log_message("❌ WebUI launch failed", "ERROR"))
+            
+            threading.Thread(target=launch_thread, daemon=True).start()
         else:
             logger.warning("WebUI not found at expected location")
+            self.log_message("⚠️ WebUI not found - please start manually", "WARNING")
             messagebox.showinfo("WebUI Not Found", 
+                              f"WebUI not found at: {webui_path}\n\n"
                               "Please start Stable Diffusion WebUI manually\n"
                               "with --api flag and click 'Check API'")
         
@@ -167,7 +195,6 @@ class StableNewGUI:
         url_frame.pack(fill=tk.X)
         
         ttk.Label(url_frame, text="WebUI API URL:", style='Dark.TLabel').pack(side=tk.LEFT)
-        self.api_url_var = tk.StringVar(value="http://127.0.0.1:7860")
         api_entry = ttk.Entry(url_frame, textvariable=self.api_url_var, style='Dark.TEntry', width=40)
         api_entry.pack(side=tk.LEFT, padx=(10, 10))
         
@@ -261,45 +288,27 @@ class StableNewGUI:
         self._build_pipeline_controls_tab(config_notebook)
         
     def _build_config_display_tab(self, notebook):
-        """Build configuration display/edit tab"""
-        config_frame = ttk.Frame(notebook, style='Dark.TFrame')
-        notebook.add(config_frame, text="⚙️ Configuration")
+        """Build interactive configuration tabs"""
         
-        # Config mode toggle
-        mode_frame = ttk.Frame(config_frame, style='Dark.TFrame')
-        mode_frame.pack(fill=tk.X, pady=(10, 10))
+        # Create nested notebook for stage-specific configurations
+        config_notebook = ttk.Notebook(notebook, style='Dark.TNotebook')
+        notebook.add(config_notebook, text="⚙️ Configuration")
         
-        self.config_mode_var = tk.StringVar(value="display")
-        display_radio = ttk.Radiobutton(mode_frame, text="📄 Display Mode", variable=self.config_mode_var,
-                       value="display", command=self._update_config_display,
-                       style='Dark.TRadiobutton')
-        display_radio.pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Radiobutton(mode_frame, text="✏️ Edit Mode", variable=self.config_mode_var,
-                       value="edit", command=self._update_config_display,
-                       style='Dark.TRadiobutton').pack(side=tk.LEFT)
+        # Create individual tabs for each stage
+        self._build_txt2img_config_tab(config_notebook)
+        self._build_img2img_config_tab(config_notebook)
+        self._build_upscale_config_tab(config_notebook)
+        self._build_api_config_tab(config_notebook)
         
-        # Config display area
-        config_display_frame = ttk.Frame(config_frame, style='Dark.TFrame')
-        config_display_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        # Add buttons for save/load/reset
+        config_buttons = ttk.Frame(notebook, style='Dark.TFrame')
+        config_buttons.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
         
-        # Scrolled text widget for config
-        self.config_text = scrolledtext.ScrolledText(config_display_frame, 
-                                                    height=20, wrap=tk.WORD,
-                                                    bg='#3d3d3d', fg='#ffffff',
-                                                    font=('Consolas', 9),
-                                                    insertbackground='#ffffff',
-                                                    selectbackground='#404040')
-        self.config_text.pack(fill=tk.BOTH, expand=True)
-        
-        # Config action buttons
-        config_buttons = ttk.Frame(config_frame, style='Dark.TFrame')
-        config_buttons.pack(fill=tk.X)
-        
-        ttk.Button(config_buttons, text="🔄 Refresh", command=self._refresh_config,
+        ttk.Button(config_buttons, text="� Save All Changes", command=self._save_all_config,
                   style='Dark.TButton').pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(config_buttons, text="💾 Save Changes", command=self._save_config,
+        ttk.Button(config_buttons, text="↺ Reset All", command=self._reset_all_config,
                   style='Dark.TButton').pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(config_buttons, text="↺ Reset", command=self._reset_config,
+        ttk.Button(config_buttons, text="📁 Load Preset", command=self._load_preset_config,
                   style='Dark.TButton').pack(side=tk.LEFT)
     
     def _build_pipeline_controls_tab(self, notebook):
@@ -444,41 +453,60 @@ class StableNewGUI:
         self.log_text.tag_configure("SUCCESS", foreground="#2196F3")
     
     def _check_api_connection(self):
-        """Check API connection status"""
+        """Check API connection status with improved diagnostics"""
         def check_in_thread():
             api_url = self.api_url_var.get()
             
-            # If using default port 7860, also try common incremented ports
-            ports_to_try = [7860]
-            if "7860" in api_url:
-                ports_to_try.extend([7861, 7862, 7863, 7864])
+            # Try the specified URL first
+            self.log_message("🔍 Checking API connection...", "INFO")
             
-            self.log_message("Checking API connection...", "INFO")
+            # First try direct connection
+            client = SDWebUIClient(api_url)
+            if client.check_api_ready():
+                # Perform health check
+                health = validate_webui_health(api_url)
+                
+                self.api_connected = True
+                self.client = client
+                self.pipeline = Pipeline(client, self.structured_logger)
+                
+                self.root.after(0, lambda: self._update_api_status(True, api_url))
+                
+                if health['models_loaded']:
+                    self.log_message(f"✅ API connected! Found {health.get('model_count', 0)} models", "SUCCESS")
+                else:
+                    self.log_message("⚠️ API connected but no models loaded", "WARNING")
+                return
             
-            successful_url = None
-            for port in ports_to_try:
-                # Construct URL with the test port
-                import re
-                test_url = re.sub(r':(\d+)(?=/|$)', f':{port}', api_url)
-                client = SDWebUIClient(test_url)
-                
-                self.log_message(f"Trying port {port}...", "INFO")
-                
+            # If direct connection failed, try port discovery
+            self.log_message("🔍 Trying port discovery...", "INFO")
+            discovered_url = find_webui_api_port()
+            
+            if discovered_url:
+                # Test the discovered URL
+                client = SDWebUIClient(discovered_url)
                 if client.check_api_ready():
-                    successful_url = test_url
+                    health = validate_webui_health(discovered_url)
+                    
                     self.api_connected = True
                     self.client = client
                     self.pipeline = Pipeline(client, self.structured_logger)
                     
-                    # Update UI on main thread with the working URL
-                    self.root.after(0, lambda url=test_url: self._update_api_status(True, url))
-                    self.log_message(f"✅ API connection successful on {test_url}! Ready to generate.", "SUCCESS")
-                    break
+                    # Update URL field and status
+                    self.root.after(0, lambda: self.api_url_var.set(discovered_url))
+                    self.root.after(0, lambda: self._update_api_status(True, discovered_url))
+                    
+                    if health['models_loaded']:
+                        self.log_message(f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models", "SUCCESS")
+                    else:
+                        self.log_message("⚠️ API found but no models loaded", "WARNING")
+                    return
             
-            if not successful_url:
-                self.api_connected = False
-                self.root.after(0, lambda: self._update_api_status(False))
-                self.log_message("❌ API connection failed on all ports. Please check WebUI is running with --api", "ERROR")
+            # Connection failed
+            self.api_connected = False
+            self.root.after(0, lambda: self._update_api_status(False))
+            self.log_message("❌ API connection failed. Please ensure WebUI is running with --api", "ERROR")
+            self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
         
         threading.Thread(target=check_in_thread, daemon=True).start()
     
@@ -505,9 +533,8 @@ class StableNewGUI:
         else:
             self._add_log_message("No pack selected")
             
-        if self.config_mode_var.get() == "display":
-            self._add_log_message("Refreshing config display...")
-            self._refresh_config()
+        # Refresh configuration for selected pack
+        self._refresh_config()
             
         # Highlight selection with custom styling
         self._update_selection_highlights()
@@ -527,14 +554,11 @@ class StableNewGUI:
         # Load available packs
         self._refresh_prompt_packs_silent()
         
-        # Set display mode as default (should already be set in _build_config_panel)
-        self.config_mode_var.set("display")
-        
         # Select first pack if available
         if hasattr(self, 'packs_listbox') and self.packs_listbox.size() > 0:
             self.packs_listbox.selection_set(0)
             self.packs_listbox.activate(0)
-            # Trigger selection change to update config display
+            # Trigger selection change to update config
             self._on_pack_selection_changed(None)
         
         # Update log
@@ -561,7 +585,7 @@ class StableNewGUI:
             self.packs_listbox.insert(tk.END, pack_file.name)
     
     def _refresh_config(self):
-        """Refresh configuration display"""
+        """Refresh configuration from selected pack"""
         selected_indices = self.packs_listbox.curselection()
         if selected_indices:
             pack_name = self.packs_listbox.get(selected_indices[0])
@@ -575,55 +599,10 @@ class StableNewGUI:
             pack_overrides=pack_overrides
         )
         
-        # Display in text widget
-        config_text = json.dumps(self.current_config, indent=2, ensure_ascii=False)
-        
-        self.config_text.config(state=tk.NORMAL)
-        self.config_text.delete(1.0, tk.END)
-        self.config_text.insert(1.0, config_text)
-        
-        if self.config_mode_var.get() == "display":
-            self.config_text.config(state=tk.DISABLED)
-    
-    def _update_config_display(self):
-        """Update config display based on mode"""
-        if self.config_mode_var.get() == "edit":
-            self.config_text.config(state=tk.NORMAL, bg="#2d2d2d")
-        else:
-            self.config_text.config(state=tk.DISABLED, bg="#3d3d3d")
-            self._refresh_config()
-    
-    def _save_config(self):
-        """Save configuration changes"""
-        if self.config_mode_var.get() != "edit":
-            return
-        
-        try:
-            config_str = self.config_text.get(1.0, tk.END)
-            new_config = json.loads(config_str)
-            
-            selected_indices = self.packs_listbox.curselection()
-            if selected_indices:
-                pack_name = self.packs_listbox.get(selected_indices[0])
-                # Save as pack override
-                self.config_manager.save_pack_overrides(pack_name, new_config)
-                self.log_message(f"Saved configuration for pack: {pack_name}", "SUCCESS")
-            else:
-                # Save as new preset
-                preset_name = tk.simpledialog.askstring("Save Preset", "Enter preset name:")
-                if preset_name:
-                    self.config_manager.save_preset(preset_name, new_config)
-                    self.log_message(f"Saved preset: {preset_name}", "SUCCESS")
-            
-        except json.JSONDecodeError as e:
-            messagebox.showerror("Configuration Error", f"Invalid JSON: {e}")
-        except Exception as e:
-            messagebox.showerror("Save Error", f"Failed to save configuration: {e}")
-    
-    def _reset_config(self):
-        """Reset configuration to defaults"""
-        self._refresh_config()
-        self.log_message("Configuration reset to defaults", "INFO")
+        # Load config into forms if they exist
+        if hasattr(self, 'txt2img_vars'):
+            self._load_config_into_forms(self.current_config)
+
     
     def _load_pack_list(self):
         """Load saved pack list"""
@@ -749,23 +728,42 @@ class StableNewGUI:
                         self.log_message(f"No prompts found in {pack_file.name}", "WARNING")
                         continue
                     
-                    # Get configuration for this pack
-                    pack_overrides = self.config_manager.get_pack_overrides(pack_file.stem)
-                    config = self.config_manager.resolve_config(
-                        preset_name="default",
-                        pack_overrides=pack_overrides
-                    )
+                    # Get configuration - use current form values if available
+                    if hasattr(self, 'txt2img_vars') and self.current_config:
+                        config = self.current_config
+                    else:
+                        # Fall back to file-based config
+                        pack_overrides = self.config_manager.get_pack_overrides(pack_file.stem)
+                        config = self.config_manager.resolve_config(
+                            preset_name="default",
+                            pack_overrides=pack_overrides
+                        )
                     
-                    # Run pipeline
-                    results = self.pipeline.run_full_pipeline(
-                        prompts=prompts,
-                        config=config,
-                        run_name=f"{pack_file.stem}_{int(time.time())}",
-                        skip_img2img=not self.img2img_enabled.get(),
-                        skip_upscale=not self.upscale_enabled.get()
-                    )
+                    # Process each prompt in the pack
+                    images_generated = 0
+                    for i, prompt_data in enumerate(prompts):
+                        try:
+                            self.log_message(f"Processing prompt {i+1}/{len(prompts)}: {prompt_data['positive'][:50]}...", "INFO")
+                            
+                            # Run full pipeline for this prompt
+                            result = self.pipeline.run_full_pipeline(
+                                prompt=prompt_data['positive'],
+                                config=config,
+                                run_name=f"{pack_file.stem}_{int(time.time())}",
+                                batch_size=int(self.images_per_prompt_var.get())
+                            )
+                            
+                            if result and result.get('summary'):
+                                images_generated += len(result['summary'])
+                                self.log_message(f"✅ Generated {len(result['summary'])} images for prompt {i+1}", "SUCCESS")
+                            else:
+                                self.log_message(f"❌ Failed to generate images for prompt {i+1}", "ERROR")
+                                
+                        except Exception as e:
+                            self.log_message(f"❌ Error processing prompt {i+1}: {str(e)}", "ERROR")
+                            continue
                     
-                    self.log_message(f"Completed pack {pack_file.name}: {results['images_generated']} images", "SUCCESS")
+                    self.log_message(f"Completed pack {pack_file.name}: {images_generated} images", "SUCCESS")
                 
                 self.log_message("🎉 Pipeline execution completed!", "SUCCESS")
                 
@@ -788,7 +786,7 @@ class StableNewGUI:
             messagebox.showerror("Selection Error", "Please select at least one prompt pack")
             return
         
-        self._add_log_message("🎨 Running txt2img only...")
+        self.log_message("🎨 Running txt2img only...", "INFO")
         
         def txt2img_thread():
             try:
@@ -803,42 +801,46 @@ class StableNewGUI:
                 
                 # Run txt2img for selected packs
                 for pack_name in selected_packs:
-                    self._add_log_message(f"Processing pack: {pack_name}")
+                    self.log_message(f"Processing pack: {pack_name}", "INFO")
                     
                     # Load prompts from pack
-                    prompts = self.config_manager.load_prompt_pack(pack_name)
+                    pack_path = Path("packs") / pack_name
+                    prompts = read_prompt_pack(pack_path)
+                    
+                    if not prompts:
+                        self.log_message(f"No prompts found in {pack_name}", "WARNING")
+                        continue
                     
                     # Get pack-specific overrides
-                    pack_overrides = self.config_manager.get_pack_overrides(pack_name)
+                    pack_overrides = self.config_manager.get_pack_overrides(pack_path.stem)
                     pack_config = self.config_manager.resolve_config("default", pack_overrides)
                     
                     # Generate images for each prompt
                     for i, prompt_data in enumerate(prompts):
                         try:
-                            self._add_log_message(f"Generating image {i+1}/{len(prompts)}: {prompt_data['prompt'][:50]}...")
+                            self.log_message(f"Generating image {i+1}/{len(prompts)}: {prompt_data['positive'][:50]}...", "INFO")
                             
-                            # Run txt2img
-                            result = self.pipeline_executor.run_txt2img_stage(
-                                prompt=prompt_data['prompt'],
-                                negative_prompt=prompt_data.get('negative_prompt', ''),
-                                config=pack_config,
-                                output_dir=run_dir / "txt2img",
-                                image_index=i
+                            # Run txt2img using the pipeline
+                            results = self.pipeline.run_txt2img(
+                                prompt=prompt_data['positive'],
+                                config=pack_config.get('txt2img', {}),
+                                run_dir=run_dir,
+                                batch_size=1
                             )
                             
-                            if result:
-                                self._add_log_message(f"✅ Generated: {result['output_path']}")
+                            if results:
+                                self.log_message(f"✅ Generated {len(results)} images", "SUCCESS")
                             else:
-                                self._add_log_message(f"❌ Failed to generate image {i+1}")
+                                self.log_message(f"❌ Failed to generate image {i+1}", "ERROR")
                                 
                         except Exception as e:
-                            self._add_log_message(f"❌ Error generating image {i+1}: {str(e)}")
+                            self.log_message(f"❌ Error generating image {i+1}: {str(e)}", "ERROR")
                             continue
                 
-                self._add_log_message("🎉 Txt2img generation completed!")
+                self.log_message("🎉 Txt2img generation completed!", "SUCCESS")
                 
             except Exception as e:
-                self._add_log_message(f"❌ Txt2img generation failed: {str(e)}")
+                self.log_message(f"❌ Txt2img generation failed: {str(e)}", "ERROR")
         
         # Run in background thread
         import threading
@@ -997,6 +999,284 @@ class StableNewGUI:
         # Start the GUI main loop
         self.root.mainloop()
     
+    def _build_txt2img_config_tab(self, notebook):
+        """Build txt2img configuration form"""
+        tab_frame = ttk.Frame(notebook, style='Dark.TFrame')
+        notebook.add(tab_frame, text="🎨 txt2img")
+        
+        # Create scrollable frame
+        canvas = tk.Canvas(tab_frame, bg='#2b2b2b')
+        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, style='Dark.TFrame')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Initialize config variables
+        self.txt2img_vars = {}
+        
+        # Steps
+        steps_frame = ttk.LabelFrame(scrollable_frame, text="Generation Steps", style='Dark.TFrame', padding=10)
+        steps_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(steps_frame, text="Steps:", style='Dark.TLabel').pack(side=tk.LEFT)
+        self.txt2img_vars['steps'] = tk.IntVar(value=20)
+        steps_spin = ttk.Spinbox(steps_frame, from_=1, to=150, width=10, textvariable=self.txt2img_vars['steps'])
+        steps_spin.pack(side=tk.LEFT, padx=5)
+        
+        # Sampler
+        sampler_frame = ttk.LabelFrame(scrollable_frame, text="Sampler", style='Dark.TFrame', padding=10)
+        sampler_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(sampler_frame, text="Sampler:", style='Dark.TLabel').pack(side=tk.LEFT)
+        self.txt2img_vars['sampler_name'] = tk.StringVar(value="Euler a")
+        sampler_combo = ttk.Combobox(sampler_frame, textvariable=self.txt2img_vars['sampler_name'], 
+                                   values=["Euler a", "Euler", "LMS", "Heun", "DPM2", "DPM2 a", "DPM++ 2S a", "DPM++ 2M", "DPM++ SDE", "DPM fast", "DPM adaptive", "LMS Karras", "DPM2 Karras", "DPM2 a Karras", "DPM++ 2S a Karras", "DPM++ 2M Karras", "DPM++ SDE Karras", "DDIM", "PLMS"])
+        sampler_combo.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # CFG Scale
+        cfg_frame = ttk.LabelFrame(scrollable_frame, text="CFG Scale", style='Dark.TFrame', padding=10)
+        cfg_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(cfg_frame, text="CFG Scale:", style='Dark.TLabel').pack(side=tk.LEFT)
+        self.txt2img_vars['cfg_scale'] = tk.DoubleVar(value=7.0)
+        cfg_scale = ttk.Scale(cfg_frame, from_=1.0, to=20.0, variable=self.txt2img_vars['cfg_scale'], orient=tk.HORIZONTAL)
+        cfg_scale.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        cfg_label = ttk.Label(cfg_frame, text="7.0", style='Dark.TLabel')
+        cfg_label.pack(side=tk.LEFT, padx=5)
+        cfg_scale.configure(command=lambda val: cfg_label.configure(text=f"{float(val):.1f}"))
+        
+        # Dimensions
+        dims_frame = ttk.LabelFrame(scrollable_frame, text="Image Dimensions", style='Dark.TFrame', padding=10)
+        dims_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(dims_frame, text="Width:", style='Dark.TLabel').grid(row=0, column=0, sticky=tk.W)
+        self.txt2img_vars['width'] = tk.IntVar(value=512)
+        width_combo = ttk.Combobox(dims_frame, textvariable=self.txt2img_vars['width'], 
+                                 values=[256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960, 1024], width=10)
+        width_combo.grid(row=0, column=1, padx=5, sticky=tk.W)
+        
+        ttk.Label(dims_frame, text="Height:", style='Dark.TLabel').grid(row=0, column=2, padx=(20,5), sticky=tk.W)
+        self.txt2img_vars['height'] = tk.IntVar(value=512)
+        height_combo = ttk.Combobox(dims_frame, textvariable=self.txt2img_vars['height'],
+                                  values=[256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960, 1024], width=10)
+        height_combo.grid(row=0, column=3, padx=5, sticky=tk.W)
+        
+        # Negative Prompt
+        neg_frame = ttk.LabelFrame(scrollable_frame, text="Negative Prompt", style='Dark.TFrame', padding=10)
+        neg_frame.pack(fill=tk.X, pady=5)
+        self.txt2img_vars['negative_prompt'] = tk.StringVar(value="blurry, bad quality, distorted, ugly, malformed")
+        neg_text = tk.Text(neg_frame, height=3, bg='#3d3d3d', fg='#ffffff', wrap=tk.WORD)
+        neg_text.pack(fill=tk.X, pady=5)
+        neg_text.insert(1.0, self.txt2img_vars['negative_prompt'].get())
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+    
+    def _build_img2img_config_tab(self, notebook):
+        """Build img2img configuration form"""
+        tab_frame = ttk.Frame(notebook, style='Dark.TFrame')
+        notebook.add(tab_frame, text="🧹 img2img")
+        
+        # Create scrollable frame
+        canvas = tk.Canvas(tab_frame, bg='#2b2b2b')
+        scrollable_frame = ttk.Frame(canvas, style='Dark.TFrame')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        
+        # Initialize config variables
+        self.img2img_vars = {}
+        
+        # Steps
+        steps_frame = ttk.LabelFrame(scrollable_frame, text="Cleanup Steps", style='Dark.TFrame', padding=10)
+        steps_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(steps_frame, text="Steps:", style='Dark.TLabel').pack(side=tk.LEFT)
+        self.img2img_vars['steps'] = tk.IntVar(value=15)
+        steps_spin = ttk.Spinbox(steps_frame, from_=1, to=150, width=10, textvariable=self.img2img_vars['steps'])
+        steps_spin.pack(side=tk.LEFT, padx=5)
+        
+        # Denoising Strength
+        denoise_frame = ttk.LabelFrame(scrollable_frame, text="Denoising Strength", style='Dark.TFrame', padding=10)
+        denoise_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(denoise_frame, text="Denoising:", style='Dark.TLabel').pack(side=tk.LEFT)
+        self.img2img_vars['denoising_strength'] = tk.DoubleVar(value=0.3)
+        denoise_scale = ttk.Scale(denoise_frame, from_=0.0, to=1.0, variable=self.img2img_vars['denoising_strength'], orient=tk.HORIZONTAL)
+        denoise_scale.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        denoise_label = ttk.Label(denoise_frame, text="0.3", style='Dark.TLabel')
+        denoise_label.pack(side=tk.LEFT, padx=5)
+        denoise_scale.configure(command=lambda val: denoise_label.configure(text=f"{float(val):.2f}"))
+        
+        canvas.pack(fill="both", expand=True)
+    
+    def _build_upscale_config_tab(self, notebook):
+        """Build upscale configuration form"""
+        tab_frame = ttk.Frame(notebook, style='Dark.TFrame')
+        notebook.add(tab_frame, text="📈 Upscale")
+        
+        # Create scrollable frame
+        canvas = tk.Canvas(tab_frame, bg='#2b2b2b')
+        scrollable_frame = ttk.Frame(canvas, style='Dark.TFrame')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        
+        # Initialize config variables
+        self.upscale_vars = {}
+        
+        # Upscaler selection
+        upscaler_frame = ttk.LabelFrame(scrollable_frame, text="Upscaler Model", style='Dark.TFrame', padding=10)
+        upscaler_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(upscaler_frame, text="Upscaler:", style='Dark.TLabel').pack(side=tk.LEFT)
+        self.upscale_vars['upscaler'] = tk.StringVar(value="R-ESRGAN 4x+")
+        upscaler_combo = ttk.Combobox(upscaler_frame, textvariable=self.upscale_vars['upscaler'],
+                                    values=["R-ESRGAN 4x+", "R-ESRGAN 4x+ Anime6B", "ESRGAN_4x", "LDSR", "ScuNET GAN", "ScuNET PSNR", "SwinIR 4x"])
+        upscaler_combo.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Scale factor
+        scale_frame = ttk.LabelFrame(scrollable_frame, text="Scale Factor", style='Dark.TFrame', padding=10)
+        scale_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(scale_frame, text="Scale:", style='Dark.TLabel').pack(side=tk.LEFT)
+        self.upscale_vars['upscaling_resize'] = tk.DoubleVar(value=2.0)
+        scale_combo = ttk.Combobox(scale_frame, textvariable=self.upscale_vars['upscaling_resize'],
+                                 values=[1.5, 2.0, 3.0, 4.0], width=10)
+        scale_combo.pack(side=tk.LEFT, padx=5)
+        
+        canvas.pack(fill="both", expand=True)
+    
+    def _build_api_config_tab(self, notebook):
+        """Build API configuration form"""
+        tab_frame = ttk.Frame(notebook, style='Dark.TFrame')
+        notebook.add(tab_frame, text="🔌 API")
+        
+        # API settings
+        api_frame = ttk.LabelFrame(tab_frame, text="API Connection", style='Dark.TFrame', padding=10)
+        api_frame.pack(fill=tk.X, pady=5)
+        
+        # Base URL
+        url_frame = ttk.Frame(api_frame, style='Dark.TFrame')
+        url_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(url_frame, text="Base URL:", style='Dark.TLabel').pack(side=tk.LEFT)
+        self.api_vars = {}
+        self.api_vars['base_url'] = self.api_url_var  # Use the same variable
+        url_entry = ttk.Entry(url_frame, textvariable=self.api_vars['base_url'], width=30)
+        url_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Timeout
+        timeout_frame = ttk.Frame(api_frame, style='Dark.TFrame')
+        timeout_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(timeout_frame, text="Timeout (s):", style='Dark.TLabel').pack(side=tk.LEFT)
+        self.api_vars['timeout'] = tk.IntVar(value=300)
+        timeout_spin = ttk.Spinbox(timeout_frame, from_=30, to=3600, width=10, textvariable=self.api_vars['timeout'])
+        timeout_spin.pack(side=tk.LEFT, padx=5)
+    
+    def _save_all_config(self):
+        """Save all configuration changes"""
+        try:
+            # Build config from form values
+            config = {
+                "txt2img": {
+                    "steps": self.txt2img_vars['steps'].get(),
+                    "sampler_name": self.txt2img_vars['sampler_name'].get(),
+                    "cfg_scale": self.txt2img_vars['cfg_scale'].get(),
+                    "width": self.txt2img_vars['width'].get(),
+                    "height": self.txt2img_vars['height'].get(),
+                    "negative_prompt": self.txt2img_vars['negative_prompt'].get()
+                },
+                "img2img": {
+                    "steps": self.img2img_vars['steps'].get(),
+                    "denoising_strength": self.img2img_vars['denoising_strength'].get(),
+                },
+                "upscale": {
+                    "upscaler": self.upscale_vars['upscaler'].get(),
+                    "upscaling_resize": self.upscale_vars['upscaling_resize'].get()
+                },
+                "api": {
+                    "base_url": self.api_vars['base_url'].get(),
+                    "timeout": self.api_vars['timeout'].get()
+                }
+            }
+            
+            # Save as current config
+            self.current_config = config
+            
+            # Optionally save as preset
+            preset_name = tk.simpledialog.askstring("Save Preset", "Enter preset name (optional):")
+            if preset_name:
+                self.config_manager.save_preset(preset_name, config)
+                self.log_message(f"Saved configuration as preset: {preset_name}", "SUCCESS")
+            else:
+                self.log_message("Configuration updated (not saved as preset)", "INFO")
+                
+        except Exception as e:
+            self.log_message(f"Failed to save configuration: {e}", "ERROR")
+    
+    def _reset_all_config(self):
+        """Reset all configuration to defaults"""
+        defaults = self.config_manager.get_default_config()
+        self._load_config_into_forms(defaults)
+        self.log_message("Configuration reset to defaults", "INFO")
+    
+    def _load_preset_config(self):
+        """Load configuration from preset"""
+        presets = self.config_manager.list_presets()
+        if not presets:
+            messagebox.showinfo("No Presets", "No configuration presets found")
+            return
+            
+        preset_name = tk.simpledialog.askstring("Load Preset", f"Available presets: {', '.join(presets)}\nEnter preset name:")
+        if preset_name and preset_name in presets:
+            config = self.config_manager.load_preset(preset_name)
+            if config:
+                self._load_config_into_forms(config)
+                self.current_config = config
+                self.log_message(f"Loaded preset: {preset_name}", "SUCCESS")
+            else:
+                self.log_message(f"Failed to load preset: {preset_name}", "ERROR")
+    
+    def _load_config_into_forms(self, config):
+        """Load configuration values into form widgets"""
+        try:
+            # txt2img config
+            txt2img_config = config.get("txt2img", {})
+            if hasattr(self, 'txt2img_vars'):
+                self.txt2img_vars['steps'].set(txt2img_config.get('steps', 20))
+                self.txt2img_vars['sampler_name'].set(txt2img_config.get('sampler_name', 'Euler a'))
+                self.txt2img_vars['cfg_scale'].set(txt2img_config.get('cfg_scale', 7.0))
+                self.txt2img_vars['width'].set(txt2img_config.get('width', 512))
+                self.txt2img_vars['height'].set(txt2img_config.get('height', 512))
+                self.txt2img_vars['negative_prompt'].set(txt2img_config.get('negative_prompt', ''))
+            
+            # img2img config
+            img2img_config = config.get("img2img", {})
+            if hasattr(self, 'img2img_vars'):
+                self.img2img_vars['steps'].set(img2img_config.get('steps', 15))
+                self.img2img_vars['denoising_strength'].set(img2img_config.get('denoising_strength', 0.3))
+            
+            # upscale config
+            upscale_config = config.get("upscale", {})
+            if hasattr(self, 'upscale_vars'):
+                self.upscale_vars['upscaler'].set(upscale_config.get('upscaler', 'R-ESRGAN 4x+'))
+                self.upscale_vars['upscaling_resize'].set(upscale_config.get('upscaling_resize', 2.0))
+            
+            # api config
+            api_config = config.get("api", {})
+            if hasattr(self, 'api_vars'):
+                self.api_vars['base_url'].set(api_config.get('base_url', 'http://127.0.0.1:7860'))
+                self.api_vars['timeout'].set(api_config.get('timeout', 300))
+                
+        except Exception as e:
+            self.log_message(f"Error loading config into forms: {e}", "ERROR")
+    
     def _build_pipeline_tab(self, parent):
         """Build pipeline execution tab"""
         # API Connection Frame
@@ -1004,7 +1284,6 @@ class StableNewGUI:
         api_frame.pack(fill=tk.X, padx=10, pady=5)
         
         ttk.Label(api_frame, text="API URL:").grid(row=0, column=0, sticky=tk.W, padx=5)
-        self.api_url_var = tk.StringVar(value="http://127.0.0.1:7860")
         ttk.Entry(api_frame, textvariable=self.api_url_var, width=40).grid(
             row=0, column=1, padx=5, pady=2
         )

@@ -109,7 +109,7 @@ class ConfigManager:
                 "quality": "medium"
             },
             "api": {
-                "base_url": "http://127.0.0.1:7862",
+                "base_url": "http://127.0.0.1:7860",
                 "timeout": 300
             }
         }
