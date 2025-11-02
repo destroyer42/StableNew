@@ -44,6 +44,9 @@ The architecture emphasizes:
 ### User Interface
 
 - **Modern GUI**: Dark-themed Tkinter interface with tabbed configuration
+- **Real-time State Feedback**: Status bar shows pipeline state (Idle/Running/Stopping/Error)
+- **Responsive Controls**: Stop button for graceful cancellation at any pipeline stage
+- **Advanced Prompt Editor**: Integrated editor with validation, model discovery, and real-time stats
 - **Interactive Config**: Real-time configuration editing with pack-specific overrides
 - **Pack Management**: Dynamic prompt pack selection with status indicators
 - **Configuration Override**: Apply current settings across multiple packs
@@ -111,6 +114,30 @@ The GUI provides an intuitive interface with:
 - Pack selection persists across configuration changes
 - Automatic WebUI detection and API readiness checking
 - Dark theme with modern styling and clear visual feedback
+- **Stop button with cooperative cancellation** - gracefully halt pipeline at any stage
+- **Real-time state monitoring** - status bar shows Idle/Running/Stopping/Error states
+- **Advanced Prompt Editor** - click "✏️ Advanced Editor" to validate and edit packs with live feedback
+
+### Pipeline Control
+
+The GUI provides full control over pipeline execution with responsive feedback:
+
+**State Management:**
+- **Idle**: Ready to start a new pipeline run
+- **Running**: Pipeline executing, Stop button enabled
+- **Stopping**: Gracefully cancelling current operation
+- **Error**: Pipeline failed, details in log
+
+**Stop Button Behavior:**
+- Click Stop during any pipeline stage to request cancellation
+- Pipeline checks for cancellation at safe points (between stages, after API calls)
+- Cleanup is automatic (close connections, delete temp files, terminate subprocesses)
+- UI remains responsive throughout cancellation
+
+**Validation Integration:**
+- Validate prompt packs directly in the Advanced Editor
+- Validation results surface to main GUI log
+- See errors, warnings, and stats without switching windows
 
 ### CLI Mode
 

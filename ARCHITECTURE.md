@@ -184,6 +184,39 @@ output/
 - **Controller:** Event handling, pipeline coordination, threading
 - **Model:** Application state, configuration, data persistence
 
+### Advanced Prompt Editor
+
+The Advanced Prompt Editor is a sophisticated tool for creating and validating prompt packs with real-time feedback and model discovery.
+
+**Key Features:**
+- **Format Support**: TXT (line-based with blank line separators) and TSV (tab-separated) formats
+- **Live Validation**: Real-time syntax checking, embedding/LoRA discovery, and error reporting
+- **Model Integration**: Auto-discovery of embeddings and LoRAs from WebUI installation
+- **Template System**: Predefined templates for common prompt structures
+- **Statistics**: Character counts, prompt counts, embedding/LoRA usage metrics
+
+**Integration with Main GUI:**
+```
+Main Window
+     │
+     │ [✏️ Advanced Editor Button]
+     │
+     ▼
+AdvancedPromptEditor.open_editor()
+     │
+     ├─[on_packs_changed]──▶ Refresh pack list
+     │
+     └─[on_validation]─────▶ Surface validation results to main log
+```
+
+**Validation Callback:**
+When a pack is validated in the editor, the callback sends results to the main GUI:
+- Error count and first 3 errors
+- Warning count and first 2 warnings  
+- Statistics (prompt count, embeddings, LoRAs)
+
+This provides visibility into pack quality without switching windows.
+
 ## State Management
 
 ### GUI State Machine
