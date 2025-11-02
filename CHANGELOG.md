@@ -12,10 +12,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pre-commit hooks for automated code quality checks (black, ruff, mypy)
 - EditorConfig for consistent coding styles across editors
 - Contributing guidelines in `CONTRIBUTING.md`
-- This changelog file following semantic versioning
+- Changelog file following semantic versioning
+- Architecture documentation with pipeline diagrams and state machine
+- GUI state management system with `GUIState` enum and `StateManager` class
+- Thread-safe `CancelToken` for cooperative cancellation
+- `PipelineController` for async pipeline execution with cancellation support
+- Dead code archiver tool (`tools/archive_unused.py`) with:
+  - AST-based import graph analysis
+  - Automatic detection of unused Python files
+  - Timestamped archive directories with manifest
+  - Restore capability with `--undo` option
+  - Dry-run mode for safe previewing
+- Comprehensive test suite:
+  - 27 tests for state management and controller
+  - 14 tests for archiver tool
+  - All new tests passing (41 total added)
 
 ### Changed
 - Updated `.gitignore` to exclude build artifacts, cache files, and tool outputs
+- Updated `README.md` to reference new documentation
+- Refactored `src/gui/__init__.py` to avoid tkinter dependency in tests
+- Improved test organization and coverage
+
+### Fixed
+- Import structure to allow testing without GUI dependencies
 
 ## [1.0.0] - 2024-11-02
 
