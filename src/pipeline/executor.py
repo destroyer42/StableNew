@@ -76,7 +76,8 @@ class Pipeline:
         }
         
     def run_txt2img(self, prompt: str, config: Dict[str, Any], 
-                    run_dir: Path, batch_size: int = 1) -> List[Dict[str, Any]]:
+                    run_dir: Path, batch_size: int = 1,
+                    cancel_token=None) -> List[Dict[str, Any]]:
         """
         Run txt2img generation.
         
@@ -85,10 +86,16 @@ class Pipeline:
             config: Configuration for txt2img
             run_dir: Run directory
             batch_size: Number of images to generate
+            cancel_token: Optional cancellation token
             
         Returns:
             List of generated image metadata
         """
+        # Check for cancellation before starting
+        if cancel_token and cancel_token.is_cancelled():
+            logger.info("txt2img cancelled before start")
+            return []
+        
         logger.info(f"Starting txt2img with prompt: {prompt[:50]}...")
         
         # Apply global NSFW prevention to negative prompt
@@ -143,6 +150,12 @@ class Pipeline:
             payload["styles"] = config["styles"]
         
         response = self.client.txt2img(payload)
+        
+        # Check for cancellation after API call
+        if cancel_token and cancel_token.is_cancelled():
+            logger.info("txt2img cancelled after API call")
+            return []
+        
         if not response or 'images' not in response:
             logger.error("txt2img failed")
             return []
@@ -151,6 +164,11 @@ class Pipeline:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         for idx, img_base64 in enumerate(response['images']):
+            # Check for cancellation before saving each image
+            if cancel_token and cancel_token.is_cancelled():
+                logger.info(f"txt2img cancelled while saving image {idx}")
+                break
+                
             image_name = f"txt2img_{timestamp}_{idx:03d}"
             image_path = run_dir / "txt2img" / f"{image_name}.png"
             
@@ -171,7 +189,8 @@ class Pipeline:
         return results
     
     def run_img2img(self, input_image_path: Path, prompt: str, 
-                    config: Dict[str, Any], run_dir: Path) -> Optional[Dict[str, Any]]:
+                    config: Dict[str, Any], run_dir: Path,
+                    cancel_token=None) -> Optional[Dict[str, Any]]:
         """
         Run img2img cleanup/refinement.
         
@@ -180,10 +199,16 @@ class Pipeline:
             prompt: Text prompt
             config: Configuration for img2img
             run_dir: Run directory
+            cancel_token: Optional cancellation token
             
         Returns:
             Generated image metadata
         """
+        # Check for cancellation before starting
+        if cancel_token and cancel_token.is_cancelled():
+            logger.info("img2img cancelled before start")
+            return None
+        
         logger.info(f"Starting img2img cleanup for: {input_image_path.name}")
         
         # Load input image
@@ -219,6 +244,12 @@ class Pipeline:
         }
         
         response = self.client.img2img(payload)
+        
+        # Check for cancellation after API call
+        if cancel_token and cancel_token.is_cancelled():
+            logger.info("img2img cancelled after API call")
+            return None
+        
         if not response or 'images' not in response:
             logger.error("img2img failed")
             return None
@@ -248,7 +279,7 @@ class Pipeline:
 
     
     def run_upscale(self, input_image_path: Path, config: Dict[str, Any], 
-                    run_dir: Path) -> Optional[Dict[str, Any]]:
+                    run_dir: Path, cancel_token=None) -> Optional[Dict[str, Any]]:
         """
         Run upscaling.
         
@@ -256,10 +287,16 @@ class Pipeline:
             input_image_path: Path to input image
             config: Configuration for upscaling
             run_dir: Run directory
+            cancel_token: Optional cancellation token
             
         Returns:
             Upscaled image metadata
         """
+        # Check for cancellation before starting
+        if cancel_token and cancel_token.is_cancelled():
+            logger.info("upscale cancelled before start")
+            return None
+        
         logger.info(f"Starting upscale for: {input_image_path.name}")
         
         init_image = load_image_to_base64(input_image_path)
@@ -275,6 +312,11 @@ class Pipeline:
             codeformer_visibility=config.get("codeformer_visibility", 0.0),
             codeformer_weight=config.get("codeformer_weight", 0.5)
         )
+        
+        # Check for cancellation after API call
+        if cancel_token and cancel_token.is_cancelled():
+            logger.info("upscale cancelled after API call")
+            return None
         
         if not response or 'image' not in response:
             logger.error("Upscale failed")
@@ -302,7 +344,8 @@ class Pipeline:
     
     def run_full_pipeline(self, prompt: str, config: Dict[str, Any], 
                          run_name: Optional[str] = None,
-                         batch_size: int = 1) -> Dict[str, Any]:
+                         batch_size: int = 1,
+                         cancel_token=None) -> Dict[str, Any]:
         """
         Run complete pipeline: txt2img → img2img → upscale.
         
@@ -311,10 +354,16 @@ class Pipeline:
             config: Full pipeline configuration
             run_name: Optional run name
             batch_size: Number of images to generate
+            cancel_token: Optional cancellation token
             
         Returns:
             Pipeline results summary
         """
+        # Check for cancellation at start
+        if cancel_token and cancel_token.is_cancelled():
+            logger.info("Pipeline cancelled before start")
+            return {"run_dir": "", "prompt": prompt, "txt2img": [], "img2img": [], "upscaled": [], "summary": []}
+        
         logger.info("=" * 60)
         logger.info("Starting full pipeline execution")
         logger.info("=" * 60)
@@ -336,9 +385,15 @@ class Pipeline:
             prompt,
             config.get("txt2img", {}),
             run_dir,
-            batch_size
+            batch_size,
+            cancel_token
         )
         results["txt2img"] = txt2img_results
+        
+        # Check for cancellation after txt2img
+        if cancel_token and cancel_token.is_cancelled():
+            logger.info("Pipeline cancelled after txt2img")
+            return results
         
         if not txt2img_results:
             logger.error("Pipeline failed at txt2img stage")
@@ -346,20 +401,32 @@ class Pipeline:
         
         # Step 2: img2img cleanup (for each generated image)
         for txt2img_meta in txt2img_results:
+            # Check for cancellation before each img2img
+            if cancel_token and cancel_token.is_cancelled():
+                logger.info("Pipeline cancelled during img2img loop")
+                break
+                
             img2img_meta = self.run_img2img(
                 Path(txt2img_meta["path"]),
                 prompt,
                 config.get("img2img", {}),
-                run_dir
+                run_dir,
+                cancel_token
             )
             if img2img_meta:
                 results["img2img"].append(img2img_meta)
+                
+                # Check for cancellation before upscale
+                if cancel_token and cancel_token.is_cancelled():
+                    logger.info("Pipeline cancelled before upscale")
+                    break
                 
                 # Step 3: Upscale
                 upscaled_meta = self.run_upscale(
                     Path(img2img_meta["path"]),
                     config.get("upscale", {}),
-                    run_dir
+                    run_dir,
+                    cancel_token
                 )
                 if upscaled_meta:
                     results["upscaled"].append(upscaled_meta)
