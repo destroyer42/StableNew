@@ -90,7 +90,10 @@ class StructuredLogger:
         Returns:
             True if saved successfully
         """
-        manifest_path = run_dir / "manifests" / f"{image_name}.json"
+        manifest_dir = run_dir / "manifests"
+        manifest_dir.mkdir(exist_ok=True, parents=True)  # Ensure manifests directory exists
+        
+        manifest_path = manifest_dir / f"{image_name}.json"
         try:
             with open(manifest_path, 'w', encoding='utf-8') as f:
                 json.dump(metadata, f, indent=2, ensure_ascii=False)

@@ -347,11 +347,11 @@ class Pipeline:
                          batch_size: int = 1,
                          cancel_token=None) -> Dict[str, Any]:
         """
-        Run complete pipeline: txt2img → img2img → upscale.
+        Run complete pipeline: txt2img → img2img (optional) → upscale (optional).
         
         Args:
             prompt: Text prompt
-            config: Full pipeline configuration
+            config: Full pipeline configuration with optional pipeline.img2img_enabled and pipeline.upscale_enabled
             run_name: Optional run name
             batch_size: Number of images to generate
             cancel_token: Optional cancellation token
@@ -366,6 +366,12 @@ class Pipeline:
         
         logger.info("=" * 60)
         logger.info("Starting full pipeline execution")
+        
+        # Check pipeline stage configuration
+        img2img_enabled = config.get("pipeline", {}).get("img2img_enabled", True)
+        upscale_enabled = config.get("pipeline", {}).get("upscale_enabled", True)
+        
+        logger.info(f"Pipeline stages: txt2img=ON, img2img={'ON' if img2img_enabled else 'SKIP'}, upscale={'ON' if upscale_enabled else 'SKIP'}")
         logger.info("=" * 60)
         
         # Create run directory
@@ -399,7 +405,7 @@ class Pipeline:
             logger.error("Pipeline failed at txt2img stage")
             return results
         
-        # Step 2: img2img cleanup (for each generated image)
+        # Step 2: img2img cleanup (optional, for each generated image)
         for txt2img_meta in txt2img_results:
             # Check for cancellation before each img2img
             if cancel_token and cancel_token.is_cancelled():
@@ -423,23 +429,42 @@ class Pipeline:
                 
                 # Step 3: Upscale
                 upscaled_meta = self.run_upscale(
-                    Path(img2img_meta["path"]),
+                    Path(last_image_path),
                     config.get("upscale", {}),
                     run_dir,
                     cancel_token
                 )
                 if upscaled_meta:
                     results["upscaled"].append(upscaled_meta)
-                    
-                    # Add to summary
-                    summary_entry = {
-                        "prompt": prompt,
-                        "txt2img_path": txt2img_meta["path"],
-                        "img2img_path": img2img_meta["path"],
-                        "upscaled_path": upscaled_meta["path"],
-                        "timestamp": upscaled_meta["timestamp"]
-                    }
-                    results["summary"].append(summary_entry)
+                    logger.info(f"✓ upscale completed for {txt2img_meta['name']}")
+                    final_image_path = upscaled_meta["path"]
+                else:
+                    logger.warning(f"upscale failed for {txt2img_meta['name']}, using previous output")
+                    final_image_path = last_image_path
+            else:
+                logger.info(f"⊘ upscale skipped for {txt2img_meta['name']}")
+                final_image_path = last_image_path
+            
+            # Add to summary
+            summary_entry = {
+                "prompt": prompt,
+                "txt2img_path": txt2img_meta["path"],
+                "final_image_path": final_image_path,
+                "timestamp": txt2img_meta["timestamp"],
+                "stages_completed": ["txt2img"]
+            }
+            
+            # Add img2img path if stage was executed and successful
+            if img2img_enabled and len(results["img2img"]) > 0:
+                summary_entry["img2img_path"] = results["img2img"][-1]["path"]
+                summary_entry["stages_completed"].append("img2img")
+            
+            # Add upscale path if stage was executed and successful
+            if upscale_enabled and len(results["upscaled"]) > 0:
+                summary_entry["upscaled_path"] = results["upscaled"][-1]["path"]
+                summary_entry["stages_completed"].append("upscale")
+            
+            results["summary"].append(summary_entry)
         
         # Create CSV summary
         if results["summary"]:

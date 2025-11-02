@@ -20,11 +20,9 @@ class TestStructuredLogger:
         # Create with auto-generated name
         run_dir = logger.create_run_directory()
         assert run_dir.exists()
-        assert (run_dir / "txt2img").exists()
-        assert (run_dir / "img2img").exists()
-        assert (run_dir / "upscaled").exists()
-        assert (run_dir / "video").exists()
-        assert (run_dir / "manifests").exists()
+        # Note: Subdirectories are created on-demand, not pre-created
+        # The run directory itself should exist
+        assert run_dir.is_dir()
     
     def test_create_run_directory_custom_name(self, tmp_path):
         """Test creating run directory with custom name"""

@@ -37,9 +37,29 @@ The architecture emphasizes:
 ### Core Pipeline
 
 - **Automated Workflow**: txt2img → img2img cleanup → upscale → video creation
+- **Flexible Stage Control**: Skip img2img or upscale stages as needed via configuration
 - **SDXL Support**: Optimized presets and configurations for SDXL models
 - **Advanced Integrations**: Embeddings, LORAs, and custom model support
 - **Global NSFW Prevention**: Automatic negative prompt enhancement for all generations
+
+**Pipeline Configuration:**
+
+You can control which pipeline stages run by setting flags in your configuration:
+
+```json
+{
+  "pipeline": {
+    "img2img_enabled": false,  // Skip img2img cleanup stage
+    "upscale_enabled": true     // Keep upscale enabled
+  }
+}
+```
+
+**Stage Combinations:**
+- `txt2img → img2img → upscale` (all stages, default)
+- `txt2img → upscale` (skip img2img for faster results)
+- `txt2img → img2img` (skip upscale to save time)
+- `txt2img` only (fastest, just generation)
 
 ### User Interface
 

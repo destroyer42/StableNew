@@ -105,12 +105,39 @@ The pipeline consists of four sequential stages:
 - **Input:** Generated image + denoising strength
 - **Output:** Refined image
 - **Use Case:** Fix artifacts, improve quality
+- **Configuration:** Can be skipped by setting `pipeline.img2img_enabled: false`
 
-#### 3. Upscale - Enhance Quality
+#### 3. Upscale - Enhance Quality (Optional)
 - **Endpoint:** `POST /sdapi/v1/extra-single-image`
 - **Input:** Image + upscaler model + scale factor
 - **Output:** Upscaled image
 - **Options:** GFPGAN, CodeFormer for face restoration
+- **Configuration:** Can be skipped by setting `pipeline.upscale_enabled: false`
+
+### Flexible Pipeline Execution
+
+The pipeline supports flexible stage execution through configuration:
+
+```python
+config = {
+    "pipeline": {
+        "img2img_enabled": True,   # Enable img2img cleanup
+        "upscale_enabled": False    # Skip upscale for faster results
+    },
+    "txt2img": { ... },
+    "img2img": { ... },
+    "upscale": { ... }
+}
+```
+
+**Stage Flow Examples:**
+
+1. **Full Pipeline (default)**: `txt2img → img2img → upscale → video`
+2. **Skip img2img**: `txt2img → upscale → video`
+3. **Skip upscale**: `txt2img → img2img → video`
+4. **Fastest (txt2img only)**: `txt2img → video`
+
+When a stage is skipped, the pipeline automatically uses the output from the previous stage as input for the next stage. This allows for flexible workflows based on your quality vs. speed requirements.
 
 #### 4. Video - Create Sequence
 - **Tool:** FFmpeg command-line
