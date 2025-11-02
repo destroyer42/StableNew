@@ -151,3 +151,9 @@ Robust text I/O: UTF-8 + real newlines avoids the literal \n corruption that pre
 Manifests & CSVs: we get traceability and compact summaries for QA and curation right after each run.
 
 GUI with live console: transparency during long runs = faster triage and fewer “silent closes.”
+
+## Agent Roster
+- Baseline Pipeline Agent: agents/my-agent.md  — use for core pipeline changes and API/client/pipeline work.
+- 
+- GUI Revamp & Hygiene Agent (current sprint): agents/gui_revamp_archiver_agent.md — use for GUI state/cancel, Prompt Editor wiring, archiver polish, docs/CI.
+
