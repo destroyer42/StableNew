@@ -19,6 +19,8 @@ from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, va
 from ..utils.file_io import get_prompt_packs, read_prompt_pack
 from .enhanced_slider import EnhancedSlider
 from .advanced_prompt_editor import AdvancedPromptEditor
+from .state import StateManager, GUIState, CancelToken
+from .controller import PipelineController
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,10 @@ class StableNewGUI:
         self.client = None
         self.pipeline = None
         self.video_creator = VideoCreator()
+        
+        # Initialize state management and controller
+        self.state_manager = StateManager()
+        self.controller = PipelineController(self.state_manager)
         
         # GUI state
         self.selected_packs = []
@@ -231,8 +237,17 @@ class StableNewGUI:
         # Bottom frame - Compact log and action buttons
         self._build_bottom_panel(main_frame)
         
+        # Status bar - at the very bottom
+        self._build_status_bar(main_frame)
+        
         # Initialize UI state
         self._initialize_ui_state()
+        
+        # Setup state callbacks
+        self._setup_state_callbacks()
+        
+        # Start log update polling
+        self._poll_controller_logs()
     
     def _build_api_status_frame(self, parent):
         """Build compact API connection status frame"""
@@ -595,6 +610,63 @@ class StableNewGUI:
         self.log_text.tag_configure("WARNING", foreground="#FF9800")
         self.log_text.tag_configure("ERROR", foreground="#f44336")
         self.log_text.tag_configure("SUCCESS", foreground="#2196F3")
+    
+    def _build_status_bar(self, parent):
+        """Build status bar showing current state"""
+        status_frame = ttk.Frame(parent, style='Dark.TFrame', relief=tk.SUNKEN)
+        status_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        # State indicator
+        self.state_label = ttk.Label(
+            status_frame, 
+            text="● Idle", 
+            style='Dark.TLabel',
+            foreground='#4CAF50'
+        )
+        self.state_label.pack(side=tk.LEFT, padx=5)
+        
+        # Progress message
+        self.progress_message_var = tk.StringVar(value="Ready")
+        ttk.Label(
+            status_frame,
+            textvariable=self.progress_message_var,
+            style='Dark.TLabel'
+        ).pack(side=tk.LEFT, padx=10)
+        
+        # Spacer
+        ttk.Label(status_frame, text="", style='Dark.TLabel').pack(side=tk.LEFT, fill=tk.X, expand=True)
+    
+    def _setup_state_callbacks(self):
+        """Setup callbacks for state transitions"""
+        def on_state_change(old_state, new_state):
+            """Called when state changes"""
+            state_colors = {
+                GUIState.IDLE: ("#4CAF50", "● Idle"),
+                GUIState.RUNNING: ("#2196F3", "● Running"),
+                GUIState.STOPPING: ("#FF9800", "● Stopping"),
+                GUIState.ERROR: ("#f44336", "● Error")
+            }
+            
+            color, text = state_colors.get(new_state, ("#888888", "● Unknown"))
+            self.state_label.config(text=text, foreground=color)
+            
+            # Update button states
+            if new_state == GUIState.RUNNING:
+                self.run_pipeline_btn.config(state=tk.DISABLED)
+            elif new_state in (GUIState.IDLE, GUIState.ERROR):
+                self.run_pipeline_btn.config(state=tk.NORMAL if self.api_connected else tk.DISABLED)
+        
+        self.state_manager.on_transition(on_state_change)
+    
+    def _poll_controller_logs(self):
+        """Poll controller for log messages and display them"""
+        messages = self.controller.get_log_messages()
+        for msg in messages:
+            self.log_message(msg.message, msg.level)
+            self.progress_message_var.set(msg.message)
+        
+        # Schedule next poll
+        self.root.after(100, self._poll_controller_logs)
     
     def _check_api_connection(self):
         """Check API connection status with improved diagnostics"""
@@ -1311,9 +1383,11 @@ class StableNewGUI:
             messagebox.showinfo("No Output", "Output directory doesn't exist yet")
     
     def _stop_execution(self):
-        """Stop current execution (placeholder)"""
-        self.log_message("⏹️ Stop requested (not implemented)", "WARNING")
-        messagebox.showinfo("Stop", "Stop functionality not implemented yet")
+        """Stop the running pipeline"""
+        if self.controller.stop_pipeline():
+            self.log_message("⏹️ Stop requested - cancelling pipeline...", "WARNING")
+        else:
+            self.log_message("⏹️ No pipeline running", "INFO")
     
     def _open_prompt_editor(self):
         """Open the advanced prompt pack editor"""
@@ -2209,7 +2283,7 @@ class StableNewGUI:
         threading.Thread(target=check, daemon=True).start()
     
     def _run_pipeline(self):
-        """Run the full pipeline"""
+        """Run the full pipeline using controller"""
         if not self.client or not self.pipeline:
             messagebox.showerror("Error", "Please check API connection first")
             return
@@ -2234,40 +2308,52 @@ class StableNewGUI:
         batch_size = self.batch_size_var.get()
         run_name = self.run_name_var.get() or None
         
-        self.progress_var.set("Running pipeline...")
-        self.run_pipeline_btn.config(state=tk.DISABLED)
-        self._add_log_message(f"Starting pipeline with prompt: {prompt[:50]}...")
+        self.progress_message_var.set("Running pipeline...")
         
-        def run():
+        # Define pipeline function that checks cancel token
+        def pipeline_func():
             try:
+                # Pass cancel_token to pipeline
                 results = self.pipeline.run_full_pipeline(
-                    prompt, config, run_name, batch_size
+                    prompt, config, run_name, batch_size,
+                    cancel_token=self.controller.cancel_token
                 )
-                
-                output_dir = results.get("run_dir", "Unknown")
-                num_images = len(results.get("summary", []))
-                
-                self.root.after(0, lambda: self._add_log_message(
-                    f"✓ Pipeline completed: {num_images} images generated"
-                ))
-                self.root.after(0, lambda: self._add_log_message(
-                    f"Output directory: {output_dir}"
-                ))
-                self.root.after(0, lambda: self.progress_var.set(
-                    f"Completed: {num_images} images"
-                ))
-                self.root.after(0, lambda: messagebox.showinfo(
-                    "Success", 
-                    f"Pipeline completed!\n{num_images} images generated\nOutput: {output_dir}"
-                ))
+                return results
             except Exception as e:
-                self.root.after(0, lambda: self._add_log_message(f"✗ Error: {str(e)}"))
-                self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
-                self.root.after(0, lambda: self.progress_var.set("Error"))
-            finally:
-                self.root.after(0, lambda: self.run_pipeline_btn.config(state=tk.NORMAL))
+                logger.exception("Pipeline execution error")
+                raise
         
-        threading.Thread(target=run, daemon=True).start()
+        # Completion callback
+        def on_complete(results):
+            output_dir = results.get("run_dir", "Unknown")
+            num_images = len(results.get("summary", []))
+            
+            self.root.after(0, lambda: self.log_message(
+                f"✓ Pipeline completed: {num_images} images generated", "SUCCESS"
+            ))
+            self.root.after(0, lambda: self.log_message(
+                f"Output directory: {output_dir}", "INFO"
+            ))
+            self.root.after(0, lambda: self.progress_message_var.set(
+                f"Completed: {num_images} images"
+            ))
+            self.root.after(0, lambda: messagebox.showinfo(
+                "Success", 
+                f"Pipeline completed!\n{num_images} images generated\nOutput: {output_dir}"
+            ))
+        
+        # Error callback
+        def on_error(e):
+            self.root.after(0, lambda: self.log_message(f"✗ Error: {str(e)}", "ERROR"))
+            self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
+            self.root.after(0, lambda: self.progress_message_var.set("Error"))
+        
+        # Start pipeline using controller
+        self.controller.start_pipeline(
+            pipeline_func,
+            on_complete=on_complete,
+            on_error=on_error
+        )
     
     def _create_video(self):
         """Create video from output images"""
