@@ -1,17 +1,348 @@
+"""
+Prompt Pack Panel - UI component for managing and selecting prompt packs.
+"""
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox, simpledialog
+from pathlib import Path
+from typing import Optional, Callable, List
+import logging
+
+from ..utils.file_io import get_prompt_packs
+
+logger = logging.getLogger(__name__)
+
 
 class PromptPackPanel(ttk.Frame):
     """
     A UI panel for managing and selecting prompt packs.
+    
+    This panel handles:
+    - Displaying available prompt packs
+    - Multi-select listbox for pack selection
+    - Custom pack lists (save/load/edit/delete)
+    - Refresh and advanced editor integration
+    
+    It communicates with a coordinator via callbacks for selection changes.
     """
-    def __init__(self, parent, coordinator, list_manager, **kwargs):
+    
+    def __init__(
+        self,
+        parent: tk.Widget,
+        coordinator: Optional[object] = None,
+        list_manager: Optional[object] = None,
+        on_selection_changed: Optional[Callable[[List[str]], None]] = None,
+        on_advanced_editor: Optional[Callable[[], None]] = None,
+        **kwargs
+    ):
+        """
+        Initialize the PromptPackPanel.
+        
+        Args:
+            parent: Parent widget
+            coordinator: Coordinator object (for mediator pattern)
+            list_manager: PromptPackListManager instance for custom lists
+            on_selection_changed: Callback when pack selection changes, receives list of selected pack names
+            on_advanced_editor: Callback to open advanced editor
+            **kwargs: Additional frame options
+        """
         super().__init__(parent, **kwargs)
         self.parent = parent
         self.coordinator = coordinator
         self.list_manager = list_manager
-
-        # We will move the UI building code here in the next step.
-        # For now, this is enough to make the test pass.
-        label = ttk.Label(self, text="Prompt Pack Panel Placeholder")
-        label.pack()
+        self._on_selection_changed = on_selection_changed
+        self._on_advanced_editor = on_advanced_editor
+        
+        # Internal state
+        self._last_selected_pack: Optional[str] = None
+        
+        # Build UI
+        self._build_ui()
+        
+        # Load initial packs
+        self.refresh_packs(silent=True)
+        
+    def _build_ui(self):
+        """Build the panel UI."""
+        # Prompt packs section - compact
+        packs_frame = ttk.LabelFrame(
+            self, text="📝 Prompt Packs", style='Dark.TFrame', padding=5
+        )
+        packs_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Compact list management
+        self._build_list_management(packs_frame)
+        
+        # Multi-select listbox for prompt packs
+        self._build_packs_listbox(packs_frame)
+        
+        # Pack management buttons
+        self._build_pack_buttons(packs_frame)
+        
+    def _build_list_management(self, parent):
+        """Build custom list management controls."""
+        list_mgmt_frame = ttk.Frame(parent, style='Dark.TFrame')
+        list_mgmt_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(list_mgmt_frame, text="Lists:", style='Dark.TLabel').pack(side=tk.LEFT)
+        
+        self.saved_lists_var = tk.StringVar()
+        self.saved_lists_combo = ttk.Combobox(
+            list_mgmt_frame,
+            textvariable=self.saved_lists_var,
+            style='Dark.TCombobox',
+            width=15,
+            state='readonly'
+        )
+        self.saved_lists_combo.pack(side=tk.LEFT, padx=(3, 2))
+        
+        # Update combo values if list_manager is available
+        if self.list_manager:
+            self.saved_lists_combo['values'] = self.list_manager.get_list_names()
+        
+        # Compact button layout
+        btn_frame = ttk.Frame(list_mgmt_frame, style='Dark.TFrame')
+        btn_frame.pack(side=tk.LEFT, padx=(3, 0))
+        
+        ttk.Button(
+            btn_frame, text="📁", command=self._load_pack_list,
+            style='Dark.TButton', width=3
+        ).grid(row=0, column=0, padx=1)
+        
+        ttk.Button(
+            btn_frame, text="💾", command=self._save_pack_list,
+            style='Dark.TButton', width=3
+        ).grid(row=0, column=1, padx=1)
+        
+        ttk.Button(
+            btn_frame, text="✏️", command=self._edit_pack_list,
+            style='Dark.TButton', width=3
+        ).grid(row=0, column=2, padx=1)
+        
+        ttk.Button(
+            btn_frame, text="🗑️", command=self._delete_pack_list,
+            style='Dark.TButton', width=3
+        ).grid(row=0, column=3, padx=1)
+        
+    def _build_packs_listbox(self, parent):
+        """Build the packs listbox with scrollbar."""
+        packs_list_frame = ttk.Frame(parent, style='Dark.TFrame')
+        packs_list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Listbox with scrollbar
+        listbox_frame = tk.Frame(packs_list_frame, bg='#2b2b2b')
+        listbox_frame.pack(fill=tk.BOTH, expand=True)
+        
+        scrollbar = tk.Scrollbar(listbox_frame, bg='#404040', troughcolor='#2b2b2b')
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.packs_listbox = tk.Listbox(
+            listbox_frame,
+            selectmode=tk.EXTENDED,
+            yscrollcommand=scrollbar.set,
+            bg='#3d3d3d',
+            fg='#ffffff',
+            selectbackground='#0078d4',
+            selectforeground='#ffffff',
+            font=('Segoe UI', 9, 'bold'),
+            borderwidth=2,
+            highlightthickness=1,
+            highlightcolor='#0078d4',
+            activestyle='dotbox'
+        )
+        self.packs_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.packs_listbox.yview)
+        
+        # Bind selection events
+        self.packs_listbox.bind('<<ListboxSelect>>', self._on_pack_selection_changed)
+        
+    def _build_pack_buttons(self, parent):
+        """Build pack management buttons."""
+        pack_buttons_frame = ttk.Frame(parent, style='Dark.TFrame')
+        pack_buttons_frame.pack(pady=(10, 0))
+        
+        ttk.Button(
+            pack_buttons_frame,
+            text="🔄 Refresh Packs",
+            command=lambda: self.refresh_packs(silent=False),
+            style='Dark.TButton'
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        
+        if self._on_advanced_editor:
+            ttk.Button(
+                pack_buttons_frame,
+                text="✏️ Advanced Editor",
+                command=self._on_advanced_editor,
+                style='Dark.TButton'
+            ).pack(side=tk.LEFT)
+            
+    def _on_pack_selection_changed(self, event=None):
+        """Handle prompt pack selection changes."""
+        selected_indices = self.packs_listbox.curselection()
+        selected_packs = [self.packs_listbox.get(i) for i in selected_indices]
+        
+        if selected_packs:
+            self._last_selected_pack = selected_packs[0]
+            logger.debug(f"Pack selection changed: {selected_packs}")
+        else:
+            self._last_selected_pack = None
+            
+        # Update visual highlighting
+        self._update_selection_highlights()
+        
+        # Notify coordinator via callback
+        if self._on_selection_changed:
+            self._on_selection_changed(selected_packs)
+            
+    def _update_selection_highlights(self):
+        """Update visual highlighting for selected items."""
+        # Reset all items to default background
+        for i in range(self.packs_listbox.size()):
+            self.packs_listbox.itemconfig(i, {'bg': '#3d3d3d'})
+        
+        # Highlight selected items
+        for index in self.packs_listbox.curselection():
+            self.packs_listbox.itemconfig(index, {'bg': '#0078d4'})
+            
+    def refresh_packs(self, silent: bool = False):
+        """
+        Refresh the prompt packs list from the packs directory.
+        
+        Args:
+            silent: If True, don't log the refresh action
+        """
+        packs_dir = Path("packs")
+        pack_files = get_prompt_packs(packs_dir)
+        
+        # Save current selection
+        current_selection = self.get_selected_packs()
+        
+        # Clear and repopulate
+        self.packs_listbox.delete(0, tk.END)
+        for pack_file in pack_files:
+            self.packs_listbox.insert(tk.END, pack_file.name)
+            
+        # Restore selection if possible
+        if current_selection:
+            for i in range(self.packs_listbox.size()):
+                pack_name = self.packs_listbox.get(i)
+                if pack_name in current_selection:
+                    self.packs_listbox.selection_set(i)
+        
+        if not silent:
+            logger.info(f"Found {len(pack_files)} prompt packs")
+            
+    def get_selected_packs(self) -> List[str]:
+        """
+        Get list of currently selected pack names.
+        
+        Returns:
+            List of selected pack names
+        """
+        selected_indices = self.packs_listbox.curselection()
+        return [self.packs_listbox.get(i) for i in selected_indices]
+        
+    def set_selected_packs(self, pack_names: List[str]):
+        """
+        Set the selected packs by name.
+        
+        Args:
+            pack_names: List of pack names to select
+        """
+        # Clear current selection
+        self.packs_listbox.selection_clear(0, tk.END)
+        
+        # Select specified packs
+        for i in range(self.packs_listbox.size()):
+            pack_name = self.packs_listbox.get(i)
+            if pack_name in pack_names:
+                self.packs_listbox.selection_set(i)
+                
+        # Trigger selection change callback
+        self._on_pack_selection_changed()
+        
+    def select_first_pack(self):
+        """Select the first pack if available."""
+        if self.packs_listbox.size() > 0:
+            self.packs_listbox.selection_set(0)
+            self.packs_listbox.activate(0)
+            self._on_pack_selection_changed()
+            
+    def _load_pack_list(self):
+        """Load saved pack list."""
+        if not self.list_manager:
+            messagebox.showwarning("No Manager", "List manager not configured")
+            return
+            
+        list_name = self.saved_lists_var.get()
+        if not list_name:
+            return
+            
+        pack_list = self.list_manager.get_list(list_name)
+        if pack_list is None:
+            return
+            
+        # Set selection to the packs in the list
+        self.set_selected_packs(pack_list)
+        logger.info(f"Loaded pack list: {list_name}")
+        
+    def _save_pack_list(self):
+        """Save current pack selection as list."""
+        if not self.list_manager:
+            messagebox.showwarning("No Manager", "List manager not configured")
+            return
+            
+        selected_packs = self.get_selected_packs()
+        if not selected_packs:
+            messagebox.showwarning("No Selection", "Please select prompt packs first")
+            return
+            
+        list_name = simpledialog.askstring("Save List", "Enter list name:")
+        if not list_name:
+            return
+            
+        if self.list_manager.save_list(list_name, selected_packs):
+            # Update combo box
+            self.saved_lists_combo['values'] = self.list_manager.get_list_names()
+            logger.info(f"Saved pack list: {list_name}")
+            messagebox.showinfo("Success", f"List '{list_name}' saved successfully")
+        else:
+            messagebox.showerror("Save Error", "Failed to save list")
+            
+    def _edit_pack_list(self):
+        """Edit existing pack list."""
+        if not self.list_manager:
+            messagebox.showwarning("No Manager", "List manager not configured")
+            return
+            
+        list_name = self.saved_lists_var.get()
+        if not list_name:
+            messagebox.showinfo("No List Selected", "Please select a list to edit")
+            return
+            
+        # Load the list for editing
+        self._load_pack_list()
+        messagebox.showinfo(
+            "Edit Mode",
+            f"List '{list_name}' loaded for editing.\n"
+            "Modify selection and save to update."
+        )
+        
+    def _delete_pack_list(self):
+        """Delete saved pack list."""
+        if not self.list_manager:
+            messagebox.showwarning("No Manager", "List manager not configured")
+            return
+            
+        list_name = self.saved_lists_var.get()
+        if not list_name:
+            return
+            
+        if messagebox.askyesno("Confirm Delete", f"Delete list '{list_name}'?"):
+            if self.list_manager.delete_list(list_name):
+                # Update combo box
+                self.saved_lists_combo['values'] = self.list_manager.get_list_names()
+                self.saved_lists_var.set("")
+                logger.info(f"Deleted pack list: {list_name}")
+                messagebox.showinfo("Success", f"List '{list_name}' deleted")
+            else:
+                messagebox.showerror("Delete Error", "Failed to delete list")
