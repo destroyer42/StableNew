@@ -140,12 +140,23 @@ StableNew/
 
 ## Documentation
 
-Additional documentation is available in the [`docs/`](docs/) directory:
+### Core Documentation
 
-- **[Configuration Testing Guide](docs/CONFIGURATION_TESTING_GUIDE.md)** - Detailed guide for maintaining configuration integrity and validation testing
-- **[Launchers Guide](docs/LAUNCHERS.md)** - Information about desktop shortcuts and launch scripts
+- **[Architecture](ARCHITECTURE.md)** - System architecture, pipeline flow, GUI state machine, and cancellation mechanism
+- **[Contributing](CONTRIBUTING.md)** - Development setup, coding standards, testing guidelines, and PR process
+- **[Changelog](CHANGELOG.md)** - Version history and release notes
 
-**Scripts available in [`scripts/`](scripts/) directory:**
+### Additional Guides
+
+Available in the [`docs/`](docs/) directory:
+
+- **[Configuration Testing Guide](docs/CONFIGURATION_TESTING_GUIDE.md)** - Maintaining configuration integrity and validation testing
+- **[Launchers Guide](docs/LAUNCHERS.md)** - Desktop shortcuts and launch scripts
+- **[Project Reorganization](docs/PROJECT_REORGANIZATION_SUMMARY.md)** - Historical project structure changes
+
+### Scripts
+
+Available in [`scripts/`](scripts/) directory:
 
 - `create_shortcuts.ps1` - Create desktop shortcuts (recommended)
 - `launch_stablenew.bat` - Direct launcher for Windows
