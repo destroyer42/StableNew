@@ -304,11 +304,11 @@ class Pipeline:
                          run_name: Optional[str] = None,
                          batch_size: int = 1) -> Dict[str, Any]:
         """
-        Run complete pipeline: txt2img → img2img → upscale.
+        Run complete pipeline: txt2img → img2img (optional) → upscale (optional).
         
         Args:
             prompt: Text prompt
-            config: Full pipeline configuration
+            config: Full pipeline configuration with optional pipeline.img2img_enabled and pipeline.upscale_enabled
             run_name: Optional run name
             batch_size: Number of images to generate
             
@@ -317,6 +317,12 @@ class Pipeline:
         """
         logger.info("=" * 60)
         logger.info("Starting full pipeline execution")
+        
+        # Check pipeline stage configuration
+        img2img_enabled = config.get("pipeline", {}).get("img2img_enabled", True)
+        upscale_enabled = config.get("pipeline", {}).get("upscale_enabled", True)
+        
+        logger.info(f"Pipeline stages: txt2img=ON, img2img={'ON' if img2img_enabled else 'SKIP'}, upscale={'ON' if upscale_enabled else 'SKIP'}")
         logger.info("=" * 60)
         
         # Create run directory
@@ -344,35 +350,62 @@ class Pipeline:
             logger.error("Pipeline failed at txt2img stage")
             return results
         
-        # Step 2: img2img cleanup (for each generated image)
+        # Step 2: img2img cleanup (optional, for each generated image)
         for txt2img_meta in txt2img_results:
-            img2img_meta = self.run_img2img(
-                Path(txt2img_meta["path"]),
-                prompt,
-                config.get("img2img", {}),
-                run_dir
-            )
-            if img2img_meta:
-                results["img2img"].append(img2img_meta)
-                
-                # Step 3: Upscale
+            last_image_path = txt2img_meta["path"]
+            
+            if img2img_enabled:
+                img2img_meta = self.run_img2img(
+                    Path(txt2img_meta["path"]),
+                    prompt,
+                    config.get("img2img", {}),
+                    run_dir
+                )
+                if img2img_meta:
+                    results["img2img"].append(img2img_meta)
+                    last_image_path = img2img_meta["path"]
+                    logger.info(f"✓ img2img completed for {txt2img_meta['name']}")
+                else:
+                    logger.warning(f"img2img failed for {txt2img_meta['name']}, using txt2img output")
+            else:
+                logger.info(f"⊘ img2img skipped for {txt2img_meta['name']}")
+            
+            # Step 3: Upscale (optional)
+            if upscale_enabled:
                 upscaled_meta = self.run_upscale(
-                    Path(img2img_meta["path"]),
+                    Path(last_image_path),
                     config.get("upscale", {}),
                     run_dir
                 )
                 if upscaled_meta:
                     results["upscaled"].append(upscaled_meta)
-                    
-                    # Add to summary
-                    summary_entry = {
-                        "prompt": prompt,
-                        "txt2img_path": txt2img_meta["path"],
-                        "img2img_path": img2img_meta["path"],
-                        "upscaled_path": upscaled_meta["path"],
-                        "timestamp": upscaled_meta["timestamp"]
-                    }
-                    results["summary"].append(summary_entry)
+                    logger.info(f"✓ upscale completed for {txt2img_meta['name']}")
+                    final_image_path = upscaled_meta["path"]
+                else:
+                    logger.warning(f"upscale failed for {txt2img_meta['name']}, using previous output")
+                    final_image_path = last_image_path
+            else:
+                logger.info(f"⊘ upscale skipped for {txt2img_meta['name']}")
+                final_image_path = last_image_path
+            
+            # Add to summary
+            summary_entry = {
+                "prompt": prompt,
+                "txt2img_path": txt2img_meta["path"],
+                "final_image_path": final_image_path,
+                "timestamp": txt2img_meta["timestamp"],
+                "stages_completed": ["txt2img"]
+            }
+            
+            if img2img_enabled and results["img2img"]:
+                summary_entry["img2img_path"] = results["img2img"][-1]["path"]
+                summary_entry["stages_completed"].append("img2img")
+            
+            if upscale_enabled and results["upscaled"]:
+                summary_entry["upscaled_path"] = results["upscaled"][-1]["path"]
+                summary_entry["stages_completed"].append("upscale")
+            
+            results["summary"].append(summary_entry)
         
         # Create CSV summary
         if results["summary"]:
