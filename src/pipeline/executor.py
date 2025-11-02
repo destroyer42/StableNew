@@ -397,11 +397,13 @@ class Pipeline:
                 "stages_completed": ["txt2img"]
             }
             
-            if img2img_enabled and results["img2img"]:
+            # Add img2img path if stage was executed and successful
+            if img2img_enabled and len(results["img2img"]) > 0:
                 summary_entry["img2img_path"] = results["img2img"][-1]["path"]
                 summary_entry["stages_completed"].append("img2img")
             
-            if upscale_enabled and results["upscaled"]:
+            # Add upscale path if stage was executed and successful
+            if upscale_enabled and len(results["upscaled"]) > 0:
                 summary_entry["upscaled_path"] = results["upscaled"][-1]["path"]
                 summary_entry["stages_completed"].append("upscale")
             
