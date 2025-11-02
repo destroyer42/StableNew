@@ -36,13 +36,25 @@ env/
 # Testing
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+.tox/
+.nox/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ruff
+.ruff_cache/
 
 # Output directories
 output/
 runs/
 temp/
 tmp/
+manifests/
 
 # Logs
 *.log
@@ -51,3 +63,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Pre-commit
+.pre-commit-cache/
