@@ -604,9 +604,16 @@ class Pipeline:
                 }
                 
                 # Save manifest to manifests directory
-                # Get the pack directory (parent of parent of output_dir)
-                pack_dir = output_dir.parent
-                manifest_dir = pack_dir / "manifests"
+                # Get the run directory (for CLI) or pack directory (for GUI)
+                if output_dir.name in ["txt2img", "img2img", "upscaled"]:
+                    # GUI mode: output_dir is stage dir, parent is pack dir, grandparent is run dir
+                    pack_dir = output_dir.parent
+                    manifest_dir = pack_dir / "manifests"
+                else:
+                    # CLI mode: output_dir is the run dir, create manifests there
+                    manifest_dir = output_dir / "manifests"
+                
+                manifest_dir.mkdir(exist_ok=True)
                 manifest_path = manifest_dir / f"{image_name}.json"
                 with open(manifest_path, 'w', encoding='utf-8') as f:
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
@@ -692,8 +699,16 @@ class Pipeline:
                 }
                 
                 # Save manifest to manifests directory
-                pack_dir = output_dir.parent
-                manifest_dir = pack_dir / "manifests"
+                # Get the run directory (for CLI) or pack directory (for GUI)
+                if output_dir.name in ["txt2img", "img2img", "upscaled"]:
+                    # GUI mode: output_dir is stage dir, parent is pack dir, grandparent is run dir
+                    pack_dir = output_dir.parent
+                    manifest_dir = pack_dir / "manifests"
+                else:
+                    # CLI mode: output_dir is the run dir, create manifests there
+                    manifest_dir = output_dir / "manifests"
+                
+                manifest_dir.mkdir(exist_ok=True)
                 manifest_path = manifest_dir / f"{image_name}.json"
                 with open(manifest_path, 'w', encoding='utf-8') as f:
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
@@ -815,8 +830,16 @@ class Pipeline:
                 }
                 
                 # Save manifest to manifests directory
-                pack_dir = output_dir.parent
-                manifest_dir = pack_dir / "manifests"
+                # Get the run directory (for CLI) or pack directory (for GUI)
+                if output_dir.name in ["txt2img", "img2img", "upscaled"]:
+                    # GUI mode: output_dir is stage dir, parent is pack dir, grandparent is run dir
+                    pack_dir = output_dir.parent
+                    manifest_dir = pack_dir / "manifests"
+                else:
+                    # CLI mode: output_dir is the run dir, create manifests there
+                    manifest_dir = output_dir / "manifests"
+                
+                manifest_dir.mkdir(exist_ok=True)
                 manifest_path = manifest_dir / f"{image_name}.json"
                 with open(manifest_path, 'w', encoding='utf-8') as f:
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
