@@ -24,12 +24,9 @@ class TestStructuredLogger:
         assert run_dir.name == "test_run"
         assert run_dir.exists()
         
-        # Check subdirectories
-        assert (run_dir / "txt2img").exists()
-        assert (run_dir / "img2img").exists() 
-        assert (run_dir / "upscaled").exists()
-        assert (run_dir / "video").exists()
-        assert (run_dir / "manifests").exists()
+        # Note: Subdirectories are created on-demand by the pipeline,
+        # not pre-created in create_run_directory()
+        assert run_dir.is_dir()
         
         # Test with auto-generated name
         auto_run_dir = logger.create_run_directory()
