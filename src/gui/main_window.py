@@ -17,6 +17,8 @@ from ..pipeline import Pipeline, VideoCreator
 from ..utils import ConfigManager, StructuredLogger, setup_logging
 from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
 from ..utils.file_io import get_prompt_packs, read_prompt_pack
+from .enhanced_slider import EnhancedSlider
+from .advanced_prompt_editor import AdvancedPromptEditor
 
 logger = logging.getLogger(__name__)
 
@@ -312,9 +314,14 @@ class StableNewGUI:
         # Bind selection events for dynamic config updates
         self.packs_listbox.bind('<<ListboxSelect>>', self._on_pack_selection_changed)
         
-        # Refresh packs button
-        ttk.Button(packs_frame, text="🔄 Refresh Packs", command=self._refresh_prompt_packs,
-                  style='Dark.TButton').pack(pady=(10, 0))
+        # Pack management buttons
+        pack_buttons_frame = ttk.Frame(packs_frame, style='Dark.TFrame')
+        pack_buttons_frame.pack(pady=(10, 0))
+        
+        ttk.Button(pack_buttons_frame, text="🔄 Refresh Packs", command=self._refresh_prompt_packs,
+                  style='Dark.TButton').pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(pack_buttons_frame, text="✏️ Advanced Editor", command=self._open_advanced_editor,
+                  style='Dark.TButton').pack(side=tk.LEFT)
         
         # Load prompt packs (defer logging until log widget is ready)
         self._refresh_prompt_packs_silent()
@@ -1308,6 +1315,30 @@ class StableNewGUI:
         self.log_message("⏹️ Stop requested (not implemented)", "WARNING")
         messagebox.showinfo("Stop", "Stop functionality not implemented yet")
     
+    def _open_prompt_editor(self):
+        """Open the advanced prompt pack editor"""
+        selected_indices = self.packs_listbox.curselection()
+        pack_path = None
+        
+        if selected_indices:
+            pack_name = self.packs_listbox.get(selected_indices[0])
+            pack_path = Path("packs") / pack_name
+        
+        # Initialize advanced editor if not already done
+        if not hasattr(self, 'advanced_editor'):
+            self.advanced_editor = AdvancedPromptEditor(
+                parent_window=self.root,
+                config_manager=self.config_manager,
+                on_packs_changed=self._refresh_prompt_packs
+            )
+        
+        # Open editor with selected pack
+        self.advanced_editor.open_editor(pack_path)
+    
+    def _open_advanced_editor(self):
+        """Wrapper method for opening advanced editor (called by button)"""
+        self._open_prompt_editor()
+    
     def _graceful_exit(self):
         """Gracefully exit the application"""
         self.log_message("Shutting down gracefully...", "INFO")
@@ -1420,12 +1451,11 @@ class StableNewGUI:
         cfg_row.pack(fill=tk.X, pady=2)
         ttk.Label(cfg_row, text="CFG Scale:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.txt2img_vars['cfg_scale'] = tk.DoubleVar(value=7.0)
-        cfg_scale = ttk.Scale(cfg_row, from_=1.0, to=20.0, variable=self.txt2img_vars['cfg_scale'], orient=tk.HORIZONTAL, length=150)
-        cfg_scale.pack(side=tk.LEFT, padx=(5, 5))
-        cfg_label = ttk.Label(cfg_row, text="7.0", style='Dark.TLabel', width=4)
-        cfg_label.pack(side=tk.LEFT)
-        cfg_scale.configure(command=lambda val: cfg_label.configure(text=f"{float(val):.1f}"))
-        self.txt2img_widgets['cfg_scale'] = cfg_scale
+        cfg_slider = EnhancedSlider(cfg_row, from_=1.0, to=20.0, 
+                                  variable=self.txt2img_vars['cfg_scale'], 
+                                  resolution=0.1, width=120)
+        cfg_slider.pack(side=tk.LEFT, padx=(5, 5))
+        self.txt2img_widgets['cfg_scale'] = cfg_slider
         
         # Dimensions - compact single row
         dims_frame = ttk.LabelFrame(scrollable_frame, text="Image Dimensions", style='Dark.TFrame', padding=5)
@@ -1478,7 +1508,7 @@ class StableNewGUI:
         ttk.Label(scheduler_row, text="Scheduler:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.txt2img_vars['scheduler'] = tk.StringVar(value="normal")
         scheduler_combo = ttk.Combobox(scheduler_row, textvariable=self.txt2img_vars['scheduler'],
-                                     values=["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform", "beta", "linear", "cosine"],
+                                     values=["normal", "Karras", "exponential", "sgm_uniform", "simple", "ddim_uniform", "beta", "linear", "cosine"],
                                      width=15, state="readonly")
         scheduler_combo.pack(side=tk.LEFT, padx=(5, 0))
         self.txt2img_widgets['scheduler'] = scheduler_combo
@@ -1549,12 +1579,11 @@ class StableNewGUI:
         hr_denoise_row.pack(fill=tk.X, pady=2)
         ttk.Label(hr_denoise_row, text="HR Denoising:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.txt2img_vars['denoising_strength'] = tk.DoubleVar(value=0.7)
-        hr_denoise_scale = ttk.Scale(hr_denoise_row, from_=0.0, to=1.0, variable=self.txt2img_vars['denoising_strength'], orient=tk.HORIZONTAL, length=150)
-        hr_denoise_scale.pack(side=tk.LEFT, padx=(5, 5))
-        hr_denoise_label = ttk.Label(hr_denoise_row, text="0.7", style='Dark.TLabel', width=4)
-        hr_denoise_label.pack(side=tk.LEFT)
-        hr_denoise_scale.configure(command=lambda val: hr_denoise_label.configure(text=f"{float(val):.2f}"))
-        self.txt2img_widgets['denoising_strength'] = hr_denoise_scale
+        hr_denoise_slider = EnhancedSlider(hr_denoise_row, from_=0.0, to=1.0, 
+                                          variable=self.txt2img_vars['denoising_strength'], 
+                                          resolution=0.05, length=150)
+        hr_denoise_slider.pack(side=tk.LEFT, padx=(5, 5))
+        self.txt2img_widgets['denoising_strength'] = hr_denoise_slider
         
         # Additional Positive Prompt - compact
         pos_frame = ttk.LabelFrame(scrollable_frame, text="Additional Positive Prompt (appended to pack prompts)", style='Dark.TFrame', padding=5)
@@ -1612,12 +1641,11 @@ class StableNewGUI:
         denoise_row.pack(fill=tk.X, pady=2)
         ttk.Label(denoise_row, text="Denoising:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.img2img_vars['denoising_strength'] = tk.DoubleVar(value=0.3)
-        denoise_scale = ttk.Scale(denoise_row, from_=0.0, to=1.0, variable=self.img2img_vars['denoising_strength'], orient=tk.HORIZONTAL, length=150)
-        denoise_scale.pack(side=tk.LEFT, padx=(5, 5))
-        denoise_label = ttk.Label(denoise_row, text="0.3", style='Dark.TLabel', width=4)
-        denoise_label.pack(side=tk.LEFT)
-        denoise_scale.configure(command=lambda val: denoise_label.configure(text=f"{float(val):.2f}"))
-        self.img2img_widgets['denoising_strength'] = denoise_scale
+        denoise_slider = EnhancedSlider(denoise_row, from_=0.0, to=1.0, 
+                                      variable=self.img2img_vars['denoising_strength'], 
+                                      resolution=0.01, width=120)
+        denoise_slider.pack(side=tk.LEFT, padx=(5, 5))
+        self.img2img_widgets['denoising_strength'] = denoise_slider
         
         # Sampler
         sampler_row = ttk.Frame(gen_frame, style='Dark.TFrame')
@@ -1635,12 +1663,11 @@ class StableNewGUI:
         cfg_row.pack(fill=tk.X, pady=2)
         ttk.Label(cfg_row, text="CFG Scale:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.img2img_vars['cfg_scale'] = tk.DoubleVar(value=7.0)
-        cfg_scale = ttk.Scale(cfg_row, from_=1.0, to=20.0, variable=self.img2img_vars['cfg_scale'], orient=tk.HORIZONTAL, length=150)
-        cfg_scale.pack(side=tk.LEFT, padx=(5, 5))
-        cfg_label = ttk.Label(cfg_row, text="7.0", style='Dark.TLabel', width=4)
-        cfg_label.pack(side=tk.LEFT)
-        cfg_scale.configure(command=lambda val: cfg_label.configure(text=f"{float(val):.1f}"))
-        self.img2img_widgets['cfg_scale'] = cfg_scale
+        cfg_slider = EnhancedSlider(cfg_row, from_=1.0, to=20.0, 
+                                   variable=self.img2img_vars['cfg_scale'], 
+                                   resolution=0.5, length=150)
+        cfg_slider.pack(side=tk.LEFT, padx=(5, 5))
+        self.img2img_widgets['cfg_scale'] = cfg_slider
         
         # Advanced Settings
         advanced_frame = ttk.LabelFrame(scrollable_frame, text="Advanced Settings", style='Dark.TFrame', padding=5)
@@ -1672,7 +1699,7 @@ class StableNewGUI:
         ttk.Label(scheduler_row, text="Scheduler:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.img2img_vars['scheduler'] = tk.StringVar(value="normal")
         scheduler_combo = ttk.Combobox(scheduler_row, textvariable=self.img2img_vars['scheduler'],
-                                     values=["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform", "beta", "linear", "cosine"],
+                                     values=["normal", "Karras", "exponential", "sgm_uniform", "simple", "ddim_uniform", "beta", "linear", "cosine"],
                                      width=15, state="readonly")
         scheduler_combo.pack(side=tk.LEFT, padx=(5, 0))
         self.img2img_widgets['scheduler'] = scheduler_combo
@@ -1765,12 +1792,11 @@ class StableNewGUI:
         denoise_row.pack(fill=tk.X, pady=2)
         ttk.Label(denoise_row, text="Denoising:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.upscale_vars['denoising_strength'] = tk.DoubleVar(value=0.35)
-        denoise_scale = ttk.Scale(denoise_row, from_=0.0, to=1.0, variable=self.upscale_vars['denoising_strength'], orient=tk.HORIZONTAL, length=150)
-        denoise_scale.pack(side=tk.LEFT, padx=(5, 5))
-        denoise_label = ttk.Label(denoise_row, text="0.35", style='Dark.TLabel', width=4)
-        denoise_label.pack(side=tk.LEFT)
-        denoise_scale.configure(command=lambda val: denoise_label.configure(text=f"{float(val):.2f}"))
-        self.upscale_widgets['denoising_strength'] = denoise_scale
+        denoise_slider = EnhancedSlider(denoise_row, from_=0.0, to=1.0, 
+                                       variable=self.upscale_vars['denoising_strength'], 
+                                       resolution=0.05, length=150)
+        denoise_slider.pack(side=tk.LEFT, padx=(5, 5))
+        self.upscale_widgets['denoising_strength'] = denoise_slider
         
         # Face Restoration
         face_frame = ttk.LabelFrame(scrollable_frame, text="Face Restoration", style='Dark.TFrame', padding=5)
@@ -1780,37 +1806,34 @@ class StableNewGUI:
         gfpgan_row = ttk.Frame(face_frame, style='Dark.TFrame')
         gfpgan_row.pack(fill=tk.X, pady=2)
         ttk.Label(gfpgan_row, text="GFPGAN:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
-        self.upscale_vars['gfpgan_visibility'] = tk.DoubleVar(value=0.0)
-        gfpgan_scale = ttk.Scale(gfpgan_row, from_=0.0, to=1.0, variable=self.upscale_vars['gfpgan_visibility'], orient=tk.HORIZONTAL, length=150)
-        gfpgan_scale.pack(side=tk.LEFT, padx=(5, 5))
-        gfpgan_label = ttk.Label(gfpgan_row, text="0.0", style='Dark.TLabel', width=4)
-        gfpgan_label.pack(side=tk.LEFT)
-        gfpgan_scale.configure(command=lambda val: gfpgan_label.configure(text=f"{float(val):.2f}"))
-        self.upscale_widgets['gfpgan_visibility'] = gfpgan_scale
+        self.upscale_vars['gfpgan_visibility'] = tk.DoubleVar(value=0.5)  # Default to 0.5
+        gfpgan_slider = EnhancedSlider(gfpgan_row, from_=0.0, to=1.0, 
+                                     variable=self.upscale_vars['gfpgan_visibility'], 
+                                     resolution=0.01, width=120)
+        gfpgan_slider.pack(side=tk.LEFT, padx=(5, 5))
+        self.upscale_widgets['gfpgan_visibility'] = gfpgan_slider
         
         # CodeFormer
         codeformer_row = ttk.Frame(face_frame, style='Dark.TFrame')
         codeformer_row.pack(fill=tk.X, pady=2)
         ttk.Label(codeformer_row, text="CodeFormer:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.upscale_vars['codeformer_visibility'] = tk.DoubleVar(value=0.0)
-        codeformer_scale = ttk.Scale(codeformer_row, from_=0.0, to=1.0, variable=self.upscale_vars['codeformer_visibility'], orient=tk.HORIZONTAL, length=150)
-        codeformer_scale.pack(side=tk.LEFT, padx=(5, 5))
-        codeformer_label = ttk.Label(codeformer_row, text="0.0", style='Dark.TLabel', width=4)
-        codeformer_label.pack(side=tk.LEFT)
-        codeformer_scale.configure(command=lambda val: codeformer_label.configure(text=f"{float(val):.2f}"))
-        self.upscale_widgets['codeformer_visibility'] = codeformer_scale
+        codeformer_slider = EnhancedSlider(codeformer_row, from_=0.0, to=1.0, 
+                                          variable=self.upscale_vars['codeformer_visibility'], 
+                                          resolution=0.05, length=150)
+        codeformer_slider.pack(side=tk.LEFT, padx=(5, 5))
+        self.upscale_widgets['codeformer_visibility'] = codeformer_slider
         
         # CodeFormer Weight
         cf_weight_row = ttk.Frame(face_frame, style='Dark.TFrame')
         cf_weight_row.pack(fill=tk.X, pady=2)
         ttk.Label(cf_weight_row, text="CF Fidelity:", style='Dark.TLabel', width=15).pack(side=tk.LEFT)
         self.upscale_vars['codeformer_weight'] = tk.DoubleVar(value=0.5)
-        cf_weight_scale = ttk.Scale(cf_weight_row, from_=0.0, to=1.0, variable=self.upscale_vars['codeformer_weight'], orient=tk.HORIZONTAL, length=150)
-        cf_weight_scale.pack(side=tk.LEFT, padx=(5, 5))
-        cf_weight_label = ttk.Label(cf_weight_row, text="0.5", style='Dark.TLabel', width=4)
-        cf_weight_label.pack(side=tk.LEFT)
-        cf_weight_scale.configure(command=lambda val: cf_weight_label.configure(text=f"{float(val):.2f}"))
-        self.upscale_widgets['codeformer_weight'] = cf_weight_scale
+        cf_weight_slider = EnhancedSlider(cf_weight_row, from_=0.0, to=1.0, 
+                                         variable=self.upscale_vars['codeformer_weight'], 
+                                         resolution=0.05, length=150)
+        cf_weight_slider.pack(side=tk.LEFT, padx=(5, 5))
+        self.upscale_widgets['codeformer_weight'] = cf_weight_slider
         
         canvas.pack(fill="both", expand=True)
     
@@ -2004,7 +2027,7 @@ class StableNewGUI:
                 if 'upscale_mode' in self.upscale_vars:
                     self.upscale_vars['upscale_mode'].set(upscale_config.get('mode', 'single'))
                 self.upscale_vars['denoising_strength'].set(upscale_config.get('denoising_strength', 0.2))
-                self.upscale_vars['gfpgan_visibility'].set(upscale_config.get('gfpgan_visibility', 0.0))
+                self.upscale_vars['gfpgan_visibility'].set(upscale_config.get('gfpgan_visibility', 0.5))
                 self.upscale_vars['codeformer_visibility'].set(upscale_config.get('codeformer_visibility', 0.0))
                 if 'codeformer_weight' in self.upscale_vars:
                     self.upscale_vars['codeformer_weight'].set(upscale_config.get('codeformer_weight', 0.5))
