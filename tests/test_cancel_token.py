@@ -1,11 +1,10 @@
 """Tests for cancel token integration in pipeline."""
 
 import pytest
-import time
 from pathlib import Path
 import tempfile
 import shutil
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, patch
 
 from src.gui.state import CancelToken, CancellationError
 from src.pipeline.executor import Pipeline
