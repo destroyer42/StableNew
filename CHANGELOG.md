@@ -23,19 +23,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Timestamped archive directories with manifest
   - Restore capability with `--undo` option
   - Dry-run mode for safe previewing
+- **Optional pipeline stages**: img2img and upscale stages can now be skipped via configuration
+  - Set `pipeline.img2img_enabled: false` to skip img2img stage
+  - Set `pipeline.upscale_enabled: false` to skip upscale stage
+  - Pipeline automatically uses output from previous stage when skipping
+- Comprehensive journey test suite:
+  - 14 new integration tests covering full pipeline execution
+  - Tests for optional stage skipping
+  - Batch processing validation
+  - Configuration pass-through verification
+  - Error handling and recovery
+  - Directory structure validation
 - Comprehensive test suite:
   - 27 tests for state management and controller
   - 14 tests for archiver tool
-  - All new tests passing (41 total added)
+  - 14 tests for pipeline journey scenarios
+  - All new tests passing (55 total added)
 
 ### Changed
 - Updated `.gitignore` to exclude build artifacts, cache files, and tool outputs
 - Updated `README.md` to reference new documentation
 - Refactored `src/gui/__init__.py` to avoid tkinter dependency in tests
 - Improved test organization and coverage
+- **Enhanced `run_full_pipeline()` method** to support optional stages with clear logging
+- **Improved manifest directory creation** - manifests directory created automatically when saving
+- Updated pipeline summary to track which stages were completed
 
 ### Fixed
 - Import structure to allow testing without GUI dependencies
+- Manifest directory creation in StructuredLogger
+- Pipeline stage directory creation - now created on-demand for better efficiency
 
 ## [1.0.0] - 2024-11-02
 
