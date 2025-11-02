@@ -23,6 +23,7 @@ from .state import StateManager, GUIState, CancelToken
 from .controller import PipelineController
 from .prompt_pack_panel import PromptPackPanel
 from .prompt_pack_list_manager import PromptPackListManager
+from .pipeline_controls_panel import PipelineControlsPanel
 
 logger = logging.getLogger(__name__)
 
@@ -312,66 +313,23 @@ class StableNewGUI:
         self._build_pipeline_controls_panel(right_panel)
         
     def _build_pipeline_controls_panel(self, parent):
-        """Build compact pipeline controls panel"""
-        # Pipeline controls frame
-        pipeline_frame = ttk.LabelFrame(parent, text="🚀 Pipeline Controls", style='Dark.TFrame', padding=5)
-        pipeline_frame.pack(fill=tk.BOTH, expand=True)
+        """Build compact pipeline controls panel using PipelineControlsPanel component"""
+        # Create the PipelineControlsPanel component
+        self.pipeline_controls_panel = PipelineControlsPanel(
+            parent,
+            style='Dark.TFrame'
+        )
+        self.pipeline_controls_panel.pack(fill=tk.BOTH, expand=True)
         
-        # Stage selection - compact
-        stages_frame = ttk.LabelFrame(pipeline_frame, text="Stages", style='Dark.TFrame', padding=5)
-        stages_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        self.txt2img_enabled = tk.BooleanVar(value=True)
-        self.img2img_enabled = tk.BooleanVar(value=True)
-        self.upscale_enabled = tk.BooleanVar(value=True)
-        self.video_enabled = tk.BooleanVar(value=False)
-        
-        ttk.Checkbutton(stages_frame, text="🎨 txt2img", variable=self.txt2img_enabled,
-                       style='Dark.TCheckbutton').pack(anchor=tk.W, pady=1)
-        ttk.Checkbutton(stages_frame, text="🧹 img2img", variable=self.img2img_enabled,
-                       style='Dark.TCheckbutton').pack(anchor=tk.W, pady=1)
-        ttk.Checkbutton(stages_frame, text="📈 Upscale", variable=self.upscale_enabled,
-                       style='Dark.TCheckbutton').pack(anchor=tk.W, pady=1)
-        ttk.Checkbutton(stages_frame, text="🎬 Video", variable=self.video_enabled,
-                       style='Dark.TCheckbutton').pack(anchor=tk.W, pady=1)
-        
-        # Loop configuration - compact
-        loop_frame = ttk.LabelFrame(pipeline_frame, text="Loop Config", style='Dark.TFrame', padding=5)
-        loop_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        self.loop_type_var = tk.StringVar(value="single")
-        ttk.Radiobutton(loop_frame, text="Single", variable=self.loop_type_var,
-                       value="single", style='Dark.TRadiobutton').pack(anchor=tk.W, pady=1)
-        ttk.Radiobutton(loop_frame, text="Loop stages", variable=self.loop_type_var,
-                       value="stages", style='Dark.TRadiobutton').pack(anchor=tk.W, pady=1)
-        ttk.Radiobutton(loop_frame, text="Loop pipeline", variable=self.loop_type_var,
-                       value="pipeline", style='Dark.TRadiobutton').pack(anchor=tk.W, pady=1)
-        
-        # Loop count - inline with proper colors
-        count_frame = ttk.Frame(loop_frame, style='Dark.TFrame')
-        count_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(count_frame, text="Count:", style='Dark.TLabel', width=6).pack(side=tk.LEFT)
-        self.loop_count_var = tk.StringVar(value="1")
-        count_spin = ttk.Spinbox(count_frame, from_=1, to=100, width=4, textvariable=self.loop_count_var, style='Dark.TSpinbox')
-        count_spin.pack(side=tk.LEFT, padx=2)
-        
-        # Batch configuration - compact
-        batch_frame = ttk.LabelFrame(pipeline_frame, text="Batch Config", style='Dark.TFrame', padding=5)
-        batch_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        self.pack_mode_var = tk.StringVar(value="selected")
-        ttk.Radiobutton(batch_frame, text="Selected packs", variable=self.pack_mode_var,
-                       value="selected", style='Dark.TRadiobutton').pack(anchor=tk.W, pady=1)
-        ttk.Radiobutton(batch_frame, text="All packs", variable=self.pack_mode_var,
-                       value="all", style='Dark.TRadiobutton').pack(anchor=tk.W, pady=1)
-        
-        # Images per prompt - inline with proper colors
-        images_frame = ttk.Frame(batch_frame, style='Dark.TFrame')
-        images_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(images_frame, text="Images:", style='Dark.TLabel', width=6).pack(side=tk.LEFT)
-        self.images_per_prompt_var = tk.StringVar(value="1")
-        images_spin = ttk.Spinbox(images_frame, from_=1, to=10, width=4, textvariable=self.images_per_prompt_var, style='Dark.TSpinbox')
-        images_spin.pack(side=tk.LEFT, padx=2)
+        # Store references to variables for backward compatibility
+        self.txt2img_enabled = self.pipeline_controls_panel.txt2img_enabled
+        self.img2img_enabled = self.pipeline_controls_panel.img2img_enabled
+        self.upscale_enabled = self.pipeline_controls_panel.upscale_enabled
+        self.video_enabled = self.pipeline_controls_panel.video_enabled
+        self.loop_type_var = self.pipeline_controls_panel.loop_type_var
+        self.loop_count_var = self.pipeline_controls_panel.loop_count_var
+        self.pack_mode_var = self.pipeline_controls_panel.pack_mode_var
+        self.images_per_prompt_var = self.pipeline_controls_panel.images_per_prompt_var
         
     def _build_config_display_tab(self, notebook):
         """Build interactive configuration tabs"""
