@@ -10,8 +10,89 @@ class EnhancedSlider(ttk.Frame):
     """Slider with arrow buttons and improved value display"""
     
     def __init__(self, parent, from_=0, to=100, variable=None, resolution=0.01, 
-                 width=150, label="", command=None, **kwargs):
+                 width=150, length=150, label="", command=None, **kwargs):
+        # length is a valid ttk.Scale parameter, so we keep it
+        if 'length' in kwargs:
+            length = kwargs.pop('length')
+        else:
+            length = 150 # Default value
+
         super().__init__(parent, **kwargs)
+        
+        self.variable = variable or tk.DoubleVar()
+        self.command = command
+        
+        # Main frame for layout
+        main_frame = ttk.Frame(self)
+        main_frame.pack(fill=tk.X, expand=True)
+        
+        # Label
+        if label:
+            self.label_widget = ttk.Label(main_frame, text=label, width=12)
+            self.label_widget.pack(side=tk.LEFT, padx=(0, 5))
+            
+        # Down arrow
+        self.down_arrow = ttk.Button(main_frame, text="◀", width=3,
+                                     command=lambda: self.set_value(self.variable.get() - resolution))
+        self.down_arrow.pack(side=tk.LEFT)
+        
+        # Slider
+        self.slider = ttk.Scale(main_frame, from_=from_, to=to, orient=tk.HORIZONTAL,
+                                variable=self.variable, command=self._on_slider_change,
+                                length=length)
+        self.slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # Up arrow
+        self.up_arrow = ttk.Button(main_frame, text="▶", width=3,
+                                   command=lambda: self.set_value(self.variable.get() + resolution))
+        self.up_arrow.pack(side=tk.LEFT)
+        
+        # Value entry
+        self.value_entry = ttk.Entry(main_frame, textvariable=self.variable, width=6)
+        self.value_entry.pack(side=tk.LEFT, padx=(5, 0))
+        
+        self.value_entry.bind("<Return>", self._on_entry_commit)
+        self.value_entry.bind("<FocusOut>", self._on_entry_commit)
+        
+    def _on_slider_change(self, value_str):
+        """Handle slider value change"""
+        value = float(value_str)
+        self.variable.set(round(value, 2))
+        if self.command:
+            self.command(self.variable.get())
+            
+    def _on_entry_commit(self, event=None):
+        """Handle when user commits a value in the entry box"""
+        try:
+            value = float(self.value_entry.get())
+            self.variable.set(value)
+        except ValueError:
+            # Revert to last valid value if input is invalid
+            self.value_entry.delete(0, tk.END)
+            self.value_entry.insert(0, f"{self.variable.get():.2f}")
+        
+        if self.command:
+            self.command(self.variable.get())
+            
+    def set_value(self, value):
+        """Set the slider's value programmatically"""
+        self.variable.set(value)
+        if self.command:
+            self.command(value)
+            
+    def get_value(self):
+        """Get the slider's current value"""
+        return self.variable.get()
+    
+    def configure_state(self, state):
+        """Enable or disable the entire widget"""
+        for widget in [self.down_arrow, self.slider, self.up_arrow, self.value_entry]:
+            widget.configure(state=state)
+            
+    def update_label(self, new_label):
+        """Update the label text"""
+        if hasattr(self, 'label_widget'):
+            self.label_widget.config(text=new_label)
         
         self.from_ = from_
         self.to = to

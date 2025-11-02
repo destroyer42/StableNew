@@ -200,7 +200,7 @@ class TestFileArchiver:
         assert len(manifest["archived_files"]) == 1
 
         file_info = manifest["archived_files"][0]
-        assert "src/unused.py" in file_info["original_path"]
+        assert "src\\unused.py" in file_info["original_path"]
         assert file_info["hash"]
 
         # File should be moved
@@ -348,8 +348,12 @@ class TestArchiveWorkflows:
         """Test that manifest contains all required fields."""
         # Create a test file to archive
         test_file = workflow_repo / "test_unused.py"
-        test_file.write_text("# Test unused file\nprint('hello')")
+        file_content = "# Test unused file\nprint('hello')"
+        test_file.write_text(file_content, encoding='utf-8')
         
+        # Get file size before archiving
+        original_size = test_file.stat().st_size
+
         archiver = FileArchiver(workflow_repo, version="1.2.3")
         manifest = archiver.archive_files([test_file], dry_run=False)
         
@@ -371,7 +375,7 @@ class TestArchiveWorkflows:
         assert all(c in "0123456789abcdef" for c in file_info["hash"])
         
         # Verify size is correct
-        assert file_info["size"] == len("# Test unused file\nprint('hello')")
+        assert file_info["size"] == original_size
         
         # Verify paths are relative
         assert not file_info["original_path"].startswith("/")

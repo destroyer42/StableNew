@@ -182,7 +182,7 @@ class TestPipelineController:
         import subprocess
 
         # Create dummy subprocess
-        proc = subprocess.Popen(["sleep", "10"])
+        proc = subprocess.Popen(["ping", "-n", "10", "127.0.0.1"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         try:
             controller.register_subprocess(proc)

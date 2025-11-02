@@ -411,23 +411,35 @@ class Pipeline:
             if cancel_token and cancel_token.is_cancelled():
                 logger.info("Pipeline cancelled during img2img loop")
                 break
-                
-            img2img_meta = self.run_img2img(
-                Path(txt2img_meta["path"]),
-                prompt,
-                config.get("img2img", {}),
-                run_dir,
-                cancel_token
-            )
-            if img2img_meta:
-                results["img2img"].append(img2img_meta)
-                
-                # Check for cancellation before upscale
-                if cancel_token and cancel_token.is_cancelled():
-                    logger.info("Pipeline cancelled before upscale")
-                    break
-                
-                # Step 3: Upscale
+
+            # The latest image path starts with the txt2img output
+            last_image_path = txt2img_meta["path"]
+            final_image_path = last_image_path
+
+            if img2img_enabled:
+                img2img_meta = self.run_img2img(
+                    Path(txt2img_meta["path"]),
+                    prompt,
+                    config.get("img2img", {}),
+                    run_dir,
+                    cancel_token
+                )
+                if img2img_meta:
+                    results["img2img"].append(img2img_meta)
+                    last_image_path = img2img_meta["path"]  # Update path to img2img output
+                    logger.info(f"✓ img2img completed for {txt2img_meta['name']}")
+                else:
+                    logger.warning(f"img2img failed for {txt2img_meta['name']}, using txt2img output for next steps")
+            else:
+                logger.info(f"⊘ img2img skipped for {txt2img_meta['name']}")
+
+            # Check for cancellation before upscale
+            if cancel_token and cancel_token.is_cancelled():
+                logger.info("Pipeline cancelled before upscale")
+                break
+
+            # Step 3: Upscale (optional)
+            if upscale_enabled:
                 upscaled_meta = self.run_upscale(
                     Path(last_image_path),
                     config.get("upscale", {}),
@@ -436,13 +448,13 @@ class Pipeline:
                 )
                 if upscaled_meta:
                     results["upscaled"].append(upscaled_meta)
-                    logger.info(f"✓ upscale completed for {txt2img_meta['name']}")
                     final_image_path = upscaled_meta["path"]
+                    logger.info(f"✓ upscale completed for {Path(last_image_path).name}")
                 else:
-                    logger.warning(f"upscale failed for {txt2img_meta['name']}, using previous output")
+                    logger.warning(f"upscale failed for {Path(last_image_path).name}, using previous output")
                     final_image_path = last_image_path
             else:
-                logger.info(f"⊘ upscale skipped for {txt2img_meta['name']}")
+                logger.info(f"⊘ upscale skipped for {Path(last_image_path).name}")
                 final_image_path = last_image_path
             
             # Add to summary

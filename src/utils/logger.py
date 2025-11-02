@@ -116,7 +116,7 @@ class StructuredLogger:
         """
         if not images_data:
             self.logger.warning("No image data to summarize")
-            return True
+            return False
         
         try:
             summary_file = run_dir / "summary.csv"
