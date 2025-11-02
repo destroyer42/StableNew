@@ -435,7 +435,7 @@ def main():
     parser.add_argument(
         "--since",
         type=str,
-        help="Only consider files changed since git tag/sha (not implemented)",
+        help="Only consider files changed since git tag/sha (best-effort via git diff)",
     )
     parser.add_argument(
         "--undo",
@@ -461,6 +461,44 @@ def main():
     # Detect unused files
     detector = DeadCodeDetector(args.root)
     unused_files = detector.find_unused_files()
+    
+    # Filter by --since if provided
+    if args.since and unused_files:
+        try:
+            # Get list of changed files since the specified ref
+            result = subprocess.run(
+                ["git", "diff", "--name-only", f"{args.since}...HEAD"],
+                cwd=args.root,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            changed_files = {
+                (args.root / line.strip()).resolve()
+                for line in result.stdout.splitlines()
+                if line.strip().endswith('.py')
+            }
+            
+            # Only keep unused files that have changed
+            original_count = len(unused_files)
+            unused_files = [f for f in unused_files if f.resolve() in changed_files]
+            
+            if unused_files:
+                logger.info(
+                    f"Filtered to {len(unused_files)} unused files (from {original_count}) "
+                    f"changed since {args.since}"
+                )
+            else:
+                logger.info(
+                    f"No unused files found that changed since {args.since} "
+                    f"(had {original_count} total unused)"
+                )
+        
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Could not run git diff: {e}. Showing all unused files.")
+        except Exception as e:
+            logger.warning(f"Error filtering by --since: {e}. Showing all unused files.")
 
     # Generate and print report
     report = detector.generate_report(unused_files)
