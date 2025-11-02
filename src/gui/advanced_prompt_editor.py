@@ -14,10 +14,11 @@ import os
 class AdvancedPromptEditor:
     """Advanced prompt pack editor with comprehensive validation and smart features"""
     
-    def __init__(self, parent_window, config_manager, on_packs_changed=None):
+    def __init__(self, parent_window, config_manager, on_packs_changed=None, on_validation=None):
         self.parent = parent_window
         self.config_manager = config_manager
         self.on_packs_changed = on_packs_changed
+        self.on_validation = on_validation  # Callback for validation results
         self.window = None
         self.current_pack_path = None
         self.is_modified = False
@@ -848,6 +849,10 @@ neg: malformed, bad anatomy, low quality"""
         
         # Display results
         self._display_validation_results(results)
+        
+        # Call validation callback if present
+        if self.on_validation:
+            self.on_validation(results)
         
         return results
     

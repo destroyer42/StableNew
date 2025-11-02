@@ -1403,11 +1403,45 @@ class StableNewGUI:
             self.advanced_editor = AdvancedPromptEditor(
                 parent_window=self.root,
                 config_manager=self.config_manager,
-                on_packs_changed=self._refresh_prompt_packs
+                on_packs_changed=self._refresh_prompt_packs,
+                on_validation=self._handle_editor_validation
             )
         
         # Open editor with selected pack
         self.advanced_editor.open_editor(pack_path)
+    
+    def _handle_editor_validation(self, results):
+        """Handle validation results from the prompt editor"""
+        # Log validation summary
+        error_count = len(results.get('errors', []))
+        warning_count = len(results.get('warnings', []))
+        info_count = len(results.get('info', []))
+        
+        if error_count == 0 and warning_count == 0:
+            self.log_message("✅ Pack validation passed - no issues found", "SUCCESS")
+        else:
+            if error_count > 0:
+                self.log_message(f"❌ Pack validation found {error_count} error(s)", "ERROR")
+                for error in results['errors'][:3]:  # Show first 3 errors
+                    self.log_message(f"  • {error}", "ERROR")
+                if error_count > 3:
+                    self.log_message(f"  ... and {error_count - 3} more", "ERROR")
+            
+            if warning_count > 0:
+                self.log_message(f"⚠️  Pack has {warning_count} warning(s)", "WARNING")
+                for warning in results['warnings'][:2]:  # Show first 2 warnings
+                    self.log_message(f"  • {warning}", "WARNING")
+                if warning_count > 2:
+                    self.log_message(f"  ... and {warning_count - 2} more", "WARNING")
+        
+        # Show stats
+        stats = results.get('stats', {})
+        self.log_message(
+            f"📊 Pack stats: {stats.get('prompt_count', 0)} prompts, "
+            f"{stats.get('embedding_count', 0)} embeddings, "
+            f"{stats.get('lora_count', 0)} LoRAs",
+            "INFO"
+        )
     
     def _open_advanced_editor(self):
         """Wrapper method for opening advanced editor (called by button)"""
