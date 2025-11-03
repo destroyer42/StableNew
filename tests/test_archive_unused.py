@@ -200,7 +200,8 @@ class TestFileArchiver:
         assert len(manifest["archived_files"]) == 1
 
         file_info = manifest["archived_files"][0]
-        assert "src\\unused.py" in file_info["original_path"]
+        # Path separator can be / or \\ depending on OS
+        assert "src" in file_info["original_path"] and "unused.py" in file_info["original_path"]
         assert file_info["hash"]
 
         # File should be moved

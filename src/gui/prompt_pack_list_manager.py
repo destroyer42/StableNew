@@ -43,8 +43,8 @@ class PromptPackListManager:
             return False
 
     def get_list_names(self) -> List[str]:
-        """Returns a list of all custom list names."""
-        return list(self.lists.keys())
+        """Returns a sorted list of all custom list names."""
+        return sorted(self.lists.keys())
 
     def get_list(self, name: str) -> Optional[List[str]]:
         """
