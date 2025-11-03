@@ -63,7 +63,13 @@ You can control which pipeline stages run by setting flags in your configuration
 
 ### User Interface
 
-- **Modern GUI**: Dark-themed Tkinter interface with tabbed configuration
+- **Modern GUI**: Dark-themed Tkinter interface with component-based architecture
+- **Component Architecture**: 
+  - Prompt Pack Panel - Multi-select with custom list management
+  - Pipeline Controls Panel - Stage toggles, loop config, batch settings
+  - Config Panel - Enhanced tabs with validation and new features
+  - API Status Panel - Color-coded connection indicator
+  - Log Panel - Thread-safe live logging with Python integration
 - **Real-time State Feedback**: Status bar shows pipeline state (Idle/Running/Stopping/Error)
 - **Responsive Controls**: Stop button for graceful cancellation at any pipeline stage
 - **Advanced Prompt Editor**: Integrated editor with validation, model discovery, and real-time stats
@@ -71,6 +77,16 @@ You can control which pipeline stages run by setting flags in your configuration
 - **Pack Management**: Dynamic prompt pack selection with status indicators
 - **Configuration Override**: Apply current settings across multiple packs
 - **Smart Sampler Handling**: Proper sampler/scheduler separation (no more warnings!)
+
+### Enhanced Configuration Features
+
+- **Hires Fix Steps**: Control second-pass steps independently with `hires_steps` parameter
+- **Expanded Dimensions**: Width/Height support up to 2260px with validation warnings
+- **Face Restoration**: Optional GFPGAN/CodeFormer integration
+  - Toggle-based UI with automatic control visibility
+  - Model selection (GFPGAN or CodeFormer)
+  - Adjustable restoration weight (0.0-1.0)
+- **Dimension Validation**: Real-time bounds checking with user-friendly warnings
 
 ### Technical Features
 
