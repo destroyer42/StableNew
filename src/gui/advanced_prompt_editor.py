@@ -578,18 +578,20 @@ Errors and warnings appear in the Validation tab.
         for lora in sorted(self.loras_cache):
             self.loras_listbox.insert(tk.END, lora)
         
-        # Update counts in status
+        # Update counts in status (guard against status_text not being created yet)
         embed_count = len(self.embeddings_cache)
         lora_count = len(self.loras_cache)
-        if embed_count or lora_count:
+        if hasattr(self, 'status_text') and (embed_count or lora_count):
             self.status_text.config(text=f"Models: {embed_count} embeddings, {lora_count} LoRAs")
     
     def _refresh_models(self):
         """Refresh the model caches"""
-        self.status_text.config(text="Refreshing models...")
+        if hasattr(self, 'status_text'):
+            self.status_text.config(text="Refreshing models...")
         self._load_model_caches()
         self._populate_model_lists()
-        self.status_text.config(text="Models refreshed")
+        if hasattr(self, 'status_text'):
+            self.status_text.config(text="Models refreshed")
     
     def _insert_embedding(self, event=None):
         """Insert selected embedding into prompt"""
@@ -707,6 +709,7 @@ neg: malformed, bad anatomy, low quality"""
                 content = f.read()
             
             self.current_pack_path = pack_path
+            # Auto-populate pack name from filename
             self.pack_name_var.set(pack_path.stem)
             self.format_var.set(pack_path.suffix[1:] if pack_path.suffix else "txt")
             
@@ -721,6 +724,9 @@ neg: malformed, bad anatomy, low quality"""
             
             # Update format hint
             self._on_format_changed()
+            
+            # Load and display global negative if present in config
+            self._refresh_global_negative_display()
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load pack: {e}")
@@ -783,7 +789,8 @@ neg: malformed, bad anatomy, low quality"""
             self.is_modified = False
             self.window.title(f"Advanced Prompt Pack Editor - {path.name}")
             
-            self.status_text.config(text=f"Saved: {path.name}")
+            if hasattr(self, 'status_text'):
+                self.status_text.config(text=f"Saved: {path.name}")
             
             # Notify parent of changes
             if self.on_packs_changed:
@@ -812,7 +819,8 @@ neg: malformed, bad anatomy, low quality"""
         self.is_modified = True
         self.window.title(f"Advanced Prompt Pack Editor - {clone_name} (Clone) *")
         
-        self.status_text.config(text=f"Cloned as: {clone_name}")
+        if hasattr(self, 'status_text'):
+            self.status_text.config(text=f"Cloned as: {clone_name}")
     
     def _delete_pack(self):
         """Delete the current pack"""
@@ -826,8 +834,11 @@ neg: malformed, bad anatomy, low quality"""
             f"This action cannot be undone."
         ):
             try:
+                deleted_name = self.current_pack_path.name
                 self.current_pack_path.unlink()
-                self.status_text.config(text=f"Deleted: {self.current_pack_path.name}")
+                
+                if hasattr(self, 'status_text'):
+                    self.status_text.config(text=f"Deleted: {deleted_name}")
                 
                 # Create new pack after deletion
                 self._new_pack()
@@ -1172,7 +1183,8 @@ neg: malformed, bad anatomy, low quality"""
             
             # Here you could save to a config file or update the pipeline
             # For now, just update the in-memory version
-            self.status_text.config(text="Global negative prompt updated")
+            if hasattr(self, 'status_text'):
+                self.status_text.config(text="Global negative prompt updated")
             
             messagebox.showinfo("Success", "Global negative prompt has been updated.")
             
@@ -1185,8 +1197,16 @@ neg: malformed, bad anatomy, low quality"""
         
         self.global_neg_text.delete('1.0', tk.END)
         self.global_neg_text.insert('1.0', default_neg)
+        self.global_neg_content = default_neg
         
-        self.status_text.config(text="Global negative reset to default")
+        if hasattr(self, 'status_text'):
+            self.status_text.config(text="Global negative reset to default")
+    
+    def _refresh_global_negative_display(self):
+        """Refresh the global negative prompt display from current config"""
+        if hasattr(self, 'global_neg_text'):
+            self.global_neg_text.delete('1.0', tk.END)
+            self.global_neg_text.insert('1.0', self.global_neg_content)
     
     def _check_unsaved_changes(self):
         """Check for unsaved changes and prompt user"""

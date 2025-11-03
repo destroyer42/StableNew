@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -74,6 +75,27 @@ class Pipeline:
             "sampler_name": sampler_name,
             "scheduler": "Automatic"
         }
+    
+    def _extract_name_prefix(self, prompt: str) -> Optional[str]:
+        """
+        Extract name prefix from prompt if it contains 'name:' metadata.
+        
+        Args:
+            prompt: Text prompt that may contain 'name:' on first line
+            
+        Returns:
+            Name prefix if found, None otherwise
+        """
+        lines = prompt.strip().split('\n')
+        if lines:
+            first_line = lines[0].strip()
+            if first_line.lower().startswith('name:'):
+                # Extract and clean the name
+                name = first_line.split(':', 1)[1].strip()
+                # Clean for filesystem safety
+                name = re.sub(r'[^\w\-_]', '_', name)
+                return name if name else None
+        return None
         
     def run_txt2img(self, prompt: str, config: Dict[str, Any], 
                     run_dir: Path, batch_size: int = 1,
@@ -97,6 +119,9 @@ class Pipeline:
             return []
         
         logger.info(f"Starting txt2img with prompt: {prompt[:50]}...")
+        
+        # Extract name prefix if present
+        name_prefix = self._extract_name_prefix(prompt)
         
         # Apply global NSFW prevention to negative prompt
         base_negative = config.get("negative_prompt", "")
@@ -168,8 +193,12 @@ class Pipeline:
             if cancel_token and cancel_token.is_cancelled():
                 logger.info(f"txt2img cancelled while saving image {idx}")
                 break
-                
-            image_name = f"txt2img_{timestamp}_{idx:03d}"
+            
+            # Build image name with optional prefix
+            if name_prefix:
+                image_name = f"{name_prefix}_{timestamp}_{idx:03d}"
+            else:
+                image_name = f"txt2img_{timestamp}_{idx:03d}"
             image_path = run_dir / "txt2img" / f"{image_name}.png"
             
             if save_image_from_base64(img_base64, image_path):
