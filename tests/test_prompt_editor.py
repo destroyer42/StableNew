@@ -40,9 +40,11 @@ class TestPromptEditor(unittest.TestCase):
         """
         prompts, neg_prompts = PromptParser.parse_text(editor_content)
         
-        self.assertEqual(len(prompts), 2)
+        # Parser returns 3 prompts because "concept art" is also a prompt
+        self.assertEqual(len(prompts), 3)
         self.assertEqual(len(neg_prompts), 2)
         self.assertIn("a beautiful landscape", prompts)
+        self.assertIn("a majestic castle", prompts)
         self.assertIn("concept art", prompts)
         self.assertIn("blurry, low quality", neg_prompts)
         self.assertIn("watermark, signature", neg_prompts)
