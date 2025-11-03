@@ -1,21 +1,21 @@
 """ADetailer configuration panel for face and detail enhancement."""
 
+import logging
 import tkinter as tk
 from tkinter import ttk
-from typing import Dict, Any, List, Optional
-import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class ADetailerConfigPanel:
     """Panel for configuring ADetailer settings.
-    
+
     ADetailer is an extension for automatic face/detail detection and enhancement.
     This panel provides controls for model selection, detection confidence,
     and processing parameters.
     """
-    
+
     # Available ADetailer models
     AVAILABLE_MODELS = [
         'face_yolov8n.pt',
@@ -26,7 +26,7 @@ class ADetailerConfigPanel:
         'mediapipe_face_short',
         'mediapipe_face_mesh'
     ]
-    
+
     # Default configuration
     DEFAULT_CONFIG = {
         'adetailer_enabled': False,
@@ -40,18 +40,18 @@ class ADetailerConfigPanel:
         'adetailer_prompt': '',
         'adetailer_negative_prompt': ''
     }
-    
+
     def __init__(self, parent: tk.Widget):
         """Initialize ADetailer configuration panel.
-        
+
         Args:
             parent: Parent widget
         """
         self.parent = parent
-        
+
         # Create main frame
         self.frame = ttk.LabelFrame(parent, text="ADetailer Configuration", padding=10)
-        
+
         # Initialize variables
         self.enabled_var = tk.BooleanVar(value=self.DEFAULT_CONFIG['adetailer_enabled'])
         self.model_var = tk.StringVar(value=self.DEFAULT_CONFIG['adetailer_model'])
@@ -61,19 +61,19 @@ class ADetailerConfigPanel:
         self.steps_var = tk.IntVar(value=self.DEFAULT_CONFIG['adetailer_steps'])
         self.denoise_var = tk.DoubleVar(value=self.DEFAULT_CONFIG['adetailer_denoise'])
         self.cfg_var = tk.DoubleVar(value=self.DEFAULT_CONFIG['adetailer_cfg'])
-        
+
         # Build UI
         self._build_ui()
-        
+
         # Setup enable/disable behavior
         self._on_enabled_changed()
-    
+
     def _build_ui(self):
         """Build the configuration UI."""
         # Enable checkbox
         enable_frame = ttk.Frame(self.frame)
         enable_frame.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
-        
+
         self.enable_check = ttk.Checkbutton(
             enable_frame,
             text="Enable ADetailer (Automatic face/detail enhancement)",
@@ -81,11 +81,11 @@ class ADetailerConfigPanel:
             command=self._on_enabled_changed
         )
         self.enable_check.pack(side=tk.LEFT)
-        
+
         # Model selection
         model_label = ttk.Label(self.frame, text="Model:")
         model_label.grid(row=1, column=0, sticky=tk.W, pady=2)
-        
+
         self.model_combo = ttk.Combobox(
             self.frame,
             textvariable=self.model_var,
@@ -94,14 +94,14 @@ class ADetailerConfigPanel:
             width=25
         )
         self.model_combo.grid(row=1, column=1, sticky=tk.W, pady=2, padx=(5, 0))
-        
+
         # Confidence threshold
         conf_label = ttk.Label(self.frame, text="Detection Confidence:")
         conf_label.grid(row=2, column=0, sticky=tk.W, pady=2)
-        
+
         conf_frame = ttk.Frame(self.frame)
         conf_frame.grid(row=2, column=1, sticky=tk.W, pady=2, padx=(5, 0))
-        
+
         self.confidence_scale = ttk.Scale(
             conf_frame,
             from_=0.0,
@@ -111,15 +111,15 @@ class ADetailerConfigPanel:
             length=150
         )
         self.confidence_scale.pack(side=tk.LEFT)
-        
+
         self.confidence_label = ttk.Label(conf_frame, text="0.30")
         self.confidence_label.pack(side=tk.LEFT, padx=(5, 0))
         self.confidence_scale.configure(command=self._update_confidence_label)
-        
+
         # Mask feather
         feather_label = ttk.Label(self.frame, text="Mask Feather:")
         feather_label.grid(row=3, column=0, sticky=tk.W, pady=2)
-        
+
         self.feather_spin = ttk.Spinbox(
             self.frame,
             from_=0,
@@ -128,11 +128,11 @@ class ADetailerConfigPanel:
             width=10
         )
         self.feather_spin.grid(row=3, column=1, sticky=tk.W, pady=2, padx=(5, 0))
-        
+
         # Sampler
         sampler_label = ttk.Label(self.frame, text="Sampler:")
         sampler_label.grid(row=4, column=0, sticky=tk.W, pady=2)
-        
+
         self.sampler_combo = ttk.Combobox(
             self.frame,
             textvariable=self.sampler_var,
@@ -140,11 +140,11 @@ class ADetailerConfigPanel:
             width=15
         )
         self.sampler_combo.grid(row=4, column=1, sticky=tk.W, pady=2, padx=(5, 0))
-        
+
         # Steps
         steps_label = ttk.Label(self.frame, text="Steps:")
         steps_label.grid(row=5, column=0, sticky=tk.W, pady=2)
-        
+
         self.steps_spin = ttk.Spinbox(
             self.frame,
             from_=1,
@@ -153,14 +153,14 @@ class ADetailerConfigPanel:
             width=10
         )
         self.steps_spin.grid(row=5, column=1, sticky=tk.W, pady=2, padx=(5, 0))
-        
+
         # Denoise strength
         denoise_label = ttk.Label(self.frame, text="Denoise Strength:")
         denoise_label.grid(row=6, column=0, sticky=tk.W, pady=2)
-        
+
         denoise_frame = ttk.Frame(self.frame)
         denoise_frame.grid(row=6, column=1, sticky=tk.W, pady=2, padx=(5, 0))
-        
+
         self.denoise_scale = ttk.Scale(
             denoise_frame,
             from_=0.0,
@@ -170,15 +170,15 @@ class ADetailerConfigPanel:
             length=150
         )
         self.denoise_scale.pack(side=tk.LEFT)
-        
+
         self.denoise_label = ttk.Label(denoise_frame, text="0.40")
         self.denoise_label.pack(side=tk.LEFT, padx=(5, 0))
         self.denoise_scale.configure(command=self._update_denoise_label)
-        
+
         # CFG Scale
         cfg_label = ttk.Label(self.frame, text="CFG Scale:")
         cfg_label.grid(row=7, column=0, sticky=tk.W, pady=2)
-        
+
         self.cfg_spin = ttk.Spinbox(
             self.frame,
             from_=1.0,
@@ -188,34 +188,34 @@ class ADetailerConfigPanel:
             increment=0.5
         )
         self.cfg_spin.grid(row=7, column=1, sticky=tk.W, pady=2, padx=(5, 0))
-        
+
         # Prompt
         prompt_label = ttk.Label(self.frame, text="Positive Prompt:")
         prompt_label.grid(row=8, column=0, sticky=tk.NW, pady=2)
-        
+
         self.prompt_text = tk.Text(self.frame, height=3, width=40)
         self.prompt_text.grid(row=8, column=1, sticky=tk.W, pady=2, padx=(5, 0))
-        
+
         # Negative prompt
         neg_prompt_label = ttk.Label(self.frame, text="Negative Prompt:")
         neg_prompt_label.grid(row=9, column=0, sticky=tk.NW, pady=2)
-        
+
         self.neg_prompt_text = tk.Text(self.frame, height=3, width=40)
         self.neg_prompt_text.grid(row=9, column=1, sticky=tk.W, pady=2, padx=(5, 0))
-    
+
     def _update_confidence_label(self, value):
         """Update confidence label with current value."""
         self.confidence_label.config(text=f"{float(value):.2f}")
-    
+
     def _update_denoise_label(self, value):
         """Update denoise label with current value."""
         self.denoise_label.config(text=f"{float(value):.2f}")
-    
+
     def _on_enabled_changed(self):
         """Handle enable/disable toggle."""
         enabled = self.enabled_var.get()
         state = 'normal' if enabled else 'disabled'
-        
+
         # Update all controls
         self.model_combo.configure(state='readonly' if enabled else 'disabled')
         self.confidence_scale.configure(state=state)
@@ -226,10 +226,10 @@ class ADetailerConfigPanel:
         self.cfg_spin.configure(state=state)
         self.prompt_text.configure(state=state)
         self.neg_prompt_text.configure(state=state)
-    
-    def get_config(self) -> Dict[str, Any]:
+
+    def get_config(self) -> dict[str, Any]:
         """Get current configuration.
-        
+
         Returns:
             Dictionary of ADetailer configuration
         """
@@ -245,10 +245,10 @@ class ADetailerConfigPanel:
             'adetailer_prompt': self.prompt_text.get('1.0', tk.END).strip(),
             'adetailer_negative_prompt': self.neg_prompt_text.get('1.0', tk.END).strip()
         }
-    
-    def set_config(self, config: Dict[str, Any]) -> None:
+
+    def set_config(self, config: dict[str, Any]) -> None:
         """Set configuration values.
-        
+
         Args:
             config: Dictionary of ADetailer configuration
         """
@@ -276,15 +276,15 @@ class ADetailerConfigPanel:
         if 'adetailer_negative_prompt' in config:
             self.neg_prompt_text.delete('1.0', tk.END)
             self.neg_prompt_text.insert('1.0', config['adetailer_negative_prompt'])
-        
+
         self._on_enabled_changed()
-    
-    def validate_config(self, config: Dict[str, Any]) -> bool:
+
+    def validate_config(self, config: dict[str, Any]) -> bool:
         """Validate configuration values.
-        
+
         Args:
             config: Configuration to validate
-            
+
         Returns:
             True if valid, False otherwise
         """
@@ -294,39 +294,39 @@ class ADetailerConfigPanel:
             if not 0.0 <= conf <= 1.0:
                 logger.error(f"Invalid confidence: {conf} (must be 0.0-1.0)")
                 return False
-        
+
         # Check denoise is in valid range
         if 'adetailer_denoise' in config:
             denoise = config['adetailer_denoise']
             if not 0.0 <= denoise <= 1.0:
                 logger.error(f"Invalid denoise: {denoise} (must be 0.0-1.0)")
                 return False
-        
+
         # Check steps is positive
         if 'adetailer_steps' in config:
             steps = config['adetailer_steps']
             if steps < 1:
                 logger.error(f"Invalid steps: {steps} (must be >= 1)")
                 return False
-        
+
         return True
-    
-    def get_available_models(self) -> List[str]:
+
+    def get_available_models(self) -> list[str]:
         """Get list of available ADetailer models.
-        
+
         Returns:
             List of model names
         """
         return self.AVAILABLE_MODELS.copy()
-    
-    def generate_api_payload(self) -> Dict[str, Any]:
+
+    def generate_api_payload(self) -> dict[str, Any]:
         """Generate API payload for ADetailer.
-        
+
         Returns:
             Dictionary formatted for SD WebUI API
         """
         config = self.get_config()
-        
+
         # Map to API parameter names
         return {
             'adetailer_model': config['adetailer_model'],
