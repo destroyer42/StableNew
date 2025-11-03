@@ -45,51 +45,59 @@ StableNew is a Python application that orchestrates image generation through the
 
 ### Pipeline Stages
 
-The pipeline consists of four sequential stages:
+The pipeline consists of five configurable stages with per-image stage selection:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Pipeline Flow                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    Enhanced Pipeline Flow                        │
+└─────────────────────────────────────────────────────────────────┘
 
-  1. txt2img               2. img2img (optional)
-  ┌──────────┐            ┌──────────┐
-  │ Prompt   │            │ Cleanup  │
-  │   +      │──────────▶ │ Refine   │
-  │ Config   │   Image    │ Denoise  │
-  └──────────┘            └──────────┘
-       │                        │
-       │                        │
-       ▼                        ▼
-  ┌──────────┐            ┌──────────┐
-  │  Image   │            │ Refined  │
-  │   File   │            │  Image   │
-  └──────────┘            └──────────┘
-                               │
-                               ▼
-                         ┌──────────┐
-                         │ 3. Upscale
-                         │ Enhance  │
-                         │ Quality  │
-                         └──────────┘
-                               │
-                               ▼
-                         ┌──────────┐
-                         │ Upscaled │
-                         │  Image   │
-                         └──────────┘
-                               │
-                               ▼
-                         ┌──────────┐
-                         │ 4. Video │
-                         │  FFmpeg  │
-                         │  Muxing  │
-                         └──────────┘
-                               │
-                               ▼
-                         ┌──────────┐
-                         │  MP4 File│
-                         └──────────┘
+  1. txt2img               
+  ┌──────────┐            
+  │ Prompt   │            
+  │   +      │            
+  │ Config   │            
+  └──────────┘            
+       │                  
+       ▼                  
+  ┌──────────┐            
+  │  Image   │────────┐   
+  │   File   │        │   
+  └──────────┘        │   
+                      ▼   
+                ┌────────────┐
+                │   Stage    │
+                │  Chooser   │ ◄─── User selects next stage
+                │   Modal    │      per image
+                └────────────┘
+                      │
+         ┌────────────┼────────────┬─────────────┐
+         ▼            ▼            ▼             ▼
+  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+  │2. img2img│  │3. ADetailer│ │4. Upscale│  │5. None   │
+  │ Cleanup  │  │Face/Detail│  │ Enhance  │  │  Skip    │
+  │ Refine   │  │   Fix     │  │ Quality  │  │          │
+  └──────────┘  └──────────┘  └──────────┘  └──────────┘
+       │             │              │              │
+       └─────────────┴──────────────┴──────────────┘
+                      │
+                      ▼
+                ┌──────────┐
+                │ Enhanced │
+                │  Image   │
+                └──────────┘
+                      │
+                      ▼
+                ┌──────────┐
+                │ 6. Video │
+                │  FFmpeg  │
+                │  Muxing  │
+                └──────────┘
+                      │
+                      ▼
+                ┌──────────┐
+                │  MP4 File│
+                └──────────┘
 ```
 
 ### Stage Details
@@ -97,49 +105,97 @@ The pipeline consists of four sequential stages:
 #### 1. txt2img - Generate from Prompt
 - **Endpoint:** `POST /sdapi/v1/txt2img`
 - **Input:** Prompt text + configuration
-- **Output:** Base64-encoded image
+- **Output:** Base64-encoded image with per-image metadata
+- **Features:**
+  - Support for `name:` prefix in prompt for custom filenames
+  - Automatic global NSFW prevention
+  - SDXL and legacy model support
 - **Metadata:** JSON sidecar with generation parameters
 
-#### 2. img2img - Cleanup Pass (Optional)
+#### 2. Stage Chooser - Per-Image Selection (New)
+- **Type:** Non-blocking modal dialog
+- **Triggers:** After each txt2img generation
+- **Options:** 
+  - img2img (cleanup/refinement)
+  - ADetailer (face/detail enhancement)
+  - Upscale (quality enhancement)
+  - None (skip to next image)
+- **Features:**
+  - Live preview of generated image
+  - "Apply to batch" toggle
+  - "Re-tune settings" quick access
+  - Queue-based non-blocking communication
+- **Implementation:** `src/gui/stage_chooser.py`
+
+#### 3a. img2img - Cleanup Pass (Optional)
 - **Endpoint:** `POST /sdapi/v1/img2img`
 - **Input:** Generated image + denoising strength
 - **Output:** Refined image
-- **Use Case:** Fix artifacts, improve quality
-- **Configuration:** Can be skipped by setting `pipeline.img2img_enabled: false`
+- **Use Case:** Fix artifacts, improve quality, adjust composition
+- **Configuration:** Can be skipped via stage chooser or `pipeline.img2img_enabled: false`
 
-#### 3. Upscale - Enhance Quality (Optional)
+#### 3b. ADetailer - Face/Detail Enhancement (New, Optional)
+- **Endpoint:** `POST /sdapi/v1/img2img` with ADetailer extension
+- **Input:** Generated image + detection model
+- **Output:** Enhanced image with improved faces/details
+- **Use Case:** Automatic face restoration, hand fixing, detail enhancement
+- **Detection Models:**
+  - `face_yolov8n.pt` - Fast face detection
+  - `hand_yolov8n.pt` - Hand detection and fixing
+  - `person_yolov8n-seg.pt` - Full person segmentation
+  - MediaPipe variants for alternative detection
+- **Features:**
+  - Adjustable confidence threshold (0.0-1.0)
+  - Mask feathering for smooth blending
+  - Independent sampler/steps/CFG/denoise settings
+  - Custom prompts for detail enhancement
+- **Configuration:** `adetailer_enabled: true` + model/parameter selection
+- **Implementation:** `src/gui/adetailer_config_panel.py`, `src/pipeline/executor.py::run_adetailer()`
+
+#### 4. Upscale - Enhance Quality (Optional)
 - **Endpoint:** `POST /sdapi/v1/extra-single-image`
 - **Input:** Image + upscaler model + scale factor
 - **Output:** Upscaled image
 - **Options:** GFPGAN, CodeFormer for face restoration
-- **Configuration:** Can be skipped by setting `pipeline.upscale_enabled: false`
+- **Configuration:** Can be skipped via stage chooser or `pipeline.upscale_enabled: false`
 
 ### Flexible Pipeline Execution
 
-The pipeline supports flexible stage execution through configuration:
+The pipeline supports flexible stage execution through both configuration and per-image selection:
 
+**Configuration-Based Control:**
 ```python
 config = {
     "pipeline": {
-        "img2img_enabled": True,   # Enable img2img cleanup
-        "upscale_enabled": False    # Skip upscale for faster results
+        "img2img_enabled": True,    # Enable img2img cleanup
+        "upscale_enabled": False,    # Skip upscale for faster results
+        "adetailer_enabled": True    # Enable ADetailer
     },
-    "txt2img": { ... },
-    "img2img": { ... },
-    "upscale": { ... }
+    "adetailer": {
+        "adetailer_model": "face_yolov8n.pt",
+        "adetailer_confidence": 0.3,
+        "adetailer_denoise": 0.4
+    }
 }
 ```
 
+**Per-Image Stage Selection (New):**
+After txt2img, the Stage Chooser modal allows dynamic selection per image:
+- Choose different processing for each generated image
+- Apply choice to batch for consistency
+- Skip stages entirely for specific images
+
 **Stage Flow Examples:**
 
-1. **Full Pipeline (default)**: `txt2img → img2img → upscale → video`
-2. **Skip img2img**: `txt2img → upscale → video`
-3. **Skip upscale**: `txt2img → img2img → video`
-4. **Fastest (txt2img only)**: `txt2img → video`
+1. **Full Pipeline with ADetailer**: `txt2img → ADetailer → upscale → video`
+2. **Traditional Cleanup**: `txt2img → img2img → upscale → video`
+3. **Fast ADetailer Only**: `txt2img → ADetailer → video`
+4. **Skip All Processing**: `txt2img → video`
+5. **Mixed Per Image**: Image 1 uses ADetailer, Image 2 uses img2img, Image 3 skips
 
 When a stage is skipped, the pipeline automatically uses the output from the previous stage as input for the next stage. This allows for flexible workflows based on your quality vs. speed requirements.
 
-#### 4. Video - Create Sequence
+#### 5. Video - Create Sequence
 - **Tool:** FFmpeg command-line
 - **Input:** Sequence of images
 - **Output:** MP4 video file
