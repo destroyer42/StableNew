@@ -305,7 +305,107 @@ class Pipeline:
         
         return None
     
-
+    def run_adetailer(self, input_image_path: Path, prompt: str,
+                     config: Dict[str, Any], run_dir: Path,
+                     cancel_token=None) -> Optional[Dict[str, Any]]:
+        """
+        Run ADetailer for automatic face/detail enhancement.
+        
+        Args:
+            input_image_path: Path to input image
+            prompt: Text prompt
+            config: Configuration for ADetailer
+            run_dir: Run directory
+            cancel_token: Optional cancellation token
+            
+        Returns:
+            Enhanced image metadata or None if cancelled/failed
+        """
+        # Check for cancellation before starting
+        if cancel_token and cancel_token.is_cancelled():
+            logger.info("adetailer cancelled before start")
+            return None
+        
+        # Check if ADetailer is enabled
+        if not config.get('adetailer_enabled', False):
+            logger.info("ADetailer is disabled, skipping")
+            return None
+        
+        logger.info(f"Starting ADetailer for: {input_image_path.name}")
+        
+        # Load input image
+        init_image = load_image_to_base64(input_image_path)
+        if not init_image:
+            logger.error("Failed to load input image")
+            return None
+        
+        # Build ADetailer payload
+        payload = {
+            "init_images": [init_image],
+            "prompt": config.get('adetailer_prompt', prompt),
+            "negative_prompt": config.get('adetailer_negative_prompt', ''),
+            "sampler_name": config.get('adetailer_sampler', 'DPM++ 2M'),
+            "steps": config.get('adetailer_steps', 28),
+            "cfg_scale": config.get('adetailer_cfg', 7.0),
+            "denoising_strength": config.get('adetailer_denoise', 0.4),
+            "width": config.get("width", 512),
+            "height": config.get("height", 512),
+            # ADetailer specific parameters
+            "alwayson_scripts": {
+                "ADetailer": {
+                    "args": [
+                        {
+                            "ad_model": config.get('adetailer_model', 'face_yolov8n.pt'),
+                            "ad_confidence": config.get('adetailer_confidence', 0.3),
+                            "ad_mask_blur": config.get('adetailer_mask_feather', 4),
+                            "ad_denoising_strength": config.get('adetailer_denoise', 0.4),
+                            "ad_inpaint_only_masked": True,
+                            "ad_inpaint_only_masked_padding": 32,
+                            "ad_use_inpaint_width_height": False,
+                            "ad_sampler": config.get('adetailer_sampler', 'DPM++ 2M'),
+                            "ad_steps": config.get('adetailer_steps', 28),
+                            "ad_cfg_scale": config.get('adetailer_cfg', 7.0),
+                            "ad_prompt": config.get('adetailer_prompt', ''),
+                            "ad_negative_prompt": config.get('adetailer_negative_prompt', '')
+                        }
+                    ]
+                }
+            }
+        }
+        
+        # Call img2img endpoint with ADetailer extension
+        response = self.client.img2img(payload)
+        
+        # Check for cancellation after API call
+        if cancel_token and cancel_token.is_cancelled():
+            logger.info("adetailer cancelled after API call")
+            return None
+        
+        if not response or 'images' not in response:
+            logger.error("adetailer failed")
+            return None
+        
+        # Save enhanced image
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        image_name = f"adetailer_{timestamp}"
+        image_path = run_dir / "adetailer" / f"{image_name}.png"
+        
+        if save_image_from_base64(response['images'][0], image_path):
+            metadata = {
+                "name": image_name,
+                "stage": "adetailer",
+                "timestamp": timestamp,
+                "prompt": prompt,
+                "input_image": str(input_image_path),
+                "config": payload,
+                "path": str(image_path)
+            }
+            
+            self.logger.save_manifest(run_dir, image_name, metadata)
+            logger.info(f"adetailer completed: {image_name}")
+            return metadata
+        
+        return None
     
     def run_upscale(self, input_image_path: Path, config: Dict[str, Any], 
                     run_dir: Path, cancel_token=None) -> Optional[Dict[str, Any]]:
