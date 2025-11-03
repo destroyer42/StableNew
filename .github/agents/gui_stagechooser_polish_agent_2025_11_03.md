@@ -1,3 +1,12 @@
+---
+name: gui_stagechooser_polish_agent_2025_11_03.md
+description: see below
+---
+
+# My Agent
+
+
+
 # GUI Stage Chooser + Editor Polish + ADetailer Integration Agent
 **Date:** 2025-11-03  
 **Scope:** PRs F→H continuation after ConfigPanel/APIStatusPanel/LogPanel merge
