@@ -30,10 +30,10 @@ class LogMessage:
 
 
 class PipelineController:
+    """Controls pipeline execution with cancellation support."""
     @property
     def is_terminal(self):
         return self.state_manager.current in (GUIState.IDLE, GUIState.ERROR)
-    """Controls pipeline execution with cancellation support."""
 
     _JOIN_TIMEOUT = 5.0
 
