@@ -30,7 +30,6 @@ class LogMessage:
 
 class PipelineController:
     """Controls pipeline execution with cancellation support."""
-
     @property
     def is_terminal(self):
         return self.state_manager.current in (GUIState.IDLE, GUIState.ERROR)
@@ -51,8 +50,8 @@ class PipelineController:
         # Cleanup & joining
         self._join_lock = threading.Lock()
         self._cleanup_lock = threading.Lock()
-        self._cleanup_started = False  # per-run guard (reset at start of each pipeline run)
-        self._cleanup_done = threading.Event()  # signals cleanup completed (per run)
+        self._cleanup_started = False            # per-run guard (reset at start of each pipeline run)
+        self._cleanup_done = threading.Event()   # signals cleanup completed (per run)
 
         # Lifecycle signals
         self.lifecycle_event = threading.Event()  # terminal (IDLE/ERROR)
