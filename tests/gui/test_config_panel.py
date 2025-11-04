@@ -1,9 +1,8 @@
 """
 Tests for ConfigPanel component.
 """
+
 import pytest
-import sys
-from unittest.mock import Mock, MagicMock, patch
 
 # Skip these tests if tkinter is not available
 pytest.importorskip("tkinter")
@@ -55,7 +54,7 @@ class TestConfigPanelBasics:
             if isinstance(child, ttk.Notebook):
                 notebook = child
                 break
-        
+
         assert notebook is not None
         # Check tabs exist
         assert notebook.index("end") >= 1, "Should have at least txt2img tab"
@@ -88,7 +87,7 @@ class TestConfigPanelAPI:
     def test_set_config(self):
         """Test set_config updates panel state."""
         panel = ConfigPanel(self.root)
-        
+
         test_config = {
             "txt2img": {
                 "steps": 30,
@@ -102,11 +101,11 @@ class TestConfigPanelAPI:
             },
             "upscale": {
                 "upscaler": "R-ESRGAN 4x+",
-            }
+            },
         }
-        
+
         panel.set_config(test_config)
-        
+
         # Retrieve and verify
         retrieved = panel.get_config()
         assert retrieved["txt2img"]["steps"] == 30
@@ -142,24 +141,28 @@ class TestConfigPanelDimensionBounds:
     def test_dimension_bounds_warning(self):
         """Test that dimensions >2260 trigger warnings."""
         panel = ConfigPanel(self.root)
-        
+
         # Set valid config first
-        panel.set_config({
-            "txt2img": {
-                "width": 1024,
-                "height": 1024,
+        panel.set_config(
+            {
+                "txt2img": {
+                    "width": 1024,
+                    "height": 1024,
+                }
             }
-        })
+        )
         ok, messages = panel.validate()
         assert ok is True
-        
+
         # Now set invalid dimensions
-        panel.set_config({
-            "txt2img": {
-                "width": 3000,  # Too large
-                "height": 1024,
+        panel.set_config(
+            {
+                "txt2img": {
+                    "width": 3000,  # Too large
+                    "height": 1024,
+                }
             }
-        })
+        )
         ok, messages = panel.validate()
         assert ok is False
         assert any("width" in msg.lower() for msg in messages)
@@ -168,12 +171,14 @@ class TestConfigPanelDimensionBounds:
     def test_max_valid_dimension(self):
         """Test that dimension of exactly 2260 is valid."""
         panel = ConfigPanel(self.root)
-        panel.set_config({
-            "txt2img": {
-                "width": 2260,
-                "height": 2260,
+        panel.set_config(
+            {
+                "txt2img": {
+                    "width": 2260,
+                    "height": 2260,
+                }
             }
-        })
+        )
         ok, messages = panel.validate()
         assert ok is True
         assert len(messages) == 0
@@ -197,14 +202,16 @@ class TestConfigPanelHiresSteps:
     def test_hires_steps_in_config(self):
         """Test that hires_steps can be set and retrieved."""
         panel = ConfigPanel(self.root)
-        
-        panel.set_config({
-            "txt2img": {
-                "hires_steps": 15,
-                "enable_hr": True,
+
+        panel.set_config(
+            {
+                "txt2img": {
+                    "hires_steps": 15,
+                    "enable_hr": True,
+                }
             }
-        })
-        
+        )
+
         config = panel.get_config()
         assert "hires_steps" in config["txt2img"]
         assert config["txt2img"]["hires_steps"] == 15
@@ -235,16 +242,18 @@ class TestConfigPanelFaceRestoration:
     def test_face_restoration_config(self):
         """Test face restoration can be enabled/disabled."""
         panel = ConfigPanel(self.root)
-        
+
         # Enable face restoration
-        panel.set_config({
-            "txt2img": {
-                "face_restoration_enabled": True,
-                "face_restoration_model": "GFPGAN",
-                "face_restoration_weight": 0.5,
+        panel.set_config(
+            {
+                "txt2img": {
+                    "face_restoration_enabled": True,
+                    "face_restoration_model": "GFPGAN",
+                    "face_restoration_weight": 0.5,
+                }
             }
-        })
-        
+        )
+
         config = panel.get_config()
         assert config["txt2img"]["face_restoration_enabled"] is True
         assert config["txt2img"]["face_restoration_model"] == "GFPGAN"
@@ -276,7 +285,7 @@ class TestConfigPanelRoundTrip:
     def test_config_round_trip(self):
         """Test that config can be set, retrieved, and set again."""
         panel = ConfigPanel(self.root)
-        
+
         original_config = {
             "txt2img": {
                 "steps": 25,
@@ -294,15 +303,15 @@ class TestConfigPanelRoundTrip:
             "upscale": {
                 "upscaler": "ESRGAN_4x",
                 "scale": 2,
-            }
+            },
         }
-        
+
         # Set config
         panel.set_config(original_config)
-        
+
         # Get config
         retrieved = panel.get_config()
-        
+
         # Verify key values match
         assert retrieved["txt2img"]["steps"] == 25
         assert retrieved["txt2img"]["cfg_scale"] == 7.5
@@ -310,10 +319,10 @@ class TestConfigPanelRoundTrip:
         assert retrieved["txt2img"]["height"] == 768
         assert retrieved["txt2img"]["hires_steps"] == 10
         assert retrieved["img2img"]["steps"] == 15
-        
+
         # Set again
         panel.set_config(retrieved)
-        
+
         # Get again and verify still matches
         final = panel.get_config()
         assert final["txt2img"]["steps"] == 25

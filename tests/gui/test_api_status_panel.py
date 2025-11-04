@@ -1,8 +1,8 @@
 """
 Tests for APIStatusPanel component.
 """
+
 import pytest
-import sys
 
 # Skip these tests if tkinter is not available
 pytest.importorskip("tkinter")
@@ -52,7 +52,7 @@ class TestAPIStatusPanel:
         assert fg_color in ("#f44336", "red", "#F44336")
         # Set connected status
         panel.set_status("Connected to API", "green")
-        
+
         # We can't easily verify the actual text without accessing internals
         # but we can verify the method doesn't raise
         assert True
@@ -60,13 +60,13 @@ class TestAPIStatusPanel:
     def test_set_status_colors(self):
         """Test that different color statuses can be set."""
         panel = APIStatusPanel(self.root)
-        
+
         # Test various colors
         panel.set_status("Connecting...", "yellow")
         panel.set_status("Connected", "green")
         panel.set_status("Disconnected", "red")
         panel.set_status("Error", "red")
-        
+
         # Should not raise
         assert True
 

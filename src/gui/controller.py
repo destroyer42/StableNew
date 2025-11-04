@@ -1,14 +1,14 @@
 """Pipeline controller with cancellation support."""
 
-import threading
-import queue
 import logging
-import time
+import queue
 import subprocess
-from typing import Optional, Dict, Any, Callable
-from pathlib import Path
+import threading
+import time
+from collections.abc import Callable
+from typing import Any
 
-from .state import StateManager, GUIState, CancelToken, CancellationError
+from .state import CancellationError, CancelToken, GUIState, StateManager
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +28,11 @@ class LogMessage:
         self.timestamp = time.time()
 
 
-
 class PipelineController:
     @property
     def is_terminal(self):
         return self.state_manager.current in (GUIState.IDLE, GUIState.ERROR)
+
     """Controls pipeline execution with cancellation support."""
 
     _JOIN_TIMEOUT = 5.0
@@ -43,19 +43,19 @@ class PipelineController:
         self.log_queue: queue.Queue[LogMessage] = queue.Queue()
 
         # Worker + subprocess
-        self._worker: Optional[threading.Thread] = None
+        self._worker: threading.Thread | None = None
         self._pipeline = None
-        self._current_subprocess: Optional[subprocess.Popen] = None
+        self._current_subprocess: subprocess.Popen | None = None
         self._subprocess_lock = threading.Lock()
 
         # Cleanup & joining
         self._join_lock = threading.Lock()
         self._cleanup_lock = threading.Lock()
-        self._cleanup_started = False            # one-shot guard (not reused)
-        self._cleanup_done = threading.Event()   # signals cleanup completed (per run)
+        self._cleanup_started = False  # one-shot guard (not reused)
+        self._cleanup_done = threading.Event()  # signals cleanup completed (per run)
 
         # Lifecycle signals
-        self.lifecycle_event = threading.Event()     # terminal (IDLE/ERROR)
+        self.lifecycle_event = threading.Event()  # terminal (IDLE/ERROR)
         self.state_change_event = threading.Event()  # pulse on change
 
         # Test hook
@@ -67,9 +67,9 @@ class PipelineController:
 
     def start_pipeline(
         self,
-        pipeline_func: Callable[[], Dict[str, Any]],
-        on_complete: Optional[Callable[[Dict[str, Any]], None]] = None,
-        on_error: Optional[Callable[[Exception], None]] = None,
+        pipeline_func: Callable[[], dict[str, Any]],
+        on_complete: Callable[[dict[str, Any]], None] | None = None,
+        on_error: Callable[[Exception], None] | None = None,
     ) -> bool:
         if not self.state_manager.can_run():
             logger.warning("Cannot start pipeline - not in valid state")
@@ -166,7 +166,8 @@ class PipelineController:
             self.state_manager.transition_to(GUIState.IDLE)
 
         # Pulse state change
-        self.state_change_event.set(); self.state_change_event.clear()
+        self.state_change_event.set()
+        self.state_change_event.clear()
 
         # Signal “done” last
         self.lifecycle_event.set()

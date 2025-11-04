@@ -1,6 +1,5 @@
 """Main entry point for StableNew GUI application"""
 
-import sys
 from .gui.main_window import StableNewGUI
 from .utils import setup_logging
 
