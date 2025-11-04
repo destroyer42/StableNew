@@ -1,9 +1,10 @@
 """
 Manages loading, saving, and editing custom prompt pack lists.
 """
+
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+
 
 class PromptPackListManager:
     """Manages loading, saving, and editing custom prompt pack lists."""
@@ -16,19 +17,19 @@ class PromptPackListManager:
             file_path: The path to the JSON file storing the lists.
         """
         self.file_path = Path(file_path)
-        self.lists: Dict[str, List[str]] = self._load()
+        self.lists: dict[str, list[str]] = self._load()
 
-    def _load(self) -> Dict[str, List[str]]:
+    def _load(self) -> dict[str, list[str]]:
         """Loads the lists from the JSON file if it exists."""
         if self.file_path.exists():
             try:
-                with self.file_path.open('r', encoding='utf-8') as f:
+                with self.file_path.open("r", encoding="utf-8") as f:
                     # Ensure we handle empty files
                     content = f.read()
                     if not content:
                         return {}
                     return json.loads(content)
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 # If file is corrupted or unreadable, start fresh
                 return {}
         return {}
@@ -36,17 +37,17 @@ class PromptPackListManager:
     def _save(self) -> bool:
         """Saves the current lists to the JSON file."""
         try:
-            with self.file_path.open('w', encoding='utf-8') as f:
+            with self.file_path.open("w", encoding="utf-8") as f:
                 json.dump(self.lists, f, indent=2, ensure_ascii=False)
             return True
-        except IOError:
+        except OSError:
             return False
 
-    def get_list_names(self) -> List[str]:
+    def get_list_names(self) -> list[str]:
         """Returns a sorted list of all custom list names."""
         return sorted(self.lists.keys())
 
-    def get_list(self, name: str) -> Optional[List[str]]:
+    def get_list(self, name: str) -> list[str] | None:
         """
         Retrieves a specific list of packs by its name.
 
@@ -58,7 +59,7 @@ class PromptPackListManager:
         """
         return self.lists.get(name)
 
-    def save_list(self, name: str, packs: List[str]) -> bool:
+    def save_list(self, name: str, packs: list[str]) -> bool:
         """
         Saves or updates a list of packs.
 
@@ -71,7 +72,7 @@ class PromptPackListManager:
         """
         if not name or not isinstance(packs, list):
             return False
-        self.lists[name] = sorted(packs) # Store sorted for consistency
+        self.lists[name] = sorted(packs)  # Store sorted for consistency
         return self._save()
 
     def delete_list(self, name: str) -> bool:

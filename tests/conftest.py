@@ -1,5 +1,7 @@
 import tkinter as tk
+
 import pytest
+
 
 @pytest.fixture
 def tk_root():
@@ -11,7 +13,12 @@ def tk_root():
         root.destroy()
     except tk.TclError:
         pytest.skip("No display available for Tkinter tests")
+
+
 """Test configuration"""
+
+
+# Test configuration
 
 
 @pytest.fixture

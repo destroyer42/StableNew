@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import MagicMock
 
+
 # This class is a placeholder for the logic that would parse the prompt editor's content.
 # For true testability, this logic should be extracted from the main GUI class.
 class PromptParser:
@@ -13,7 +14,7 @@ class PromptParser:
             line = line.strip()
             if not line:
                 continue
-            if line.lower().startswith('neg:'):
+            if line.lower().startswith("neg:"):
                 negative_prompts.append(line[4:].strip())
             else:
                 prompts.append(line)
@@ -27,6 +28,7 @@ class PromptParser:
         lines.extend([f"neg: {neg}" for neg in negative_prompts])
         return "\n".join(lines)
 
+
 class TestPromptEditor(unittest.TestCase):
 
     def test_parse_prompts_and_negatives(self):
@@ -39,7 +41,7 @@ class TestPromptEditor(unittest.TestCase):
         neg: watermark, signature
         """
         prompts, neg_prompts = PromptParser.parse_text(editor_content)
-        
+
         # Parser returns 3 prompts because "concept art" is also a prompt
         self.assertEqual(len(prompts), 3)
         self.assertEqual(len(neg_prompts), 2)
@@ -67,7 +69,7 @@ class TestPromptEditor(unittest.TestCase):
         """Test formatting prompts and negatives back into editor text."""
         prompts = ["A stunning portrait", "digital painting"]
         negative_prompts = ["out of frame", "extra limbs"]
-        
+
         expected_text = "A stunning portrait\ndigital painting\nneg: out of frame\nneg: extra limbs"
         formatted_text = PromptParser.format_text(prompts, negative_prompts)
         self.assertEqual(formatted_text, expected_text)
@@ -80,11 +82,11 @@ class TestPromptEditor(unittest.TestCase):
         # In a real scenario, this would be more complex, likely involving a dedicated
         # function that returns ranges for highlighting.
         text = "a good prompt\nneg: a bad prompt"
-        
+
         # Mock a text widget to test tag application
         mock_text_widget = MagicMock()
         mock_text_widget.get.return_value = text
-        
+
         # Logic to apply tags (simplified)
         def apply_highlighting(widget):
             content = widget.get("1.0", "end-1c")
@@ -99,5 +101,5 @@ class TestPromptEditor(unittest.TestCase):
         mock_text_widget.tag_add.assert_called_once_with("negative", "2.0", "2.end")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

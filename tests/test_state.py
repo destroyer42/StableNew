@@ -1,13 +1,15 @@
 """Tests for GUI state management."""
 
-import pytest
-import time
 import threading
+import time
+
+import pytest
+
 from src.gui.state import (
+    CancellationError,
+    CancelToken,
     GUIState,
     StateManager,
-    CancelToken,
-    CancellationError,
 )
 
 
