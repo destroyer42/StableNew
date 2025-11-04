@@ -4,7 +4,7 @@ import pytest
 import queue
 import time
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock
 
 # Skip tests if tkinter is not available
 pytest.importorskip("tkinter")
