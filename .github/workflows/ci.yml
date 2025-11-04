@@ -103,7 +103,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb
           mkdir -p test-results coverage
-          xvfb-run -a pytest -q             --junitxml=test-results/junit.xml             --maxfail=1             --cov=src --cov-report=xml:coverage/coverage.xml || exit 1
+          xvfb-run -a pytest -q \
+            --junitxml=test-results/junit.xml \
+            --maxfail=1 \
+            --cov=src \
+            --cov-report=xml:coverage/coverage.xml || exit 1
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
