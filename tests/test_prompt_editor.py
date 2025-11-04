@@ -100,7 +100,7 @@ class TestPromptEditor(unittest.TestCase):
 
 
 class TestPromptEditorEnhancements(unittest.TestCase):
-    """Tests for PR G enhancements to the prompt editor."""
+    """Tests for PR F-H enhancements to the prompt editor."""
     
     def test_angle_bracket_escaping(self):
         """Test that angle brackets are properly escaped and unescaped."""
