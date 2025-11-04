@@ -210,7 +210,8 @@ class TestStageChooserIntegration:
         yield root
         try:
             root.destroy()
-        except:
+        except tk.TclError:
+            # Ignore errors if the window is already destroyed or not fully initialized
             pass
     
     def test_queue_communication_non_blocking(self, root):
