@@ -41,13 +41,15 @@ class TestAPIStatusPanel:
         panel.set_status("Connected", "green")
         self.root.update()  # Ensure after() events are processed
         assert panel.status_label.cget("text") == "Connected"
-        # The color is set on status_indicator
-        assert panel.status_indicator.cget("foreground") in ("#4CAF50", "green")
+        # The color is set on status_indicator - convert to string for comparison
+        fg_color = str(panel.status_indicator.cget("foreground"))
+        assert fg_color in ("#4CAF50", "green", "#4caf50")
         # Set status to Error (red)
         panel.set_status("Error", "red")
         self.root.update()
         assert panel.status_label.cget("text") == "Error"
-        assert panel.status_indicator.cget("foreground") in ("#f44336", "red")
+        fg_color = str(panel.status_indicator.cget("foreground"))
+        assert fg_color in ("#f44336", "red", "#F44336")
         # Set connected status
         panel.set_status("Connected to API", "green")
         
