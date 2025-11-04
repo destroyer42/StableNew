@@ -22,7 +22,8 @@ class TestADetailerConfigPanel:
         yield root
         try:
             root.destroy()
-        except:
+        except tk.TclError:
+            # Ignore TclError if the root window is already destroyed or not initialized.
             pass
     
     def test_panel_creation(self, root):
