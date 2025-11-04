@@ -23,7 +23,8 @@ class TestStageChooser:
         yield root
         try:
             root.destroy()
-        except:
+        except tk.TclError:
+            # Ignore errors if the window is already destroyed or not fully initialized
             pass
     
     def test_stage_choice_enum(self):
