@@ -27,18 +27,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Set `pipeline.img2img_enabled: false` to skip img2img stage
   - Set `pipeline.upscale_enabled: false` to skip upscale stage
   - Pipeline automatically uses output from previous stage when skipping
-- Comprehensive journey test suite:
-  - 14 new integration tests covering full pipeline execution
-  - Tests for optional stage skipping
-  - Batch processing validation
-  - Configuration pass-through verification
-  - Error handling and recovery
-  - Directory structure validation
+- **GUI Component Architecture (Mediator Pattern)**:
+  - `PromptPackPanel` - Modular prompt pack selection and list management
+  - `PipelineControlsPanel` - Stage toggles, loop configuration, and batch settings
+  - `ConfigPanel` - Configuration tabs with validation and enhanced features
+  - `APIStatusPanel` - Color-coded API connection status display
+  - `LogPanel` - Thread-safe live log viewer with Python logging integration
+- **Enhanced Configuration Features**:
+  - **Hires Fix Steps**: New `hires_steps` parameter for controlling second-pass steps separately
+  - **Expanded Dimensions**: Width/Height bounds raised to 2260px with validation warnings
+  - **Face Restoration**: Optional GFPGAN/CodeFormer integration with weight control
+    - Toggle-based UI with show/hide controls
+    - Supports both GFPGAN and CodeFormer models
+    - Adjustable restoration weight (0.0-1.0)
 - Comprehensive test suite:
   - 27 tests for state management and controller
   - 14 tests for archiver tool
   - 14 tests for pipeline journey scenarios
-  - All new tests passing (55 total added)
+  - 15 tests for ConfigPanel features
+  - 13 tests for APIStatusPanel and LogPanel
+  - All tests passing (143 total)
 
 ### Changed
 - Updated `.gitignore` to exclude build artifacts, cache files, and tool outputs
@@ -48,6 +56,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced `run_full_pipeline()` method** to support optional stages with clear logging
 - **Improved manifest directory creation** - manifests directory created automatically when saving
 - Updated pipeline summary to track which stages were completed
+- **GUI Architecture**: Transitioned to component-based architecture with mediator pattern
+  - Main window now acts as coordinator for panel components
+  - Each panel has clear API boundaries (get/set/validate methods)
+  - Improved separation of concerns and testability
+
+### Fixed
+- `PromptPackListManager.get_list_names()` now returns sorted list for consistent ordering
+- Path separator handling in archive tests (cross-platform compatibility)
+- Prompt parser correctly handles interleaved positive and negative prompts
 
 ### Fixed
 - Import structure to allow testing without GUI dependencies
