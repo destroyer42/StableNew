@@ -5,16 +5,15 @@ or referenced anywhere, then optionally moves them to a timestamped archive
 directory with a manifest for tracking and potential restoration.
 """
 
-import ast
 import argparse
-import json
+import ast
 import hashlib
+import json
+import logging
 import shutil
 import subprocess
-from pathlib import Path
 from datetime import datetime
-from typing import Set, Dict, List, Optional
-import logging
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -28,7 +27,7 @@ class ImportAnalyzer(ast.NodeVisitor):
 
     def __init__(self):
         """Initialize analyzer."""
-        self.imports: Set[str] = set()
+        self.imports: set[str] = set()
 
     def visit_Import(self, node: ast.Import) -> None:
         """Visit Import node.
@@ -55,8 +54,8 @@ class DeadCodeDetector:
     def __init__(
         self,
         root_dir: Path,
-        exclude_dirs: Optional[Set[str]] = None,
-        exclude_patterns: Optional[Set[str]] = None,
+        exclude_dirs: set[str] | None = None,
+        exclude_patterns: set[str] | None = None,
     ):
         """Initialize detector.
 
@@ -85,11 +84,11 @@ class DeadCodeDetector:
             "setup.py",  # Build config
         }
 
-        self.all_files: Set[Path] = set()
-        self.import_graph: Dict[Path, Set[str]] = {}
-        self.entrypoints: Set[Path] = set()
+        self.all_files: set[Path] = set()
+        self.import_graph: dict[Path, set[str]] = {}
+        self.entrypoints: set[Path] = set()
 
-    def find_python_files(self) -> Set[Path]:
+    def find_python_files(self) -> set[Path]:
         """Find all Python files in repository.
 
         Returns:
@@ -111,7 +110,7 @@ class DeadCodeDetector:
         logger.info(f"Found {len(python_files)} Python files")
         return python_files
 
-    def build_import_graph(self, files: Set[Path]) -> Dict[Path, Set[str]]:
+    def build_import_graph(self, files: set[Path]) -> dict[Path, set[str]]:
         """Build graph of imports for each file.
 
         Args:
@@ -124,7 +123,7 @@ class DeadCodeDetector:
 
         for py_file in files:
             try:
-                with open(py_file, "r", encoding="utf-8") as f:
+                with open(py_file, encoding="utf-8") as f:
                     tree = ast.parse(f.read(), filename=str(py_file))
 
                 analyzer = ImportAnalyzer()
@@ -138,7 +137,7 @@ class DeadCodeDetector:
 
         return import_graph
 
-    def find_entrypoints(self, files: Set[Path]) -> Set[Path]:
+    def find_entrypoints(self, files: set[Path]) -> set[Path]:
         """Find entrypoint files (main, cli, apps).
 
         Args:
@@ -157,7 +156,7 @@ class DeadCodeDetector:
 
             # Check for if __name__ == "__main__"
             try:
-                with open(py_file, "r", encoding="utf-8") as f:
+                with open(py_file, encoding="utf-8") as f:
                     content = f.read()
                     if '__name__ == "__main__"' in content or "__name__ == '__main__'" in content:
                         entrypoints.add(py_file)
@@ -167,7 +166,7 @@ class DeadCodeDetector:
         logger.info(f"Found {len(entrypoints)} entrypoint files")
         return entrypoints
 
-    def find_referenced_modules(self, files: Set[Path]) -> Set[str]:
+    def find_referenced_modules(self, files: set[Path]) -> set[str]:
         """Find all referenced module names.
 
         Args:
@@ -193,7 +192,7 @@ class DeadCodeDetector:
 
         return referenced
 
-    def find_unused_files(self) -> List[Path]:
+    def find_unused_files(self) -> list[Path]:
         """Find files that are not imported or referenced.
 
         Returns:
@@ -245,7 +244,7 @@ class DeadCodeDetector:
         logger.info(f"Found {len(unused)} potentially unused files")
         return unused
 
-    def generate_report(self, unused_files: List[Path]) -> str:
+    def generate_report(self, unused_files: list[Path]) -> str:
         """Generate report of unused files.
 
         Args:
@@ -313,9 +312,7 @@ class FileArchiver:
                 sha256.update(chunk)
         return sha256.hexdigest()
 
-    def archive_files(
-        self, files: List[Path], dry_run: bool = False
-    ) -> Dict[str, any]:
+    def archive_files(self, files: list[Path], dry_run: bool = False) -> dict[str, any]:
         """Archive files and create manifest.
 
         Args:
@@ -392,7 +389,7 @@ class FileArchiver:
             True if successful, False otherwise
         """
         try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
+            with open(manifest_path, encoding="utf-8") as f:
                 manifest = json.load(f)
 
             archive_dir = manifest_path.parent
@@ -418,9 +415,7 @@ class FileArchiver:
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="Detect and archive unused Python files"
-    )
+    parser = argparse.ArgumentParser(description="Detect and archive unused Python files")
     parser.add_argument(
         "--root",
         type=Path,
@@ -461,7 +456,7 @@ def main():
     # Detect unused files
     detector = DeadCodeDetector(args.root)
     unused_files = detector.find_unused_files()
-    
+
     # Filter by --since if provided
     if args.since and unused_files:
         try:
@@ -471,19 +466,19 @@ def main():
                 cwd=args.root,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
-            
+
             changed_files = {
                 (args.root / line.strip()).resolve()
                 for line in result.stdout.splitlines()
-                if line.strip().endswith('.py')
+                if line.strip().endswith(".py")
             }
-            
+
             # Only keep unused files that have changed
             original_count = len(unused_files)
             unused_files = [f for f in unused_files if f.resolve() in changed_files]
-            
+
             if unused_files:
                 logger.info(
                     f"Filtered to {len(unused_files)} unused files (from {original_count}) "
@@ -494,7 +489,7 @@ def main():
                     f"No unused files found that changed since {args.since} "
                     f"(had {original_count} total unused)"
                 )
-        
+
         except subprocess.CalledProcessError as e:
             logger.warning(f"Could not run git diff: {e}. Showing all unused files.")
         except Exception as e:
@@ -516,8 +511,8 @@ def main():
         manifest = archiver.archive_files(unused_files, dry_run=args.dry_run)
 
         if manifest and not args.dry_run:
-            print(f"\nArchive created successfully")
-            print(f"To undo: python -m tools.archive_unused --undo ARCHIVE/.../manifest.json")
+            print("\nArchive created successfully")
+            print("To undo: python -m tools.archive_unused --undo ARCHIVE/.../manifest.json")
 
     return 0
 

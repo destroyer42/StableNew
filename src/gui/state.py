@@ -1,9 +1,9 @@
 """GUI state management with state machine pattern."""
 
-from enum import Enum, auto
-from typing import Optional, Callable
-import threading
 import logging
+import threading
+from collections.abc import Callable
+from enum import Enum, auto
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +67,8 @@ class StateManager:
         """Initialize state manager."""
         self._state = GUIState.IDLE
         self._lock = threading.Lock()
-        self._callbacks: dict[GUIState, list[Callable]] = {
-            state: [] for state in GUIState
-        }
-        self._transition_callbacks: list[
-            Callable[[GUIState, GUIState], None]
-        ] = []
+        self._callbacks: dict[GUIState, list[Callable]] = {state: [] for state in GUIState}
+        self._transition_callbacks: list[Callable[[GUIState, GUIState], None]] = []
 
     @property
     def current(self) -> GUIState:
@@ -129,9 +125,7 @@ class StateManager:
             # Validate transitions
             valid = self._is_valid_transition(old_state, new_state)
             if not valid:
-                logger.warning(
-                    f"Invalid state transition: {old_state.name} -> {new_state.name}"
-                )
+                logger.warning(f"Invalid state transition: {old_state.name} -> {new_state.name}")
                 return False
 
             self._state = new_state
@@ -143,9 +137,7 @@ class StateManager:
 
         return True
 
-    def _is_valid_transition(
-        self, from_state: GUIState, to_state: GUIState
-    ) -> bool:
+    def _is_valid_transition(self, from_state: GUIState, to_state: GUIState) -> bool:
         """Check if state transition is valid.
 
         Args:
@@ -174,9 +166,7 @@ class StateManager:
         with self._lock:
             self._callbacks[state].append(callback)
 
-    def on_transition(
-        self, callback: Callable[[GUIState, GUIState], None]
-    ) -> None:
+    def on_transition(self, callback: Callable[[GUIState, GUIState], None]) -> None:
         """Register callback for any state transition.
 
         Args:
