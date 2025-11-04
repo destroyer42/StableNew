@@ -22,96 +22,65 @@ class AdvancedPromptEditor:
 
         # Model caches
         self.embeddings_cache = set()
-        self.loras_cache = set()
-        self.webui_path = None
+        def _save_to_path(self, path: Path):
+            """Save pack to specific path"""
+            try:
+                content = self.prompts_text.get("1.0", tk.END).strip()
 
-        # Validation results
-        self.last_validation = {}
-
-        # Global negative prompt
-        self.global_neg_content = ""
-
-        # Add status_text label for test compatibility
-        self.status_text = tk.Label(self.parent, text="", anchor="w")
-        self.status_text.pack_forget()  # Not shown by default
-
-        self._discover_webui_path()
-        self._load_model_caches()
-        self._load_global_negative()
-
-    def _discover_webui_path(self):
-        """Discover WebUI installation path"""
-        possible_paths = [
-            Path("C:/Users/rober/stable-diffusion-webui"),
-            Path("../stable-diffusion-webui"),
-            Path("./stable-diffusion-webui"),
-            Path("~/stable-diffusion-webui").expanduser(),
-            Path("../../stable-diffusion-webui"),
-        ]
-
-        for path in possible_paths:
-            if path.exists() and path.is_dir():
-                # Check if it looks like a WebUI installation
-                if (path / "webui.py").exists() or (path / "launch.py").exists():
-                    self.webui_path = path
-                    break
-
-        if not self.webui_path:
-            print("Warning: WebUI path not found. Model validation will be limited.")
-
-    def _load_model_caches(self):
-        """Load available embeddings and LoRAs from WebUI directories"""
-        if not self.webui_path:
-            return
-
-        try:
-            # Load embeddings
-            embeddings_dir = self.webui_path / "embeddings"
-            if embeddings_dir.exists():
-                for ext in [".pt", ".safetensors", ".bin", ".ckpt"]:
-                    for embedding_file in embeddings_dir.glob(f"*{ext}"):
-                        self.embeddings_cache.add(embedding_file.stem)
-                print(f"Found {len(self.embeddings_cache)} embeddings")
-
-            # Load LoRAs
-            loras_dir = self.webui_path / "models" / "Lora"
-            if loras_dir.exists():
-                for ext in [".pt", ".safetensors", ".ckpt"]:
-                    for lora_file in loras_dir.glob(f"*{ext}"):
-                        self.loras_cache.add(lora_file.stem)
-                print(f"Found {len(self.loras_cache)} LoRAs")
-
-        except Exception as e:
-            print(f"Warning: Could not load model caches: {e}")
-
-    def _load_global_negative(self):
-        """Load the global negative prompt"""
-        # Try to get from pipeline executor or config
-        try:
-            # Look for global negative in various places
-            sources = [Path("src/pipeline/executor.py"), Path("config/global.json")]
-
-            default_global_neg = "blurry, bad quality, distorted, ugly, malformed, nsfw, nude, naked, explicit, sexual content, adult content, inappropriate, offensive"
-
-            # Try to extract from executor.py
-            executor_path = Path("src/pipeline/executor.py")
-            if executor_path.exists():
-                with open(executor_path, encoding="utf-8") as f:
-                    content = f.read()
-                    # Look for global_neg pattern
-                    match = re.search(
-                        r'global_neg.*?["\']([^"\']+)["\']', content, re.DOTALL | re.IGNORECASE
-                    )
-                    if match:
-                        self.global_neg_content = match.group(1)
+                # Validate before saving
+                validation_results = self._validate_content(content)
+                if validation_results["errors"]:
+                    if not messagebox.askyesno(
+                        "Validation Errors",
+                        f"Pack has {len(validation_results['errors'])} errors:\n\n"
+                        f"{chr(10).join(validation_results['errors'][:3])}\n\n"
+                        f"Save anyway?",
+                    ):
                         return
 
-            # Fallback to default
-            self.global_neg_content = default_global_neg
+                # Ensure directory exists
+                path.parent.mkdir(parents=True, exist_ok=True)
 
-        except Exception as e:
-            print(f"Warning: Could not load global negative: {e}")
-            self.global_neg_content = "blurry, bad quality, distorted, ugly, malformed"
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+
+                self.current_pack_path = path
+                self.pack_name_var.set(path.stem)
+                self.is_modified = False
+                self.window.title(f"Advanced Prompt Pack Editor - {path.name}")
+                if hasattr(self, 'status_text'):
+                    self.status_text.config(text=f"Saved: {path.name}")
+
+                # Notify parent of changes
+                if self.on_packs_changed:
+                    self.on_packs_changed()
+
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save pack: {e}")
+
+        def _save_global_negative(self):
+            """Save the global negative prompt"""
+            try:
+                content = self.global_neg_text.get("1.0", tk.END).strip()
+                self.global_neg_content = content
+
+                # Here you could save to a config file or update the pipeline
+                # For now, just update the in-memory version
+                if hasattr(self, 'status_text'):
+                    self.status_text.config(text="Global negative prompt updated")
+                messagebox.showinfo("Success", "Global negative prompt has been updated.")
+
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save global negative: {e}")
+
+        def _reset_global_negative(self):
+            """Reset global negative to default"""
+            default_neg = "blurry, bad quality, distorted, ugly, malformed, nsfw, nude, naked, explicit, sexual content, adult content, inappropriate, offensive"
+            self.global_neg_text.delete('1.0', tk.END)
+            self.global_neg_text.insert('1.0', default_neg)
+            self.global_neg_content = default_neg
+            if hasattr(self, 'status_text'):
+                self.status_text.config(text="Global negative reset to default")
 
     def open_editor(self, pack_path=None):
         """Open the advanced prompt pack editor"""
@@ -644,13 +613,7 @@ Errors and warnings appear in the Validation tab.
         # Add LoRAs
         for lora in sorted(self.loras_cache):
             self.loras_listbox.insert(tk.END, lora)
-<<<<<<< HEAD
-        
-        # Update counts in status (guard against status_text not being created yet)
-=======
-
         # Update counts in status
->>>>>>> gui-finish-sprint-nov2025
         embed_count = len(self.embeddings_cache)
         lora_count = len(self.loras_cache)
         if hasattr(self, 'status_text') and (embed_count or lora_count):
@@ -662,14 +625,8 @@ Errors and warnings appear in the Validation tab.
             self.status_text.config(text="Refreshing models...")
         self._load_model_caches()
         self._populate_model_lists()
-<<<<<<< HEAD
         if hasattr(self, 'status_text'):
             self.status_text.config(text="Models refreshed")
-    
-=======
-        self.status_text.config(text="Models refreshed")
-
->>>>>>> gui-finish-sprint-nov2025
     def _insert_embedding(self, event=None):
         """Insert selected embedding into prompt"""
         selection = self.embeddings_listbox.curselection()
@@ -799,116 +756,71 @@ neg: malformed, bad anatomy, low quality"""
 
             # Update format hint
             self._on_format_changed()
-<<<<<<< HEAD
-            
             # Load and display global negative if present in config
             self._refresh_global_negative_display()
-            
-=======
-
->>>>>>> gui-finish-sprint-nov2025
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load pack: {e}")
 
     def _save_pack(self):
         """Save the current pack"""
         if self.current_pack_path:
-            self._save_to_path(self.current_pack_path)
-        else:
-            self._save_pack_as()
+            def _save_to_path(self, path: Path):
+                """Save pack to specific path"""
+                try:
+                    content = self.prompts_text.get("1.0", tk.END).strip()
 
-    def _save_pack_as(self):
-        """Save pack with a new name"""
-        pack_name = self.pack_name_var.get().strip()
-        if not pack_name:
-            messagebox.showerror("Error", "Please enter a pack name")
-            return
+                    # Validate before saving
+                    validation_results = self._validate_content(content)
+                    if validation_results["errors"]:
+                        if not messagebox.askyesno(
+                            "Validation Errors",
+                            f"Pack has {len(validation_results['errors'])} errors:\n\n"
+                            f"{chr(10).join(validation_results['errors'][:3])}\n\n"
+                            f"Save anyway?",
+                        ):
+                            return
 
-        # Clean pack name for filesystem
-        pack_name = re.sub(r"[^\w\-_.]", "_", pack_name)
+                    # Ensure directory exists
+                    path.parent.mkdir(parents=True, exist_ok=True)
 
-        file_path = filedialog.asksaveasfilename(
-            title="Save Prompt Pack",
-            initialdir="packs",
-            initialfile=f"{pack_name}.{self.format_var.get()}",
-            filetypes=[("Text files", "*.txt"), ("TSV files", "*.tsv"), ("All files", "*.*")],
-        )
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(content)
 
-        if file_path:
-            self._save_to_path(Path(file_path))
+                    self.current_pack_path = path
+                    self.pack_name_var.set(path.stem)
+                    self.is_modified = False
+                    self.window.title(f"Advanced Prompt Pack Editor - {path.name}")
+                    self.status_text.config(text=f"Saved: {path.name}")
 
-    def _save_to_path(self, path: Path):
-        """Save pack to specific path"""
-        try:
-            content = self.prompts_text.get("1.0", tk.END).strip()
+                    # Notify parent of changes
+                    if self.on_packs_changed:
+                        self.on_packs_changed()
 
-            # Validate before saving
-            validation_results = self._validate_content(content)
-            if validation_results["errors"]:
-                if not messagebox.askyesno(
-                    "Validation Errors",
-                    f"Pack has {len(validation_results['errors'])} errors:\n\n"
-                    f"{chr(10).join(validation_results['errors'][:3])}\n\n"
-                    f"Save anyway?",
-                ):
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to save pack: {e}")
+
+            def _clone_pack(self):
+                """Clone the current pack"""
+                if not self.current_pack_path:
+                    messagebox.showinfo("Info", "No pack loaded to clone")
                     return
 
-            # Ensure directory exists
-            path.parent.mkdir(parents=True, exist_ok=True)
+                original_name = self.pack_name_var.get()
+                clone_name = f"{original_name}_copy"
 
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(content)
+                # Find available name
+                counter = 1
+                while (Path("packs") / f"{clone_name}.{self.format_var.get()}").exists():
+                    clone_name = f"{original_name}_copy_{counter}"
+                    counter += 1
 
-            self.current_pack_path = path
-            self.pack_name_var.set(path.stem)
-            self.is_modified = False
-            self.window.title(f"Advanced Prompt Pack Editor - {path.name}")
-<<<<<<< HEAD
-            
-            if hasattr(self, 'status_text'):
-                self.status_text.config(text=f"Saved: {path.name}")
-            
-=======
+                self.pack_name_var.set(clone_name)
+                self.current_pack_path = None
+                self.is_modified = True
+                self.window.title(f"Advanced Prompt Pack Editor - {clone_name} (Clone) *")
+                if hasattr(self, 'status_text'):
+                    self.status_text.config(text=f"Cloned as: {clone_name}")
 
-            self.status_text.config(text=f"Saved: {path.name}")
-
->>>>>>> gui-finish-sprint-nov2025
-            # Notify parent of changes
-            if self.on_packs_changed:
-                self.on_packs_changed()
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save pack: {e}")
-
-    def _clone_pack(self):
-        """Clone the current pack"""
-        if not self.current_pack_path:
-            messagebox.showinfo("Info", "No pack loaded to clone")
-            return
-
-        original_name = self.pack_name_var.get()
-        clone_name = f"{original_name}_copy"
-
-        # Find available name
-        counter = 1
-        while (Path("packs") / f"{clone_name}.{self.format_var.get()}").exists():
-            clone_name = f"{original_name}_copy_{counter}"
-            counter += 1
-
-        self.pack_name_var.set(clone_name)
-        self.current_pack_path = None
-        self.is_modified = True
-        self.window.title(f"Advanced Prompt Pack Editor - {clone_name} (Clone) *")
-<<<<<<< HEAD
-        
-        if hasattr(self, 'status_text'):
-            self.status_text.config(text=f"Cloned as: {clone_name}")
-    
-=======
-
-        self.status_text.config(text=f"Cloned as: {clone_name}")
-
->>>>>>> gui-finish-sprint-nov2025
     def _delete_pack(self):
         """Delete the current pack"""
         if not self.current_pack_path:
@@ -917,28 +829,21 @@ neg: malformed, bad anatomy, low quality"""
 
         if messagebox.askyesno(
             "Confirm Delete",
-            f"Are you sure you want to delete '{self.current_pack_path.name}'?\n\n"
             f"This action cannot be undone.",
         ):
             try:
                 deleted_name = self.current_pack_path.name
                 self.current_pack_path.unlink()
-<<<<<<< HEAD
-                
+                self.current_pack_path = None
+                self.pack_name_var.set("")
+                self.prompts_text.delete("1.0", tk.END)
+                self.is_modified = False
+                self.window.title("Advanced Prompt Pack Editor - Deleted")
                 if hasattr(self, 'status_text'):
                     self.status_text.config(text=f"Deleted: {deleted_name}")
-                
-=======
-                self.status_text.config(text=f"Deleted: {self.current_pack_path.name}")
-
->>>>>>> gui-finish-sprint-nov2025
-                # Create new pack after deletion
-                self._new_pack()
-
                 # Notify parent of changes
                 if self.on_packs_changed:
                     self.on_packs_changed()
-
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete pack: {e}")
 
@@ -1310,48 +1215,21 @@ neg: malformed, bad anatomy, low quality"""
         try:
             content = self.global_neg_text.get("1.0", tk.END).strip()
             self.global_neg_content = content
-
-            # Here you could save to a config file or update the pipeline
-            # For now, just update the in-memory version
-<<<<<<< HEAD
             if hasattr(self, 'status_text'):
                 self.status_text.config(text="Global negative prompt updated")
-            
-=======
-            self.status_text.config(text="Global negative prompt updated")
-
->>>>>>> gui-finish-sprint-nov2025
             messagebox.showinfo("Success", "Global negative prompt has been updated.")
-
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save global negative: {e}")
 
     def _reset_global_negative(self):
         """Reset global negative to default"""
         default_neg = "blurry, bad quality, distorted, ugly, malformed, nsfw, nude, naked, explicit, sexual content, adult content, inappropriate, offensive"
-<<<<<<< HEAD
-        
         self.global_neg_text.delete('1.0', tk.END)
         self.global_neg_text.insert('1.0', default_neg)
         self.global_neg_content = default_neg
-        
         if hasattr(self, 'status_text'):
             self.status_text.config(text="Global negative reset to default")
-    
-    def _refresh_global_negative_display(self):
-        """Refresh the global negative prompt display from current config"""
-        if hasattr(self, 'global_neg_text'):
-            self.global_neg_text.delete('1.0', tk.END)
-            self.global_neg_text.insert('1.0', self.global_neg_content)
-    
-=======
 
-        self.global_neg_text.delete("1.0", tk.END)
-        self.global_neg_text.insert("1.0", default_neg)
-
-        self.status_text.config(text="Global negative reset to default")
-
->>>>>>> gui-finish-sprint-nov2025
     def _check_unsaved_changes(self):
         """Check for unsaved changes and prompt user"""
         if self.is_modified:

@@ -106,8 +106,8 @@ class Pipeline:
             return []
 
         logger.info(f"Starting txt2img with prompt: {prompt[:50]}...")
-    # Extract name prefix if present
-    name_prefix = self._extract_name_prefix(prompt)
+        # Extract name prefix if present
+        name_prefix = self._extract_name_prefix(prompt)
         # Apply global NSFW prevention to negative prompt
         base_negative = config.get("negative_prompt", "")
         enhanced_negative = self.config_manager.add_global_negative(base_negative)
