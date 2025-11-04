@@ -313,14 +313,29 @@ class StableNewGUI:
         self._build_pipeline_controls_panel(right_panel)
         
     def _build_pipeline_controls_panel(self, parent):
-        """Build compact pipeline controls panel using PipelineControlsPanel component"""
+        """Build compact pipeline controls panel using PipelineControlsPanel component, with state restore."""
+        # Save previous state if panel exists
+        prev_state = None
+        if hasattr(self, 'pipeline_controls_panel') and self.pipeline_controls_panel is not None:
+            try:
+                prev_state = self.pipeline_controls_panel.get_state()
+            except Exception as e:
+                logger.warning(f"Failed to get PipelineControlsPanel state: {e}")
+        # Destroy old panel if present
+        if hasattr(self, 'pipeline_controls_panel') and self.pipeline_controls_panel is not None:
+            self.pipeline_controls_panel.destroy()
         # Create the PipelineControlsPanel component
         self.pipeline_controls_panel = PipelineControlsPanel(
             parent,
             style='Dark.TFrame'
         )
         self.pipeline_controls_panel.pack(fill=tk.BOTH, expand=True)
-        
+        # Restore previous state if available
+        if prev_state:
+            try:
+                self.pipeline_controls_panel.set_state(prev_state)
+            except Exception as e:
+                logger.warning(f"Failed to restore PipelineControlsPanel state: {e}")
         # Store references to variables for backward compatibility
         self.txt2img_enabled = self.pipeline_controls_panel.txt2img_enabled
         self.img2img_enabled = self.pipeline_controls_panel.img2img_enabled

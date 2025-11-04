@@ -175,21 +175,21 @@ class PromptPackPanel(ttk.Frame):
                 style='Dark.TButton'
             ).pack(side=tk.LEFT)
             
-    def _on_pack_selection_changed(self, event=None):
-        """Handle prompt pack selection changes."""
+    def _on_pack_selection_changed(self, event: object = None) -> None:
+        """
+        Handle prompt pack selection changes.
+        Args:
+            event: The event object (optional)
+        """
         selected_indices = self.packs_listbox.curselection()
         selected_packs = [self.packs_listbox.get(i) for i in selected_indices]
-        
         if selected_packs:
             self._last_selected_pack = selected_packs[0]
-            logger.debug(f"Pack selection changed: {selected_packs}")
+            logger.info(f"PromptPackPanel: Pack selection changed: {selected_packs}")
         else:
             self._last_selected_pack = None
-            
-        # Update visual highlighting
+            logger.info("PromptPackPanel: No pack selected.")
         self._update_selection_highlights()
-        
-        # Notify coordinator via callback
         if self._on_selection_changed:
             self._on_selection_changed(selected_packs)
             
@@ -203,68 +203,58 @@ class PromptPackPanel(ttk.Frame):
         for index in self.packs_listbox.curselection():
             self.packs_listbox.itemconfig(index, {'bg': '#0078d4'})
             
-    def refresh_packs(self, silent: bool = False):
+    def refresh_packs(self, silent: bool = False) -> None:
         """
         Refresh the prompt packs list from the packs directory.
-        
         Args:
             silent: If True, don't log the refresh action
         """
         packs_dir = Path("packs")
         pack_files = get_prompt_packs(packs_dir)
-        
         # Save current selection
         current_selection = self.get_selected_packs()
-        
         # Clear and repopulate
         self.packs_listbox.delete(0, tk.END)
         for pack_file in pack_files:
             self.packs_listbox.insert(tk.END, pack_file.name)
-            
         # Restore selection if possible
         if current_selection:
             for i in range(self.packs_listbox.size()):
                 pack_name = self.packs_listbox.get(i)
                 if pack_name in current_selection:
                     self.packs_listbox.selection_set(i)
-        
         if not silent:
-            logger.info(f"Found {len(pack_files)} prompt packs")
+            logger.info(f"PromptPackPanel: Refreshed, found {len(pack_files)} prompt packs.")
             
     def get_selected_packs(self) -> List[str]:
         """
         Get list of currently selected pack names.
-        
         Returns:
             List of selected pack names
         """
         selected_indices = self.packs_listbox.curselection()
         return [self.packs_listbox.get(i) for i in selected_indices]
         
-    def set_selected_packs(self, pack_names: List[str]):
+    def set_selected_packs(self, pack_names: List[str]) -> None:
         """
         Set the selected packs by name.
-        
         Args:
             pack_names: List of pack names to select
         """
-        # Clear current selection
         self.packs_listbox.selection_clear(0, tk.END)
-        
-        # Select specified packs
         for i in range(self.packs_listbox.size()):
             pack_name = self.packs_listbox.get(i)
             if pack_name in pack_names:
                 self.packs_listbox.selection_set(i)
-                
-        # Trigger selection change callback
+        logger.info(f"PromptPackPanel: Set selected packs: {pack_names}")
         self._on_pack_selection_changed()
         
-    def select_first_pack(self):
+    def select_first_pack(self) -> None:
         """Select the first pack if available."""
         if self.packs_listbox.size() > 0:
             self.packs_listbox.selection_set(0)
             self.packs_listbox.activate(0)
+            logger.info("PromptPackPanel: First pack selected.")
             self._on_pack_selection_changed()
             
     def _load_pack_list(self):

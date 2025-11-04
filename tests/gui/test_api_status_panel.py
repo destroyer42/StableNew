@@ -35,9 +35,19 @@ class TestAPIStatusPanel:
         assert isinstance(panel, ttk.Frame)
 
     def test_set_status(self):
-        """Test set_status method changes displayed text."""
+        """Test set_status method changes displayed text and color."""
         panel = APIStatusPanel(self.root)
-        
+        # Set status to Connected (green)
+        panel.set_status("Connected", "green")
+        self.root.update()  # Ensure after() events are processed
+        assert panel.status_label.cget("text") == "Connected"
+        # The color is set on status_indicator
+        assert panel.status_indicator.cget("foreground") in ("#4CAF50", "green")
+        # Set status to Error (red)
+        panel.set_status("Error", "red")
+        self.root.update()
+        assert panel.status_label.cget("text") == "Error"
+        assert panel.status_indicator.cget("foreground") in ("#f44336", "red")
         # Set connected status
         panel.set_status("Connected to API", "green")
         

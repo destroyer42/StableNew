@@ -28,30 +28,42 @@ class LogMessage:
         self.timestamp = time.time()
 
 
+
 class PipelineController:
+    @property
+    def is_terminal(self):
+        return self.state_manager.current in (GUIState.IDLE, GUIState.ERROR)
     """Controls pipeline execution with cancellation support."""
 
-    def __init__(self, state_manager: StateManager):
-        """Initialize pipeline controller.
+    _JOIN_TIMEOUT = 5.0
 
-        Args:
-            state_manager: State manager instance
-        """
+    def __init__(self, state_manager: StateManager):
         self.state_manager = state_manager
         self.cancel_token = CancelToken()
         self.log_queue: queue.Queue[LogMessage] = queue.Queue()
-        self.worker_thread: Optional[threading.Thread] = None
+
+        # Worker + subprocess
+        self._worker: Optional[threading.Thread] = None
         self._pipeline = None
         self._current_subprocess: Optional[subprocess.Popen] = None
         self._subprocess_lock = threading.Lock()
 
-    def set_pipeline(self, pipeline) -> None:
-        """Set the pipeline instance to use.
+        # Cleanup & joining
+        self._join_lock = threading.Lock()
+        self._cleanup_lock = threading.Lock()
+        self._cleanup_started = False            # one-shot guard (not reused)
+        self._cleanup_done = threading.Event()   # signals cleanup completed (per run)
 
-        Args:
-            pipeline: Pipeline executor instance
-        """
-        self._pipeline = pipeline
+        # Lifecycle signals
+        self.lifecycle_event = threading.Event()     # terminal (IDLE/ERROR)
+        self.state_change_event = threading.Event()  # pulse on change
+
+        # Test hook
+        self._sync_cleanup = False
+
+        # Epoch
+        self._epoch_lock = threading.Lock()
+        self._epoch_id = 0
 
     def start_pipeline(
         self,
@@ -59,100 +71,110 @@ class PipelineController:
         on_complete: Optional[Callable[[Dict[str, Any]], None]] = None,
         on_error: Optional[Callable[[Exception], None]] = None,
     ) -> bool:
-        """Start pipeline execution in background thread.
-
-        Args:
-            pipeline_func: Function to execute (should check cancel_token)
-            on_complete: Callback for successful completion
-            on_error: Callback for errors
-
-        Returns:
-            True if started, False if already running
-        """
         if not self.state_manager.can_run():
             logger.warning("Cannot start pipeline - not in valid state")
             return False
-
         if not self.state_manager.transition_to(GUIState.RUNNING):
             return False
 
-        # Reset cancel token for new run
+        # 1) Wait for previous cleanup (if any) to finish
+        self._cleanup_done.wait(timeout=10.0)
+
+        # 2) New epoch
+        with self._epoch_lock:
+            self._epoch_id += 1
+            eid = self._epoch_id
+
+        # 3) Reset per-run signals (allocate new Event)
+        self._cleanup_done = threading.Event()
+        self._cleanup_started = False
+        self.lifecycle_event.clear()
         self.cancel_token.reset()
 
         def worker():
-            """Worker thread function."""
+            error_occurred = False
             try:
                 self._log("Pipeline started", "INFO")
-                start_time = time.time()
-
-                # Execute pipeline function
                 result = pipeline_func()
-
-                elapsed = time.time() - start_time
-                self._log(f"Pipeline completed in {elapsed:.1f}s", "SUCCESS")
-
-                # Transition to IDLE on success
-                self.state_manager.transition_to(GUIState.IDLE)
-
-                # Call completion callback
                 if on_complete:
                     on_complete(result)
-
             except CancellationError:
                 self._log("Pipeline cancelled by user", "WARNING")
-                self.state_manager.transition_to(GUIState.IDLE)
-
             except Exception as e:
-                logger.exception("Pipeline error")
-                self._log(f"Pipeline error: {str(e)}", "ERROR")
+                error_occurred = True
+                self._log(f"Pipeline error: {e}", "ERROR")
                 self.state_manager.transition_to(GUIState.ERROR)
-
                 if on_error:
                     on_error(e)
 
-        self.worker_thread = threading.Thread(target=worker, daemon=True)
-        self.worker_thread.start()
+            def cleanup():
+                self._do_cleanup(eid, error_occurred)
+
+            if self._sync_cleanup:
+                cleanup()
+            else:
+                threading.Thread(target=cleanup, daemon=True).start()
+
+        self._worker = threading.Thread(target=worker, daemon=True)
+        self._worker.start()
         return True
 
     def stop_pipeline(self) -> bool:
-        """Request pipeline cancellation.
-
-        Returns:
-            True if stop requested, False if not running
-        """
         if not self.state_manager.can_stop():
             logger.warning("Cannot stop pipeline - not running")
             return False
-
         self._log("Stop requested - cancelling pipeline...", "WARNING")
-
-        # Transition to STOPPING state
         if not self.state_manager.transition_to(GUIState.STOPPING):
             return False
-
-        # Set cancel token
         self.cancel_token.cancel()
-
-        # Try to terminate any subprocess
         self._terminate_subprocess()
 
-        # Start cleanup thread
         def cleanup():
-            """Cleanup after cancellation."""
-            # Wait for worker to finish (with timeout)
-            if self.worker_thread and self.worker_thread.is_alive():
-                self.worker_thread.join(timeout=5.0)
+            with self._epoch_lock:
+                eid = self._epoch_id
+            self._do_cleanup(eid, error_occurred=False)
 
-            # Cleanup temporary files
-            self._cleanup_temp_files()
-
-            # Transition back to IDLE
-            if self.state_manager.is_state(GUIState.STOPPING):
-                self.state_manager.transition_to(GUIState.IDLE)
-                self._log("Pipeline stopped and cleaned up", "INFO")
-
-        threading.Thread(target=cleanup, daemon=True).start()
+        if self._sync_cleanup:
+            cleanup()
+        else:
+            threading.Thread(target=cleanup, daemon=True).start()
         return True
+
+    def _do_cleanup(self, eid: int, error_occurred: bool):
+        # Ignore stale cleanup from a previous run
+        with self._epoch_lock:
+            if eid != self._epoch_id:
+                return
+
+        # Single-entry guard
+        with self._cleanup_lock:
+            if self._cleanup_started:
+                return
+            self._cleanup_started = True
+
+        # Join once, owned by controller
+        with self._join_lock:
+            if self._worker is not None and threading.current_thread() is not self._worker:
+                self._worker.join(timeout=self._JOIN_TIMEOUT)
+            self._worker = None
+
+        # Terminate subprocess if still around
+        self._terminate_subprocess()
+
+        # State to terminal AFTER join/teardown
+        if not self.state_manager.is_state(GUIState.ERROR):
+            self.state_manager.transition_to(GUIState.IDLE)
+
+        # Pulse state change
+        self.state_change_event.set(); self.state_change_event.clear()
+
+        # Signal “done” last
+        self.lifecycle_event.set()
+        self._cleanup_done.set()
+
+    def set_pipeline(self, pipeline) -> None:
+        """Set the pipeline instance to use."""
+        self._pipeline = pipeline
 
     def _terminate_subprocess(self) -> None:
         """Terminate any running subprocess (e.g., FFmpeg)."""
@@ -174,23 +196,11 @@ class PipelineController:
 
     def _cleanup_temp_files(self) -> None:
         """Clean up temporary files created during pipeline execution."""
-        try:
-            # Look for temp directories
-            temp_dirs = [Path("tmp"), Path("temp")]
-            for temp_dir in temp_dirs:
-                if temp_dir.exists() and temp_dir.is_dir():
-                    # Only clean up files from current session
-                    # This is a placeholder - implement actual cleanup logic
-                    pass
-        except Exception as e:
-            logger.warning(f"Error cleaning temp files: {e}")
+        # Disabled during test debugging due to fatal Windows exception
+        pass
 
     def register_subprocess(self, process: subprocess.Popen) -> None:
-        """Register subprocess for cancellation tracking.
-
-        Args:
-            process: Subprocess to track
-        """
+        """Register subprocess for cancellation tracking."""
         with self._subprocess_lock:
             self._current_subprocess = process
 
@@ -200,20 +210,11 @@ class PipelineController:
             self._current_subprocess = None
 
     def _log(self, message: str, level: str = "INFO") -> None:
-        """Add message to log queue.
-
-        Args:
-            message: Log message
-            level: Log level
-        """
+        """Add message to log queue."""
         self.log_queue.put(LogMessage(message, level))
 
     def get_log_messages(self) -> list[LogMessage]:
-        """Get all pending log messages.
-
-        Returns:
-            List of log messages
-        """
+        """Get all pending log messages."""
         messages = []
         while not self.log_queue.empty():
             try:
@@ -223,17 +224,9 @@ class PipelineController:
         return messages
 
     def is_running(self) -> bool:
-        """Check if pipeline is currently running.
-
-        Returns:
-            True if running, False otherwise
-        """
+        """Check if pipeline is currently running."""
         return self.state_manager.is_state(GUIState.RUNNING)
 
     def is_stopping(self) -> bool:
-        """Check if pipeline is stopping.
-
-        Returns:
-            True if stopping, False otherwise
-        """
+        """Check if pipeline is stopping."""
         return self.state_manager.is_state(GUIState.STOPPING)

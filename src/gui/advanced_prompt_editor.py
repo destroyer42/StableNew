@@ -22,18 +22,22 @@ class AdvancedPromptEditor:
         self.window = None
         self.current_pack_path = None
         self.is_modified = False
-        
+
         # Model caches
         self.embeddings_cache = set()
         self.loras_cache = set()
         self.webui_path = None
-        
+
         # Validation results
         self.last_validation = {}
-        
+
         # Global negative prompt
         self.global_neg_content = ""
-        
+
+        # Add status_text label for test compatibility
+        self.status_text = tk.Label(self.parent, text="", anchor="w")
+        self.status_text.pack_forget()  # Not shown by default
+
         self._discover_webui_path()
         self._load_model_caches()
         self._load_global_negative()

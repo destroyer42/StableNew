@@ -10,6 +10,60 @@ logger = logging.getLogger(__name__)
 
 
 class PipelineControlsPanel(ttk.Frame):
+    def get_settings(self) -> Dict[str, Any]:
+        """
+        Return current toggles and loop/batch settings as a dictionary.
+        """
+        return {
+            'txt2img_enabled': bool(self.txt2img_enabled.get()),
+            'img2img_enabled': bool(self.img2img_enabled.get()),
+            'upscale_enabled': bool(self.upscale_enabled.get()),
+            'video_enabled': bool(self.video_enabled.get()),
+            'loop_type': self.loop_type_var.get(),
+            'loop_count': int(self.loop_count_var.get()),
+            'pack_mode': self.pack_mode_var.get(),
+            'images_per_prompt': int(self.images_per_prompt_var.get()),
+        }
+    def get_state(self) -> dict:
+        """
+        Return the current state of the panel as a dictionary.
+        Includes stage toggles, loop config, and batch config.
+        """
+        return {
+            'txt2img_enabled': bool(self.txt2img_enabled.get()),
+            'img2img_enabled': bool(self.img2img_enabled.get()),
+            'upscale_enabled': bool(self.upscale_enabled.get()),
+            'video_enabled': bool(self.video_enabled.get()),
+            'loop_type': self.loop_type_var.get(),
+            'loop_count': int(self.loop_count_var.get()),
+            'pack_mode': self.pack_mode_var.get(),
+            'images_per_prompt': int(self.images_per_prompt_var.get()),
+        }
+
+    def set_state(self, state: dict) -> None:
+        """
+        Restore the panel state from a dictionary.
+        Ignores missing keys and type errors.
+        """
+        try:
+            if 'txt2img_enabled' in state:
+                self.txt2img_enabled.set(bool(state['txt2img_enabled']))
+            if 'img2img_enabled' in state:
+                self.img2img_enabled.set(bool(state['img2img_enabled']))
+            if 'upscale_enabled' in state:
+                self.upscale_enabled.set(bool(state['upscale_enabled']))
+            if 'video_enabled' in state:
+                self.video_enabled.set(bool(state['video_enabled']))
+            if 'loop_type' in state:
+                self.loop_type_var.set(str(state['loop_type']))
+            if 'loop_count' in state:
+                self.loop_count_var.set(int(state['loop_count']))
+            if 'pack_mode' in state:
+                self.pack_mode_var.set(str(state['pack_mode']))
+            if 'images_per_prompt' in state:
+                self.images_per_prompt_var.set(int(state['images_per_prompt']))
+        except Exception as e:
+            logger.warning(f"PipelineControlsPanel: Failed to restore state: {e}")
     """
     A UI panel for pipeline execution controls.
     
@@ -74,53 +128,64 @@ class PipelineControlsPanel(ttk.Frame):
         self._build_batch_config(pipeline_frame)
         
     def _build_stage_toggles(self, parent):
-        """Build stage enable/disable toggles."""
+        """Build stage enable/disable toggles with logging."""
         stages_frame = ttk.LabelFrame(
             parent, text="Stages", style='Dark.TFrame', padding=5
         )
         stages_frame.pack(fill=tk.X, pady=(0, 5))
         
+        def log_toggle(name, var):
+            logger.info(f"PipelineControlsPanel: {name} set to {var.get()}")
+        
         ttk.Checkbutton(
             stages_frame,
             text="🎨 txt2img",
             variable=self.txt2img_enabled,
-            style='Dark.TCheckbutton'
+            style='Dark.TCheckbutton',
+            command=lambda: log_toggle('txt2img_enabled', self.txt2img_enabled)
         ).pack(anchor=tk.W, pady=1)
         
         ttk.Checkbutton(
             stages_frame,
             text="🧹 img2img",
             variable=self.img2img_enabled,
-            style='Dark.TCheckbutton'
+            style='Dark.TCheckbutton',
+            command=lambda: log_toggle('img2img_enabled', self.img2img_enabled)
         ).pack(anchor=tk.W, pady=1)
         
         ttk.Checkbutton(
             stages_frame,
             text="📈 Upscale",
             variable=self.upscale_enabled,
-            style='Dark.TCheckbutton'
+            style='Dark.TCheckbutton',
+            command=lambda: log_toggle('upscale_enabled', self.upscale_enabled)
         ).pack(anchor=tk.W, pady=1)
         
         ttk.Checkbutton(
             stages_frame,
             text="🎬 Video",
             variable=self.video_enabled,
-            style='Dark.TCheckbutton'
+            style='Dark.TCheckbutton',
+            command=lambda: log_toggle('video_enabled', self.video_enabled)
         ).pack(anchor=tk.W, pady=1)
         
     def _build_loop_config(self, parent):
-        """Build loop configuration controls."""
+        """Build loop configuration controls with logging."""
         loop_frame = ttk.LabelFrame(
             parent, text="Loop Config", style='Dark.TFrame', padding=5
         )
         loop_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        def log_loop_type():
+            logger.info(f"PipelineControlsPanel: loop_type set to {self.loop_type_var.get()}")
         
         ttk.Radiobutton(
             loop_frame,
             text="Single",
             variable=self.loop_type_var,
             value="single",
-            style='Dark.TRadiobutton'
+            style='Dark.TRadiobutton',
+            command=log_loop_type
         ).pack(anchor=tk.W, pady=1)
         
         ttk.Radiobutton(
@@ -128,7 +193,8 @@ class PipelineControlsPanel(ttk.Frame):
             text="Loop stages",
             variable=self.loop_type_var,
             value="stages",
-            style='Dark.TRadiobutton'
+            style='Dark.TRadiobutton',
+            command=log_loop_type
         ).pack(anchor=tk.W, pady=1)
         
         ttk.Radiobutton(
@@ -136,7 +202,8 @@ class PipelineControlsPanel(ttk.Frame):
             text="Loop pipeline",
             variable=self.loop_type_var,
             value="pipeline",
-            style='Dark.TRadiobutton'
+            style='Dark.TRadiobutton',
+            command=log_loop_type
         ).pack(anchor=tk.W, pady=1)
         
         # Loop count - inline
@@ -147,6 +214,9 @@ class PipelineControlsPanel(ttk.Frame):
             count_frame, text="Count:", style='Dark.TLabel', width=6
         ).pack(side=tk.LEFT)
         
+        def log_loop_count(*_):
+            logger.info(f"PipelineControlsPanel: loop_count set to {self.loop_count_var.get()}")
+        self.loop_count_var.trace_add('write', log_loop_count)
         count_spin = ttk.Spinbox(
             count_frame,
             from_=1,
@@ -158,18 +228,22 @@ class PipelineControlsPanel(ttk.Frame):
         count_spin.pack(side=tk.LEFT, padx=2)
         
     def _build_batch_config(self, parent):
-        """Build batch configuration controls."""
+        """Build batch configuration controls with logging."""
         batch_frame = ttk.LabelFrame(
             parent, text="Batch Config", style='Dark.TFrame', padding=5
         )
         batch_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        def log_pack_mode():
+            logger.info(f"PipelineControlsPanel: pack_mode set to {self.pack_mode_var.get()}")
         
         ttk.Radiobutton(
             batch_frame,
             text="Selected packs",
             variable=self.pack_mode_var,
             value="selected",
-            style='Dark.TRadiobutton'
+            style='Dark.TRadiobutton',
+            command=log_pack_mode
         ).pack(anchor=tk.W, pady=1)
         
         ttk.Radiobutton(
@@ -177,7 +251,8 @@ class PipelineControlsPanel(ttk.Frame):
             text="All packs",
             variable=self.pack_mode_var,
             value="all",
-            style='Dark.TRadiobutton'
+            style='Dark.TRadiobutton',
+            command=log_pack_mode
         ).pack(anchor=tk.W, pady=1)
         
         ttk.Radiobutton(
@@ -185,7 +260,8 @@ class PipelineControlsPanel(ttk.Frame):
             text="Custom list",
             variable=self.pack_mode_var,
             value="custom",
-            style='Dark.TRadiobutton'
+            style='Dark.TRadiobutton',
+            command=log_pack_mode
         ).pack(anchor=tk.W, pady=1)
         
         # Images per prompt - inline
@@ -196,6 +272,9 @@ class PipelineControlsPanel(ttk.Frame):
             images_frame, text="Images:", style='Dark.TLabel', width=6
         ).pack(side=tk.LEFT)
         
+        def log_images_per_prompt(*_):
+            logger.info(f"PipelineControlsPanel: images_per_prompt set to {self.images_per_prompt_var.get()}")
+        self.images_per_prompt_var.trace_add('write', log_images_per_prompt)
         images_spin = ttk.Spinbox(
             images_frame,
             from_=1,
