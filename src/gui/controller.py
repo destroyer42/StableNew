@@ -51,7 +51,7 @@ class PipelineController:
         # Cleanup & joining
         self._join_lock = threading.Lock()
         self._cleanup_lock = threading.Lock()
-        self._cleanup_started = False            # one-shot guard (not reused)
+        self._cleanup_started = False            # per-run guard (reset at start of each pipeline run)
         self._cleanup_done = threading.Event()   # signals cleanup completed (per run)
 
         # Lifecycle signals
