@@ -17,7 +17,8 @@ def tk_root():
 
 """Test configuration"""
 
-import pytest
+
+# Test configuration
 
 
 @pytest.fixture

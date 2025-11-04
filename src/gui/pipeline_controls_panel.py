@@ -69,14 +69,14 @@ class PipelineControlsPanel(ttk.Frame):
 
     """
     A UI panel for pipeline execution controls.
-    
+
     This panel handles:
     - Stage enable/disable toggles (txt2img, img2img, upscale, video)
     - Loop configuration (single/stages/pipeline)
     - Loop count settings
     - Batch configuration (pack mode selection)
     - Images per prompt setting
-    
+
     It exposes a get_settings() method to retrieve current configuration.
     """
 

@@ -4,10 +4,8 @@ Created: 2025-11-02 22:31:47
 
 import pytest
 
-try:
-    from src.gui.advanced_prompt_editor import AdvancedPromptEditor
-except Exception:
-    pytest.skip("advanced_prompt_editor not importable yet")
+AdvancedPromptEditor = pytest.importorskip("src.gui.advanced_prompt_editor").AdvancedPromptEditor
+
 
 
 def test_status_text_widget_exists_and_updates(tk_root):

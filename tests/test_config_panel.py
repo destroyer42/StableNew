@@ -27,6 +27,7 @@ def test_hr_hires_steps_available_and_integer(tk_root):
     assert hires_steps_var.get() == 25
 
 
+
 def test_dimension_validation_up_to_2260(tk_root):
     """Test that width/height validators allow <=2260 and show warnings."""
     panel = ConfigPanel(tk_root)
@@ -56,6 +57,7 @@ def test_dimension_validation_up_to_2260(tk_root):
     assert hasattr(panel, "dim_warning_label")
     warning_text = panel.dim_warning_label.cget("text")
     assert "2260" in warning_text
+
 
 
 def test_face_restoration_controls_toggle(tk_root):
