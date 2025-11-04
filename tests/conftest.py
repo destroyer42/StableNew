@@ -13,8 +13,6 @@ def tk_root():
         pytest.skip("No display available for Tkinter tests")
 """Test configuration"""
 
-import pytest
-
 
 @pytest.fixture
 def tmp_path(tmp_path_factory):
