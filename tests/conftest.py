@@ -15,6 +15,9 @@ def tk_root():
         pytest.skip("No display available for Tkinter tests")
 
 
+"""Test configuration"""
+
+
 # Test configuration
 
 

@@ -11,12 +11,36 @@ logger = logging.getLogger(__name__)
 
 
 class PipelineControlsPanel(ttk.Frame):
+    def get_settings(self) -> dict[str, Any]:
+        """
+        Return current toggles and loop/batch settings as a dictionary.
+        """
+        return {
+            "txt2img_enabled": bool(self.txt2img_enabled.get()),
+            "img2img_enabled": bool(self.img2img_enabled.get()),
+            "upscale_enabled": bool(self.upscale_enabled.get()),
+            "video_enabled": bool(self.video_enabled.get()),
+            "loop_type": self.loop_type_var.get(),
+            "loop_count": int(self.loop_count_var.get()),
+            "pack_mode": self.pack_mode_var.get(),
+            "images_per_prompt": int(self.images_per_prompt_var.get()),
+        }
+
     def get_state(self) -> dict:
         """
         Return the current state of the panel as a dictionary.
         Includes stage toggles, loop config, and batch config.
         """
-        return self.get_settings()
+        return {
+            "txt2img_enabled": bool(self.txt2img_enabled.get()),
+            "img2img_enabled": bool(self.img2img_enabled.get()),
+            "upscale_enabled": bool(self.upscale_enabled.get()),
+            "video_enabled": bool(self.video_enabled.get()),
+            "loop_type": self.loop_type_var.get(),
+            "loop_count": int(self.loop_count_var.get()),
+            "pack_mode": self.pack_mode_var.get(),
+            "images_per_prompt": int(self.images_per_prompt_var.get()),
+        }
 
     def set_state(self, state: dict) -> None:
         """

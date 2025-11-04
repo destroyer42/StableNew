@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Test Infrastructure Improvements**:
+  - Headless GUI testing support via xvfb for CI environments
+  - Comprehensive panel integration tests (194 tests passing)
+  - ConfigPanel feature tests for hires_steps, dimension validation, and face restoration
+  - Test fixtures for Tk GUI components with proper cleanup
 - Project infrastructure with `pyproject.toml` for build and tool configuration
 - Pre-commit hooks for automated code quality checks (black, ruff, mypy)
 - EditorConfig for consistent coding styles across editors
@@ -40,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Toggle-based UI with show/hide controls
     - Supports both GFPGAN and CodeFormer models
     - Adjustable restoration weight (0.0-1.0)
+- **Code Quality Improvements**:
+  - Comprehensive black formatting across entire codebase (60 files reformatted)
+  - Ruff linting with 2223 auto-fixes applied
+  - Improved code consistency and readability
 - Comprehensive test suite:
   - 27 tests for state management and controller
   - 14 tests for archiver tool
@@ -62,6 +71,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Improved separation of concerns and testability
 
 ### Fixed
+- **Test Environment Stability**:
+  - Fixed GUI tests hanging in headless environments
+  - Fixed color comparison tests to handle Tk color objects
+  - Improved test reliability with proper Tk event loop handling
 - `PromptPackListManager.get_list_names()` now returns sorted list for consistent ordering
 - Path separator handling in archive tests (cross-platform compatibility)
 - Prompt parser correctly handles interleaved positive and negative prompts
