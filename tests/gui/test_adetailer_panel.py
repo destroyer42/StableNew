@@ -1,8 +1,6 @@
 """Tests for ADetailer configuration panel."""
 
 import pytest
-from unittest.mock import Mock, patch
-from pathlib import Path
 
 # Skip tests if tkinter is not available
 pytest.importorskip("tkinter")
@@ -153,7 +151,8 @@ class TestADetailerIntegration:
         yield root
         try:
             root.destroy()
-        except:
+        except tk.TclError:
+            # Ignore TclError if the root window is already destroyed or not initialized.
             pass
     
     def test_payload_generation(self, root):
