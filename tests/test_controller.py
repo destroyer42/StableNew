@@ -1,10 +1,11 @@
 """Tests for pipeline controller."""
 
-import pytest
 import time
-import threading
-from src.gui.controller import PipelineController, LogMessage
-from src.gui.state import StateManager, GUIState, CancellationError
+
+import pytest
+
+from src.gui.controller import LogMessage, PipelineController
+from src.gui.state import GUIState, StateManager
 
 
 class TestLogMessage:
@@ -31,7 +32,9 @@ class TestPipelineController:
         """Create controller instance with synchronous cleanup for tests."""
         state_manager = StateManager()
         controller = PipelineController(state_manager)
-        controller._sync_cleanup = True  # TEST HOOK: force synchronous cleanup for deterministic tests
+        controller._sync_cleanup = (
+            True  # TEST HOOK: force synchronous cleanup for deterministic tests
+        )
         return controller
 
     def test_initial_state(self, controller):
@@ -194,7 +197,9 @@ class TestPipelineController:
         import subprocess
 
         # Create dummy subprocess
-        proc = subprocess.Popen(["ping", "-n", "10", "127.0.0.1"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(
+            ["ping", "-n", "10", "127.0.0.1"], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
 
         try:
             controller.register_subprocess(proc)
