@@ -349,5 +349,5 @@ class StageChooser:
         try:
             self.window.grab_release()
             self.window.destroy()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Error closing stage chooser window: {e}")
