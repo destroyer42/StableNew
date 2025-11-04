@@ -93,7 +93,7 @@ class Pipeline:
                 # Extract and clean the name
                 name = first_line.split(':', 1)[1].strip()
                 # Clean for filesystem safety
-                name = re.sub(r'[^\w\-_]', '_', name)
+                name = re.sub(r'[^\w_-]', '_', name)
                 return name if name else None
         return None
         
