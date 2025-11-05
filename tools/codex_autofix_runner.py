@@ -69,7 +69,7 @@ def gather_repo_snapshot() -> str:
         ("Status", "git status --short"),
         ("Tracked files", "git ls-files"),
     ):
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603,S607 - fixed git commands for repo snapshot
             command,
             shell=True,
             capture_output=True,
