@@ -1,8 +1,5 @@
 """Test that log polling doesn't clobber progress message."""
 
-import time
-from unittest import mock
-
 import pytest
 
 
@@ -11,7 +8,6 @@ def minimal_app(tk_root, monkeypatch):
     """Create a minimal StableNewGUI instance for testing log isolation."""
 
     from src.gui import main_window as main_window_module
-    from src.gui.controller import LogMessage
 
     # Reuse provided Tk root
     monkeypatch.setattr(main_window_module.tk, "Tk", lambda: tk_root)
@@ -47,7 +43,9 @@ def minimal_app(tk_root, monkeypatch):
 
     monkeypatch.setattr(main_window_module.StableNewGUI, "_build_ui", minimal_build_ui)
     monkeypatch.setattr(main_window_module.StableNewGUI, "log_message", minimal_log_message)
-    monkeypatch.setattr(main_window_module.StableNewGUI, "_setup_state_callbacks", minimal_state_callbacks)
+    monkeypatch.setattr(
+        main_window_module.StableNewGUI, "_setup_state_callbacks", minimal_state_callbacks
+    )
 
     app = main_window_module.StableNewGUI()
     yield app
@@ -103,4 +101,3 @@ def test_progress_message_not_clobbered_when_set_manually(minimal_app, tk_pump):
 
     # Progress message should be unchanged
     assert minimal_app.progress_message_var.get() == "Upscaling images (75%)"
-
