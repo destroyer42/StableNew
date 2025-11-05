@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -22,7 +23,7 @@ def test_retry_backoff_sequence(monkeypatch, client):
     attempt_counter = {"count": 0}
     sleep_calls: list[float] = []
 
-    def fake_request(method, url, timeout=None, **kwargs):  # noqa: ANN001
+    def fake_request(method: str, url: str, timeout: int | None = None, **kwargs: Any) -> Mock:
         attempt_counter["count"] += 1
         if attempt_counter["count"] < 4:
             raise requests.exceptions.ConnectionError("boom")
@@ -51,7 +52,7 @@ def test_retry_terminates_after_max_attempts(monkeypatch):
     attempt_counter = {"count": 0}
     sleep_calls: list[float] = []
 
-    def fake_request(method, url, timeout=None, **kwargs):  # noqa: ANN001
+    def fake_request(method: str, url: str, timeout: int | None = None, **kwargs: Any) -> Mock:
         attempt_counter["count"] += 1
         raise requests.exceptions.HTTPError("nope")
 
