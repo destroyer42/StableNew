@@ -6,6 +6,25 @@ from unittest import mock
 import pytest
 
 
+def wait_until(predicate, timeout=5.0, step=0.02):
+    """Poll a condition with a timeout.
+    
+    Args:
+        predicate: Callable that returns True when condition is met
+        timeout: Maximum time to wait in seconds
+        step: Time between checks in seconds
+        
+    Returns:
+        True if condition was met, False if timeout occurred
+    """
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if predicate():
+            return True
+        time.sleep(step)
+    return False
+
+
 @pytest.fixture
 def minimal_app(tk_root, monkeypatch):
     """Create a StableNewGUI instance with a minimal UI for pipeline tests."""
@@ -94,9 +113,12 @@ def test_pipeline_error_triggers_alert_and_logs(minimal_app, monkeypatch):
 
     assert minimal_app.controller.lifecycle_event.wait(timeout=1.0)
 
-    for _ in range(5):
+    # Wait for UI to process the error state
+    def error_shown():
         minimal_app.root.update()
-        time.sleep(0.01)
+        return showerror.call_count > 0
+    
+    assert wait_until(error_shown, timeout=1.0)
 
     showerror.assert_called_once()
     title, message = showerror.call_args.args
@@ -145,9 +167,12 @@ def test_cancel_transitions_to_idle_with_ready_status(minimal_app, monkeypatch):
 
     assert minimal_app.controller.lifecycle_event.wait(timeout=1.0)
 
-    for _ in range(5):
+    # Wait for UI to process the state transition to idle
+    def state_is_idle():
         minimal_app.root.update()
-        time.sleep(0.01)
+        return minimal_app.state_manager.current == GUIState.IDLE
+    
+    assert wait_until(state_is_idle, timeout=1.0)
 
     assert minimal_app.state_manager.current == GUIState.IDLE
     assert minimal_app.progress_message_var.get() == "Ready"
