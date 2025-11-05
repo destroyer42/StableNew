@@ -63,6 +63,17 @@ class StableNewGUI:
         self.state_manager = StateManager()
         self.controller = PipelineController(self.state_manager)
 
+        # Progress/UI state
+        self.progress_message_var = tk.StringVar(value="Ready")
+        self.progress_var = tk.StringVar(value="Ready")
+        self.progress_percent_var = tk.StringVar(value="0%")
+        self.eta_var = tk.StringVar(value="ETA: --")
+        self.progress_bar: ttk.Progressbar | None = None
+
+        self.controller.set_progress_callback(self._queue_progress_update)
+        self.controller.set_eta_callback(self._queue_eta_update)
+        self.controller.set_status_callback(self._queue_status_update)
+
         # Initialize prompt pack list manager
         self.pack_list_manager = PromptPackListManager()
 
@@ -110,6 +121,10 @@ class StableNewGUI:
         # Connection tuning (configurable)
         self.api_discovery_max_retries = 3
         self.api_discovery_retry_delay = 0.3  # seconds
+
+        # Status bar defaults
+        self._progress_eta_default = "ETA: --"
+        self._progress_idle_message = "Ready for next run"
 
         # Apply dark theme
         self._setup_dark_theme()
@@ -766,8 +781,19 @@ class StableNewGUI:
         )
         self.state_label.pack(side=tk.LEFT, padx=5)
 
+        # Progress bar
+        self.progress_bar = ttk.Progressbar(status_frame, mode="determinate")
+        self.progress_bar.config(maximum=100, value=0)
+        self.progress_bar.pack(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
+
+        # ETA indicator
+        self.eta_var = tk.StringVar(value=self._progress_eta_default)
+        ttk.Label(status_frame, textvariable=self.eta_var, style="Dark.TLabel").pack(
+            side=tk.LEFT, padx=5
+        )
+
         # Progress message
-        self.progress_message_var = tk.StringVar(value="Ready")
+        self.progress_message_var = tk.StringVar(value=self._progress_idle_message)
         ttk.Label(status_frame, textvariable=self.progress_message_var, style="Dark.TLabel").pack(
             side=tk.LEFT, padx=10
         )
@@ -776,6 +802,40 @@ class StableNewGUI:
         ttk.Label(status_frame, text="", style="Dark.TLabel").pack(
             side=tk.LEFT, fill=tk.X, expand=True
         )
+
+        self._apply_progress_reset()
+
+    def _apply_progress_reset(self, message: str | None = None) -> None:
+        """Reset progress UI elements synchronously."""
+        if hasattr(self, "progress_bar"):
+            self.progress_bar.config(value=0)
+        if hasattr(self, "eta_var"):
+            self.eta_var.set(self._progress_eta_default)
+        if hasattr(self, "progress_message_var"):
+            self.progress_message_var.set(message or self._progress_idle_message)
+
+    def _reset_progress_ui(self, message: str | None = None) -> None:
+        """Thread-safe reset for the progress UI."""
+        self.root.after(0, lambda: self._apply_progress_reset(message))
+
+    def _apply_progress_update(self, stage: str, percent: float, eta: str | None) -> None:
+        """Apply progress updates to the UI synchronously."""
+        clamped_percent = max(0.0, min(100.0, float(percent) if percent is not None else 0.0))
+        if hasattr(self, "progress_bar"):
+            self.progress_bar.config(value=clamped_percent)
+
+        if hasattr(self, "progress_message_var"):
+            stage_text = stage.strip() if stage else "Progress"
+            self.progress_message_var.set(f"{stage_text} ({clamped_percent:.0f}%)")
+
+        if hasattr(self, "eta_var"):
+            self.eta_var.set(
+                f"ETA: {eta}" if eta else self._progress_eta_default
+            )
+
+    def _update_progress(self, stage: str, percent: float, eta: str | None = None) -> None:
+        """Schedule a progress UI update from worker threads."""
+        self.root.after(0, lambda: self._apply_progress_update(stage, percent, eta))
 
     def _setup_state_callbacks(self):
         """Setup callbacks for state transitions"""
@@ -804,16 +864,51 @@ class StableNewGUI:
             # Update button states
             if new_state == GUIState.RUNNING:
                 self.run_pipeline_btn.config(state=tk.DISABLED)
-            elif new_state in (GUIState.IDLE, GUIState.ERROR):
+            elif new_state == GUIState.IDLE:
+                self._reset_progress_ui()
+                self.run_pipeline_btn.config(state=tk.NORMAL if self.api_connected else tk.DISABLED)
+            elif new_state == GUIState.ERROR:
                 self.run_pipeline_btn.config(state=tk.NORMAL if self.api_connected else tk.DISABLED)
 
         self.state_manager.on_transition(on_state_change)
+
+    def _queue_progress_update(self, percent: float) -> None:
+        """Update progress widgets on the Tk thread."""
+
+        def update() -> None:
+            clamped = max(0.0, min(100.0, float(percent) if percent is not None else 0.0))
+            if self.progress_bar is not None:
+                self.progress_bar["value"] = clamped
+            self.progress_percent_var.set(f"{clamped:.0f}%")
+
+        self.root.after(0, update)
+
+    def _queue_eta_update(self, eta: str | None) -> None:
+        """Update ETA label on the Tk thread."""
+
+        def update() -> None:
+            self.eta_var.set(eta if eta else "ETA: --")
+
+        self.root.after(0, update)
+
+    def _queue_status_update(self, text: str | None) -> None:
+        """Update status text via Tk event loop."""
+
+        self.root.after(0, lambda: self._apply_status_text(text))
+
+    def _apply_status_text(self, text: str | None) -> None:
+        """Apply status text to both status bar and execution label."""
+
+        message = text if text else "Ready"
+        self.progress_message_var.set(message)
+        self.progress_var.set(message)
 
     def _poll_controller_logs(self):
         """Poll controller for log messages and display them"""
         messages = self.controller.get_log_messages()
         for msg in messages:
             self.log_message(msg.message, msg.level)
+            self._apply_status_text(msg.message)
 
         # Schedule next poll
         self.root.after(100, self._poll_controller_logs)
@@ -844,6 +939,7 @@ class StableNewGUI:
                 self.api_connected = True
                 self.client = client
                 self.pipeline = Pipeline(client, self.structured_logger)
+                self.controller.set_pipeline(self.pipeline)
 
                 self.root.after(0, lambda: self._update_api_status(True, api_url))
 
@@ -885,6 +981,7 @@ class StableNewGUI:
                     self.api_connected = True
                     self.client = client
                     self.pipeline = Pipeline(client, self.structured_logger)
+                    self.controller.set_pipeline(self.pipeline)
 
                     # Update URL field and status
                     self.root.after(0, lambda: self.api_url_var.set(discovered_url))
@@ -2617,8 +2714,27 @@ class StableNewGUI:
         )
         self.create_video_btn.pack(side=tk.LEFT, padx=5)
 
-        self.progress_var = tk.StringVar(value="Ready")
         ttk.Label(exec_frame, textvariable=self.progress_var).pack(side=tk.LEFT, padx=10)
+
+        progress_frame = ttk.Frame(parent, padding=10)
+        progress_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
+
+        self.progress_bar = ttk.Progressbar(
+            progress_frame,
+            orient=tk.HORIZONTAL,
+            mode="determinate",
+            maximum=100,
+            length=200,
+        )
+        self.progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.progress_bar["value"] = 0
+
+        ttk.Label(progress_frame, textvariable=self.progress_percent_var, style="Dark.TLabel").pack(
+            side=tk.LEFT, padx=8
+        )
+        ttk.Label(progress_frame, textvariable=self.eta_var, style="Dark.TLabel").pack(
+            side=tk.LEFT, padx=8
+        )
 
     def _build_settings_tab(self, parent):
         """Build settings tab"""
@@ -2662,7 +2778,7 @@ class StableNewGUI:
 
     def _check_api(self):
         """Check API connection"""
-        self.progress_var.set("Checking API...")
+        self._apply_status_text("Checking API...")
         self._add_log_message("Checking SD WebUI API connection...")
 
         def check():
@@ -2671,17 +2787,18 @@ class StableNewGUI:
             if client.check_api_ready():
                 self.client = client
                 self.pipeline = Pipeline(self.client, self.structured_logger)
+                self.controller.set_pipeline(self.pipeline)
                 self.root.after(
                     0, lambda: self.api_status_label.config(text="Connected", foreground="green")
                 )
                 self.root.after(0, lambda: self._add_log_message("✓ API is ready"))
-                self.root.after(0, lambda: self.progress_var.set("API connected"))
+                self.root.after(0, lambda: self._apply_status_text("API connected"))
             else:
                 self.root.after(
                     0, lambda: self.api_status_label.config(text="Failed", foreground="red")
                 )
                 self.root.after(0, lambda: self._add_log_message("✗ API not available"))
-                self.root.after(0, lambda: self.progress_var.set("API check failed"))
+                self.root.after(0, lambda: self._apply_status_text("API check failed"))
 
         threading.Thread(target=check, daemon=True).start()
 
@@ -2711,7 +2828,7 @@ class StableNewGUI:
         batch_size = self.batch_size_var.get()
         run_name = self.run_name_var.get() or None
 
-        self.progress_message_var.set("Running pipeline...")
+        self.controller.report_progress("Running pipeline...", 0.0, "ETA: --")
 
         # Define pipeline function that checks cancel token
         def pipeline_func():
@@ -2737,9 +2854,6 @@ class StableNewGUI:
                 ),
             )
             self.root.after(0, lambda: self.log_message(f"Output directory: {output_dir}", "INFO"))
-            self.root.after(
-                0, lambda: self.progress_message_var.set(f"Completed: {num_images} images")
-            )
             self.root.after(
                 0,
                 lambda: messagebox.showinfo(

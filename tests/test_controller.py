@@ -192,6 +192,53 @@ class TestPipelineController:
         ok = self.wait_until(lambda: controller.is_terminal, timeout=2.0)
         assert ok, "Controller did not reach terminal state in time (second run)"
 
+    def test_progress_callbacks(self, controller):
+        """Progress callbacks should be invoked in order."""
+
+        calls = []
+
+        controller.set_status_callback(lambda stage: calls.append(("stage", stage)))
+        controller.set_progress_callback(lambda percent: calls.append(("percent", percent)))
+        controller.set_eta_callback(lambda eta: calls.append(("eta", eta)))
+
+        controller.report_progress("txt2img", 42.5, "ETA: 00:10")
+
+        assert calls == [
+            ("stage", "txt2img"),
+            ("percent", 42.5),
+            ("eta", "ETA: 00:10"),
+        ]
+
+    def test_cancel_emits_final_progress(self, controller):
+        """Cancellation should emit a final progress update."""
+
+        reports = []
+
+        controller.set_status_callback(lambda stage: reports.append(("stage", stage)))
+        controller.set_progress_callback(lambda percent: reports.append(("percent", percent)))
+        controller.set_eta_callback(lambda eta: reports.append(("eta", eta)))
+
+        def cancellable_pipeline():
+            controller.report_progress("txt2img", 25.0, "ETA: 00:30")
+            for _ in range(20):
+                time.sleep(0.01)
+                controller.cancel_token.check_cancelled()
+
+        controller.start_pipeline(cancellable_pipeline)
+        time.sleep(0.05)
+
+        controller.stop_pipeline()
+
+        ok = self.wait_until(lambda: controller.is_terminal, timeout=2.0)
+        assert ok, "Controller did not reach terminal state in time"
+
+        # Final three callbacks correspond to the cancellation update
+        assert reports[-3:] == [
+            ("stage", "Cancelled"),
+            ("percent", 25.0),
+            ("eta", "Cancelled"),
+        ]
+
     def test_subprocess_registration(self, controller):
         """Test subprocess registration for cancellation."""
         import subprocess
