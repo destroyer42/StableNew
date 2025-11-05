@@ -22,7 +22,7 @@ The workflow needs an OpenAI API key with access to `gpt-5-codex`:
 - Add a repository secret named **`OPENAI_API_KEY`** containing the token.
 - The default `GITHUB_TOKEN` permission is sufficient for posting PR comments; no additional PAT is required.
 
-## Customisation
+## Customization
 
 - Override the test command by supplying the `test_command` input in a manual dispatch. The slash command always uses the default.
 - Set the `CODEX_AUTOFIX_COMMAND` environment variable before invoking the runner if you wrap it in another automation.
