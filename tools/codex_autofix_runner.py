@@ -136,13 +136,13 @@ def render_prompt(
 
 def request_codex_suggestion(prompt: str, *, api_key: str) -> str:
     client = OpenAI(api_key=api_key)
-    response = client.responses.create(
+    response = client.chat.completions.create(
         model="gpt-5-codex",
-        input=[
+        messages=[
             {"role": "system", "content": "You are Codex, an expert software engineer."},
             {"role": "user", "content": prompt},
         ],
-        max_output_tokens=1200,
+        max_tokens=1200,
     )
 
     # Parse response using OpenAI chat completion API format
