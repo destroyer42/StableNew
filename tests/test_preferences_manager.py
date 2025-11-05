@@ -1,6 +1,4 @@
 """Tests for the PreferencesManager helper."""
-"""Tests for the PreferencesManager helper."""
-
 from __future__ import annotations
 
 from pathlib import Path
