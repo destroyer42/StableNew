@@ -53,10 +53,10 @@ def test_progress_eta_display(monkeypatch):
         def configure_progress_callbacks(self, **callbacks):
             self._handlers.update(callbacks)
 
-        def start_pipeline(self, *args, **kwargs):  # pragma: no cover - defensive
+        def start_pipeline(self, *args, **kwargs):  # defensive check - should never execute in this test
             raise AssertionError("Pipeline should not start in test")
 
-        def stop_pipeline(self, *args, **kwargs):  # pragma: no cover - defensive
+        def stop_pipeline(self, *args, **kwargs):  # defensive check - should never execute in this test
             return True
 
     monkeypatch.setattr("src.gui.main_window.PipelineController", DummyController)
