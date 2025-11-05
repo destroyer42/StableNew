@@ -24,6 +24,7 @@ from .log_panel import LogPanel, TkinterLogHandler
 from .pipeline_controls_panel import PipelineControlsPanel
 from .prompt_pack_list_manager import PromptPackListManager
 from .prompt_pack_panel import PromptPackPanel
+from .self_test_runner import SelfTestRunner
 from .state import GUIState, StateManager
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,13 @@ class StableNewGUI:
 
         # Setup logging redirect
         setup_logging("INFO")
+
+        # Initialize self-test runner after UI widgets are ready
+        self.self_test_runner = SelfTestRunner(
+            self.root,
+            on_log=lambda message: self.log_message(message, "INFO"),
+            on_state_change=self._on_self_test_state_change,
+        )
 
     def _setup_dark_theme(self):
         """Setup dark theme for the application"""
@@ -714,6 +722,14 @@ class StableNewGUI:
         util_buttons = ttk.Frame(actions_frame, style="Dark.TFrame")
         util_buttons.pack(side=tk.RIGHT)
 
+        self.smoke_tests_btn = ttk.Button(
+            util_buttons,
+            text="🧪 Smoke Tests",
+            command=self._run_smoke_tests,
+            style="Dark.TButton",
+        )
+        self.smoke_tests_btn.pack(side=tk.LEFT, padx=(0, 10))
+
         ttk.Button(
             util_buttons,
             text="📁 Open Output",
@@ -1149,6 +1165,24 @@ class StableNewGUI:
             logger.warning(message)
         else:
             logger.info(message)
+
+    def _on_self_test_state_change(self, is_running: bool) -> None:
+        """Update UI controls when smoke tests start or complete."""
+
+        if hasattr(self, "smoke_tests_btn"):
+            new_state = tk.DISABLED if is_running else tk.NORMAL
+            self.smoke_tests_btn.config(state=new_state)
+
+    def _run_smoke_tests(self) -> None:
+        """Trigger the background smoke test run."""
+
+        if not getattr(self, "self_test_runner", None):
+            messagebox.showerror("Smoke Tests", "Self-test runner not initialized")
+            return
+
+        started = self.self_test_runner.run_smoke_tests()
+        if not started:
+            messagebox.showinfo("Smoke Tests", "Smoke tests are already running.")
 
     def _run_full_pipeline(self):
         """Run the complete pipeline"""
