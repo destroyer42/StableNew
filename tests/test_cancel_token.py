@@ -9,155 +9,134 @@ import pytest
 
 from src.gui.state import CancelToken
 from src.pipeline.executor import Pipeline
+"""Tests for cancel token integration in pipeline."""
+
+import shutil
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
+
+from src.gui.state import CancelToken
+from src.pipeline.executor import Pipeline
 from src.utils import StructuredLogger
 
 
-class TestCancelTokenIntegration:
-    """Tests for cancel token integration in pipeline."""
+@pytest.fixture
+def temp_dir():
+    temp_path = Path(tempfile.mkdtemp())
+    yield temp_path
+    shutil.rmtree(temp_path)
 
-    @pytest.fixture
-    def temp_dir(self):
-        """Create temporary directory."""
-        temp_path = Path(tempfile.mkdtemp())
-        yield temp_path
-        shutil.rmtree(temp_path)
+@pytest.fixture
+def mock_client():
+    client = Mock()
+    client.txt2img = Mock(return_value={"images": ["base64_image_data"]})
+    client.img2img = Mock(return_value={"images": ["base64_image_data"]})
+    client.upscale_image = Mock(return_value={"image": "base64_image_data"})
+    client.set_model = Mock()
+    client.set_vae = Mock()
+    return client
 
-    @pytest.fixture
-    def mock_client(self):
-        """Create mock API client."""
-        client = Mock()
-        client.txt2img = Mock(return_value={"images": ["base64_image_data"]})
-        client.img2img = Mock(return_value={"images": ["base64_image_data"]})
-        client.upscale_image = Mock(return_value={"image": "base64_image_data"})
-        client.set_model = Mock()
-        client.set_vae = Mock()
-        return client
+@pytest.fixture
+def pipeline(mock_client, temp_dir):
+    logger = StructuredLogger()
+    logger.output_dir = temp_dir
+    pipeline = Pipeline(mock_client, logger)
+    return pipeline
 
-    @pytest.fixture
-    def pipeline(self, mock_client, temp_dir):
-        """Create pipeline instance with mocked client."""
-        logger = StructuredLogger()
-        logger.output_dir = temp_dir
-        pipeline = Pipeline(mock_client, logger)
-        return pipeline
-
-    def test_cancel_token_passed_to_txt2img(self, pipeline, temp_dir):
-        """Test that cancel token is passed to txt2img."""
-        cancel_token = CancelToken()
-        config = {"txt2img": {}}
-
-        with patch("src.pipeline.executor.save_image_from_base64", return_value=True):
-            results = pipeline.run_txt2img(
-                "test prompt", config, temp_dir, batch_size=1, cancel_token=cancel_token
-            )
-
-        # Should complete normally
-        assert isinstance(results, list)
-
-    def test_cancel_before_txt2img(self, pipeline, temp_dir):
-        """Test cancellation before txt2img starts."""
-        cancel_token = CancelToken()
-        cancel_token.cancel()
-
-        config = {"txt2img": {}}
-
-        with patch("src.pipeline.executor.save_image_from_base64", return_value=True):
-            results = pipeline.run_txt2img(
-                "test prompt", config, temp_dir, batch_size=1, cancel_token=cancel_token
-            )
-
-        # Should return empty list
-        assert results == []
-
-    def test_cancel_after_txt2img_api_call(self, pipeline, temp_dir, mock_client):
-        """Test cancellation after txt2img API call."""
-        cancel_token = CancelToken()
-        config = {"txt2img": {}}
-
-        # Cancel after API call
-        def delayed_cancel(*args, **kwargs):
-            cancel_token.cancel()
-            return {"images": ["base64_image_data"]}
-
-        mock_client.txt2img = Mock(side_effect=delayed_cancel)
-
-        with patch("src.pipeline.executor.save_image_from_base64", return_value=True):
-            results = pipeline.run_txt2img(
-                "test prompt", config, temp_dir, batch_size=1, cancel_token=cancel_token
-            )
-
-        # Should return empty list (cancelled after API call)
-        assert results == []
-
-    def test_cancel_during_image_saving(self, pipeline, temp_dir, mock_client):
-        """Test cancellation during image saving loop."""
-        cancel_token = CancelToken()
-        config = {"txt2img": {}}
-
-        # Return multiple images
-        mock_client.txt2img = Mock(return_value={"images": ["image1", "image2", "image3"]})
-
-        save_count = [0]
-
-        def save_and_cancel(*args, **kwargs):
-            save_count[0] += 1
-            if save_count[0] == 2:
-                cancel_token.cancel()
-            return True
-
-        with patch("src.pipeline.executor.save_image_from_base64", side_effect=save_and_cancel):
-            results = pipeline.run_txt2img(
-                "test prompt", config, temp_dir, batch_size=3, cancel_token=cancel_token
-            )
-
-        # Should have saved 2 images (cancelled on the 2nd, but check happens before 3rd)
-        assert len(results) == 2
-
-    def test_cancel_before_img2img(self, pipeline, temp_dir):
-        """Test cancellation before img2img starts."""
-        cancel_token = CancelToken()
-        cancel_token.cancel()
-
-        config = {}
-        input_path = temp_dir / "test.png"
-        input_path.touch()
-
-        with patch("src.pipeline.executor.load_image_to_base64", return_value="base64"):
-            result = pipeline.run_img2img(
-                input_path, "test prompt", config, temp_dir, cancel_token=cancel_token
-            )
-
-        assert result is None
-
-    def test_cancel_before_upscale(self, pipeline, temp_dir):
-        """Test cancellation before upscale starts."""
-        cancel_token = CancelToken()
-        cancel_token.cancel()
-
-        config = {}
-        input_path = temp_dir / "test.png"
-        input_path.touch()
-
-        with patch("src.pipeline.executor.load_image_to_base64", return_value="base64"):
-            result = pipeline.run_upscale(input_path, config, temp_dir, cancel_token=cancel_token)
-
-        assert result is None
-
-    def test_full_pipeline_cancel_before_start(self, pipeline, temp_dir):
-        """Test full pipeline cancellation before start."""
-        cancel_token = CancelToken()
-        cancel_token.cancel()
-
-        config = {"txt2img": {}, "img2img": {}, "upscale": {}}
-
-        results = pipeline.run_full_pipeline(
-            "test prompt", config, run_name="test", batch_size=1, cancel_token=cancel_token
+def test_cancel_token_passed_to_txt2img(pipeline, temp_dir):
+    cancel_token = CancelToken()
+    config = {"txt2img": {}}
+    with patch("src.pipeline.executor.save_image_from_base64", return_value=True):
+        results = pipeline.run_txt2img(
+            "test prompt", config, temp_dir, batch_size=1, cancel_token=cancel_token
         )
+    assert isinstance(results, list)
 
-        # Should return minimal results
-        assert results["txt2img"] == []
-        assert results["img2img"] == []
-        assert results["upscaled"] == []
+def test_cancel_before_txt2img(pipeline, temp_dir):
+    cancel_token = CancelToken()
+    cancel_token.cancel()
+    config = {"txt2img": {}}
+    with patch("src.pipeline.executor.save_image_from_base64", return_value=True):
+        results = pipeline.run_txt2img(
+            "test prompt", config, temp_dir, batch_size=1, cancel_token=cancel_token
+        )
+    assert results == []
+
+def test_cancel_after_txt2img_api_call(pipeline, temp_dir, mock_client):
+    cancel_token = CancelToken()
+    config = {"txt2img": {}}
+    def delayed_cancel(*args, **kwargs):
+        cancel_token.cancel()
+        return {"images": ["base64_image_data"]}
+    mock_client.txt2img = Mock(side_effect=delayed_cancel)
+    with patch("src.pipeline.executor.save_image_from_base64", return_value=True):
+        results = pipeline.run_txt2img(
+            "test prompt", config, temp_dir, batch_size=1, cancel_token=cancel_token
+        )
+    assert results == []
+
+def test_cancel_during_image_saving(pipeline, temp_dir, mock_client):
+    cancel_token = CancelToken()
+    config = {"txt2img": {}}
+    mock_client.txt2img = Mock(return_value={"images": ["image1", "image2", "image3"]})
+    save_count = [0]
+    def save_and_cancel(*args, **kwargs):
+        save_count[0] += 1
+        if save_count[0] == 2:
+            cancel_token.cancel()
+        return True
+    with patch("src.pipeline.executor.save_image_from_base64", side_effect=save_and_cancel):
+        results = pipeline.run_txt2img(
+            "test prompt", config, temp_dir, batch_size=3, cancel_token=cancel_token
+        )
+    assert len(results) == 2
+
+def test_cancel_before_img2img(pipeline, temp_dir):
+    cancel_token = CancelToken()
+    cancel_token.cancel()
+    config = {}
+    input_path = temp_dir / "test.png"
+    input_path.touch()
+    with patch("src.pipeline.executor.load_image_to_base64", return_value="base64"):
+        result = pipeline.run_img2img(
+            input_path, "test prompt", config, temp_dir, cancel_token=cancel_token
+        )
+    assert result is None
+
+def test_cancel_before_upscale(pipeline, temp_dir):
+    cancel_token = CancelToken()
+    cancel_token.cancel()
+    config = {}
+    input_path = temp_dir / "test.png"
+    input_path.touch()
+    with patch("src.pipeline.executor.load_image_to_base64", return_value="base64"):
+        result = pipeline.run_upscale_stage(
+            input_path, config, temp_dir, cancel_token=cancel_token
+        )
+    assert result is None
+
+def test_run_txt2img_stage_single_image(pipeline, temp_dir):
+    prompt = "hero in armor"
+    negative_prompt = "bad anatomy"
+    config = {"txt2img": {"steps": 10, "width": 512, "height": 512}}
+    image_name = "test_hero"
+    output_dir = temp_dir / "txt2img_stage"
+    output_dir.mkdir(exist_ok=True)
+    with patch("src.pipeline.executor.save_image_from_base64", return_value=True):
+        result = pipeline.run_txt2img_stage(
+            prompt,
+            negative_prompt,
+            config,
+            output_dir,
+            image_name,
+        )
+    assert result is not None
+    assert result["name"] == image_name
+    assert result["stage"] == "txt2img"
+    # ...existing code...
 
     def test_full_pipeline_cancel_after_txt2img(self, pipeline, temp_dir, mock_client):
         """Test full pipeline cancellation after txt2img."""

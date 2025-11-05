@@ -13,16 +13,9 @@ class TestADetailerConfigPanel:
     """Test ADetailer configuration panel."""
     
     @pytest.fixture
-    def root(self):
-        """Create root window for testing."""
-        root = tk.Tk()
-        root.withdraw()  # Hide window during tests
-        yield root
-        try:
-            root.destroy()
-        except tk.TclError:
-            # Ignore TclError if the root window is already destroyed or not initialized.
-            pass
+    def root(self, tk_root):
+        """Use shared Tk root that skips when Tcl/Tk is unavailable."""
+        return tk_root
     
     def test_panel_creation(self, root):
         """Test ADetailer panel creation."""
@@ -144,16 +137,9 @@ class TestADetailerIntegration:
     """Integration tests for ADetailer with pipeline."""
     
     @pytest.fixture
-    def root(self):
-        """Create root window for testing."""
-        root = tk.Tk()
-        root.withdraw()
-        yield root
-        try:
-            root.destroy()
-        except tk.TclError:
-            # Ignore TclError if the root window is already destroyed or not initialized.
-            pass
+    def root(self, tk_root):
+        """Use shared Tk root that skips when Tcl/Tk is unavailable."""
+        return tk_root
     
     def test_payload_generation(self, root):
         """Test ADetailer API payload generation."""

@@ -1,4 +1,5 @@
 import tkinter as tk
+import tracemalloc  # Pre-initialize to avoid partial import in pytest unraisable hook
 
 import pytest
 

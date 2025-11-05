@@ -770,13 +770,18 @@ class StableNewGUI:
         self.root.after(100, self._poll_controller_logs)
 
     def _check_api_connection(self):
-        """Check API connection status with improved diagnostics"""
+        """Check API connection status with improved diagnostics (non-blocking)."""
 
-        def check_in_thread():
-            api_url = self.api_url_var.get()
+        # Snapshot Tk variable on the main thread to avoid cross-thread access
+        api_url_snapshot = self.api_url_var.get()
 
+        # Indicate connecting state immediately
+        if hasattr(self, "api_status_label"):
+            self.api_status_label.config(text="⏳ Connecting...", foreground="#FF9800")
+
+        def check_in_thread(api_url: str):
             # Try the specified URL first
-            self.log_message("🔍 Checking API connection...", "INFO")
+            self.root.after(0, lambda: self.log_message("🔍 Checking API connection...", "INFO"))
 
             # First try direct connection
             client = SDWebUIClient(api_url)
@@ -791,16 +796,25 @@ class StableNewGUI:
                 self.root.after(0, lambda: self._update_api_status(True, api_url))
 
                 if health["models_loaded"]:
-                    self.log_message(
+                    self.root.after(0, lambda: self.log_message(
                         f"✅ API connected! Found {health.get('model_count', 0)} models", "SUCCESS"
-                    )
+                    ))
                 else:
-                    self.log_message("⚠️ API connected but no models loaded", "WARNING")
+                    self.root.after(0, lambda: self.log_message("⚠️ API connected but no models loaded", "WARNING"))
                 return
 
             # If direct connection failed, try port discovery
-            self.log_message("🔍 Trying port discovery...", "INFO")
-            discovered_url = find_webui_api_port()
+            self.root.after(0, lambda: self.log_message("🔍 Trying port discovery...", "INFO"))
+            discovered_url = None
+            try:
+                import time
+                for _ in range(3):
+                    discovered_url = find_webui_api_port()
+                    if discovered_url:
+                        break
+                    time.sleep(0.3)
+            except Exception:
+                discovered_url = None
 
             if discovered_url:
                 # Test the discovered URL
@@ -817,23 +831,23 @@ class StableNewGUI:
                     self.root.after(0, lambda: self._update_api_status(True, discovered_url))
 
                     if health["models_loaded"]:
-                        self.log_message(
+                        self.root.after(0, lambda: self.log_message(
                             f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models",
                             "SUCCESS",
-                        )
+                        ))
                     else:
-                        self.log_message("⚠️ API found but no models loaded", "WARNING")
+                        self.root.after(0, lambda: self.log_message("⚠️ API found but no models loaded", "WARNING"))
                     return
 
             # Connection failed
             self.api_connected = False
             self.root.after(0, lambda: self._update_api_status(False))
-            self.log_message(
+            self.root.after(0, lambda: self.log_message(
                 "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
-            )
-            self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
+            ))
+            self.root.after(0, lambda: self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO"))
 
-        threading.Thread(target=check_in_thread, daemon=True).start()
+        threading.Thread(target=lambda: check_in_thread(api_url_snapshot), daemon=True).start()
 
     def _update_api_status(self, connected: bool, url: str = None):
         """Update API status indicator"""
@@ -2904,3 +2918,6 @@ class StableNewGUI:
         self.root.after(5000, check_window_visibility)  # First check after 5 seconds
 
         self.root.mainloop()
+
+# Backwards compatibility for tests expecting MainWindow
+MainWindow = StableNewGUI
