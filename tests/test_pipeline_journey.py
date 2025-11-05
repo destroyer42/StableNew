@@ -136,6 +136,36 @@ class TestFullPipelineJourney:
         # Note: negative_prompt will have global NSFW prevention added
         assert "bad quality" in payload["negative_prompt"]
 
+    def test_progress_reporting(self, pipeline, mock_client, tmp_path):
+        """Pipeline should emit progress updates for each stage."""
+
+        class StubController:
+            def __init__(self):
+                self.calls = []
+
+            def report_progress(self, stage, percent, eta):
+                self.calls.append((stage, percent, eta))
+
+        stub = StubController()
+        pipeline.set_progress_controller(stub)
+
+        config = {
+            "txt2img": {"steps": 5},
+            "img2img": {"steps": 5},
+            "upscale": {"upscaler": "R-ESRGAN 4x+"},
+            "pipeline": {"img2img_enabled": True, "upscale_enabled": True},
+        }
+
+        pipeline.run_full_pipeline(prompt="progress", config=config, batch_size=2)
+
+        stages = [call[0] for call in stub.calls]
+
+        assert stages[0] == "txt2img"
+        assert any(stage.startswith("img2img") for stage in stages)
+        assert any(stage.startswith("upscale") for stage in stages)
+        assert stages[-1] == "Completed"
+        assert stub.calls[-1][1] == pytest.approx(100.0, abs=1e-6)
+
 
 class TestOptionalStages:
     """Test pipeline with optional stages disabled"""
