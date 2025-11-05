@@ -7,15 +7,15 @@ import pytest
 
 
 def wait_until(predicate, timeout=5.0, step=0.02):
-    """Poll a condition with a timeout.
+    """Poll a predicate with timeout, avoiding brittle sleeps.
     
     Args:
-        predicate: Callable that returns True when condition is met
+        predicate: Callable returning bool
         timeout: Maximum time to wait in seconds
-        step: Time between checks in seconds
+        step: Polling interval in seconds
         
     Returns:
-        True if condition was met, False if timeout occurred
+        True if predicate became true, False if timeout
     """
     end = time.monotonic() + timeout
     while time.monotonic() < end:
@@ -105,6 +105,15 @@ def test_pipeline_error_triggers_alert_and_logs(minimal_app, monkeypatch):
 
     showerror = mock.Mock()
     monkeypatch.setattr("src.gui.main_window.messagebox.showerror", showerror)
+    
+    # Patch root.after to call callbacks immediately instead of scheduling
+    # This avoids "main thread is not in main loop" errors in tests
+    original_after = minimal_app.root.after
+    def immediate_after(ms, func=None, *args):
+        if func:
+            func(*args)
+        return None
+    monkeypatch.setattr(minimal_app.root, "after", immediate_after)
 
     minimal_app.prompt_text.delete("1.0", "end")
     minimal_app.prompt_text.insert("1.0", "boom")
@@ -113,12 +122,12 @@ def test_pipeline_error_triggers_alert_and_logs(minimal_app, monkeypatch):
 
     assert minimal_app.controller.lifecycle_event.wait(timeout=1.0)
 
-    # Wait for UI to process the error state
-    def error_shown():
+    # Wait for UI to update with polling pattern instead of fixed sleep loop
+    def ui_updated():
         minimal_app.root.update()
-        return showerror.call_count > 0
+        return showerror.call_count > 0 and minimal_app.progress_message_var.get() == "Error"
     
-    assert wait_until(error_shown, timeout=1.0)
+    assert wait_until(ui_updated, timeout=1.0, step=0.01)
 
     showerror.assert_called_once()
     title, message = showerror.call_args.args
@@ -143,6 +152,14 @@ def test_cancel_transitions_to_idle_with_ready_status(minimal_app, monkeypatch):
     }
 
     minimal_app.client = object()
+    
+    # Patch root.after to call callbacks immediately instead of scheduling
+    # This avoids "main thread is not in main loop" errors in tests
+    def immediate_after(ms, func=None, *args):
+        if func:
+            func(*args)
+        return None
+    monkeypatch.setattr(minimal_app.root, "after", immediate_after)
 
     class CancelAwarePipeline:
         def __init__(self):
@@ -167,12 +184,13 @@ def test_cancel_transitions_to_idle_with_ready_status(minimal_app, monkeypatch):
 
     assert minimal_app.controller.lifecycle_event.wait(timeout=1.0)
 
-    # Wait for UI to process the state transition to idle
-    def state_is_idle():
+    # Wait for UI to update with polling pattern instead of fixed sleep loop
+    def ui_ready():
         minimal_app.root.update()
-        return minimal_app.state_manager.current == GUIState.IDLE
+        return (minimal_app.state_manager.current == GUIState.IDLE and 
+                minimal_app.progress_message_var.get() == "Ready")
     
-    assert wait_until(state_is_idle, timeout=1.0)
+    assert wait_until(ui_ready, timeout=1.0, step=0.01)
 
     assert minimal_app.state_manager.current == GUIState.IDLE
     assert minimal_app.progress_message_var.get() == "Ready"
