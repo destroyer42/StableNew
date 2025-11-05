@@ -155,6 +155,7 @@ class LogPanel(ttk.Frame):
         """
         normalized_level = level.upper()
         if normalized_level not in LEVEL_STYLES:
+            logger.debug(f"Unknown log level '{level}' encountered; falling back to DEFAULT_LEVEL ('{DEFAULT_LEVEL}').")
             normalized_level = DEFAULT_LEVEL
 
         self.log_records.append((message, normalized_level))
