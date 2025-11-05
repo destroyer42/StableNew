@@ -2,4 +2,4 @@
 
 from .client import SDWebUIClient
 
-__all__ = ['SDWebUIClient']
+__all__ = ["SDWebUIClient"]

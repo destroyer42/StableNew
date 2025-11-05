@@ -1,4 +1,4 @@
-# Refactoring Plan: `main_window.py` GUI Overhaul
+git# Refactoring Plan: `main_window.py` GUI Overhaul
 
 **Document ID:** `refactor_plan_main_window_gui_20251102_postAgent`  
 **Date:** November 2, 2025  
