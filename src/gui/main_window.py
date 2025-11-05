@@ -1,6 +1,5 @@
 """Modern Tkinter GUI for Stable Diffusion pipeline with dark theme"""
 
-import json
 import logging
 import subprocess
 import sys
@@ -8,7 +7,7 @@ import threading
 import tkinter as tk
 import tkinter.simpledialog
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from ..api import SDWebUIClient
@@ -17,8 +16,11 @@ from ..utils import ConfigManager, StructuredLogger, setup_logging
 from ..utils.file_io import read_prompt_pack
 from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
 from .advanced_prompt_editor import AdvancedPromptEditor
+from .api_status_panel import APIStatusPanel
+from .config_panel import ConfigPanel
 from .controller import PipelineController
 from .enhanced_slider import EnhancedSlider
+from .log_panel import LogPanel, TkinterLogHandler
 from .pipeline_controls_panel import PipelineControlsPanel
 from .prompt_pack_list_manager import PromptPackListManager
 from .prompt_pack_panel import PromptPackPanel
@@ -339,11 +341,9 @@ class StableNewGUI:
         )
         self.check_api_btn.pack(side=tk.LEFT, padx=(0, 10))
 
-        # Status indicator - compact
-        self.api_status_label = ttk.Label(
-            api_frame, text="● Disconnected", style="Dark.TLabel", foreground="#ff6b6b"
-        )
-        self.api_status_label.pack(side=tk.LEFT)
+        # Status indicator panel
+        self.api_status_panel = APIStatusPanel(api_frame, coordinator=self, style="Dark.TFrame")
+        self.api_status_panel.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def _build_prompt_pack_panel(self, parent):
         """Build compact prompt pack selection panel using PromptPackPanel component"""
@@ -374,12 +374,16 @@ class StableNewGUI:
         right_panel = ttk.Frame(parent, style="Dark.TFrame")
         right_panel.grid(row=0, column=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
 
-        # Configuration notebook in center
-        config_notebook = ttk.Notebook(center_panel, style="Dark.TNotebook")
-        config_notebook.pack(fill=tk.BOTH, expand=True)
+        # Unified configuration panel in center
+        self.config_panel = ConfigPanel(center_panel, coordinator=self, style="Dark.TFrame")
+        self.config_panel.pack(fill=tk.BOTH, expand=True)
 
-        # Configuration display tab
-        self._build_config_display_tab(config_notebook)
+        # Expose config panel variable dictionaries for legacy helpers
+        self.txt2img_vars = self.config_panel.txt2img_vars
+        self.img2img_vars = self.config_panel.img2img_vars
+        self.upscale_vars = self.config_panel.upscale_vars
+        self.api_vars = self.config_panel.api_vars
+        self.config_status_label = self.config_panel.config_status_label
 
         # Pipeline controls in right panel
         self._build_pipeline_controls_panel(right_panel)
@@ -695,27 +699,13 @@ class StableNewGUI:
             side=tk.LEFT
         )  # Red accent for exit
 
-        # Compact live log panel
-        log_frame = ttk.LabelFrame(bottom_frame, text="📋 Live Log", style="Dark.TFrame", padding=5)
-        log_frame.pack(fill=tk.BOTH, expand=True)
+        # Live log panel using LogPanel component
+        self.log_panel = LogPanel(bottom_frame, coordinator=self, height=6, style="Dark.TFrame")
+        self.log_panel.pack(fill=tk.BOTH, expand=True)
 
-        # Compact log text widget
-        self.log_text = scrolledtext.ScrolledText(
-            log_frame,
-            height=6,
-            wrap=tk.WORD,
-            bg="#1e1e1e",
-            fg="#ffffff",
-            font=("Consolas", 8),
-            state=tk.DISABLED,
-        )
-        self.log_text.pack(fill=tk.BOTH, expand=True)
-
-        # Configure log colors
-        self.log_text.tag_configure("INFO", foreground="#4CAF50")
-        self.log_text.tag_configure("WARNING", foreground="#FF9800")
-        self.log_text.tag_configure("ERROR", foreground="#f44336")
-        self.log_text.tag_configure("SUCCESS", foreground="#2196F3")
+        # Attach logging handler to redirect standard logging to GUI
+        self.gui_log_handler = TkinterLogHandler(self.log_panel)
+        logging.getLogger().addHandler(self.gui_log_handler)
 
     def _build_status_bar(self, parent):
         """Build status bar showing current state"""
@@ -788,16 +778,11 @@ class StableNewGUI:
         api_url_snapshot = self.api_url_var.get()
 
         # Indicate connecting state immediately
-        if hasattr(self, "api_status_label"):
-            self.api_status_label.config(text="⏳ Connecting...", foreground="#FF9800")
+        if hasattr(self, "api_status_panel"):
+            self.api_status_panel.set_status("Connecting...", "yellow")
 
         # Start spinner animation (on main thread)
-        try:
-            self._api_spinner_running = True
-            self._api_spinner_idx = 0
-            self.root.after(0, self._animate_api_spinner)
-        except Exception:
-            pass
+        self._api_spinner_running = False
 
         def check_in_thread(api_url: str):
             # Try the specified URL first
@@ -872,7 +857,8 @@ class StableNewGUI:
     def _update_api_status(self, connected: bool, url: str = None):
         """Update API status indicator"""
         if connected:
-            self.api_status_label.config(text="● Connected", foreground="#4CAF50")
+            if hasattr(self, "api_status_panel"):
+                self.api_status_panel.set_status("Connected", "green")
             self.run_pipeline_btn.config(state=tk.NORMAL)
 
             # Update URL field if we found a different working port
@@ -893,7 +879,8 @@ class StableNewGUI:
             # Run refresh in a separate thread to avoid blocking UI
             threading.Thread(target=refresh_all, daemon=True).start()
         else:
-            self.api_status_label.config(text="● Disconnected", foreground="#f44336")
+            if hasattr(self, "api_status_panel"):
+                self.api_status_panel.set_status("Disconnected", "red")
             self.run_pipeline_btn.config(state=tk.DISABLED)
 
     def _on_pack_selection_changed_mediator(self, selected_packs: list[str]):
@@ -908,10 +895,10 @@ class StableNewGUI:
 
         if selected_packs:
             pack_name = selected_packs[0]
-            self._add_log_message(f"📦 Selected pack: {pack_name}")
+            self.log_message(f"📦 Selected pack: {pack_name}")
             self._last_selected_pack = pack_name
         else:
-            self._add_log_message("No pack selected")
+            self.log_message("No pack selected")
             self._last_selected_pack = None
 
         # Refresh configuration for selected pack
@@ -922,7 +909,7 @@ class StableNewGUI:
         selected_indices = self.packs_listbox.curselection()
         if selected_indices:
             pack_name = self.packs_listbox.get(selected_indices[0])
-            self._add_log_message(f"📦 Selected pack: {pack_name}")
+            self.log_message(f"📦 Selected pack: {pack_name}")
 
             # Store current selection to prevent unwanted deselection
             self._last_selected_pack = pack_name
@@ -936,7 +923,7 @@ class StableNewGUI:
                 self._preserve_pack_selection()
                 return  # Don't proceed if we're restoring selection
             else:
-                self._add_log_message("No pack selected")
+                self.log_message("No pack selected")
                 self._last_selected_pack = None
 
         # Refresh configuration for selected pack
@@ -962,7 +949,7 @@ class StableNewGUI:
             self.prompt_pack_panel.select_first_pack()
 
         # Update log
-        self._add_log_message("GUI initialized - ready for pipeline configuration")
+        self.log_message("GUI initialized - ready for pipeline configuration")
 
     def _refresh_prompt_packs(self):
         """Refresh the prompt packs list"""
@@ -1078,122 +1065,27 @@ class StableNewGUI:
 
     def _set_config_editable(self, editable: bool):
         """Enable/disable config form controls"""
-        state = "normal" if editable else "disabled"
-
-        # Disable/enable config widgets (this will be enhanced when we add the status display)
-        if hasattr(self, "txt2img_vars"):
-            for widget_name in ["steps", "cfg_scale", "width", "height", "sampler_name"]:
-                if widget_name in getattr(self, "txt2img_widgets", {}):
-                    try:
-                        self.txt2img_widgets[widget_name].configure(state=state)
-                    except:
-                        pass  # Some widgets might not support state changes
+        if hasattr(self, "config_panel"):
+            self.config_panel.set_editable(editable)
 
     def _show_config_status(self, message: str):
         """Show configuration status message in the config area"""
-        if hasattr(self, "config_status_label"):
-            self.config_status_label.configure(text=message)
+        if hasattr(self, "config_panel"):
+            self.config_panel.set_status_message(message)
 
     def _get_config_from_forms(self) -> dict[str, Any]:
         """Extract current configuration from GUI forms"""
-        config = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        base_config = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        if hasattr(self, "config_panel"):
+            try:
+                base_config = self.config_panel.get_config()
+            except Exception as exc:
+                self.log_message(f"Error reading config from forms: {exc}", "ERROR")
 
-        try:
-            # txt2img config
-            if hasattr(self, "txt2img_vars"):
-                config["txt2img"] = {
-                    "steps": self.txt2img_vars.get("steps", tk.IntVar(value=20)).get(),
-                    "cfg_scale": self.txt2img_vars.get("cfg_scale", tk.DoubleVar(value=7.0)).get(),
-                    "width": self.txt2img_vars.get("width", tk.IntVar(value=512)).get(),
-                    "height": self.txt2img_vars.get("height", tk.IntVar(value=512)).get(),
-                    "negative_prompt": self.txt2img_vars.get(
-                        "negative_prompt", tk.StringVar()
-                    ).get(),
-                    "sampler_name": self.txt2img_vars.get(
-                        "sampler_name", tk.StringVar(value="Euler a")
-                    ).get(),
-                    "scheduler": self.txt2img_vars.get(
-                        "scheduler", tk.StringVar(value="normal")
-                    ).get(),
-                    "seed": self.txt2img_vars.get("seed", tk.IntVar(value=-1)).get(),
-                    "clip_skip": self.txt2img_vars.get("clip_skip", tk.IntVar(value=2)).get(),
-                    "model": self.txt2img_vars.get("model", tk.StringVar(value="")).get(),
-                    "vae": self.txt2img_vars.get("vae", tk.StringVar(value="")).get(),
-                    "enable_hr": self.txt2img_vars.get(
-                        "enable_hr", tk.BooleanVar(value=False)
-                    ).get(),
-                    "hr_scale": self.txt2img_vars.get("hr_scale", tk.DoubleVar(value=2.0)).get(),
-                    "hr_upscaler": self.txt2img_vars.get(
-                        "hr_upscaler", tk.StringVar(value="Latent")
-                    ).get(),
-                    "denoising_strength": self.txt2img_vars.get(
-                        "denoising_strength", tk.DoubleVar(value=0.7)
-                    ).get(),
-                }
+        if hasattr(self, "pipeline_controls_panel"):
+            base_config["pipeline"] = self.pipeline_controls_panel.get_settings()
 
-                # Get prompt from text widget if available
-                if hasattr(self, "pos_text"):
-                    config["txt2img"]["prompt"] = self.pos_text.get(1.0, tk.END).strip()
-
-            # img2img config
-            if hasattr(self, "img2img_vars"):
-                config["img2img"] = {
-                    "steps": self.img2img_vars.get("steps", tk.IntVar(value=15)).get(),
-                    "denoising_strength": self.img2img_vars.get(
-                        "denoising_strength", tk.DoubleVar(value=0.3)
-                    ).get(),
-                    "sampler_name": self.img2img_vars.get(
-                        "sampler_name", tk.StringVar(value="Euler a")
-                    ).get(),
-                    "scheduler": self.img2img_vars.get(
-                        "scheduler", tk.StringVar(value="normal")
-                    ).get(),
-                    "cfg_scale": self.img2img_vars.get("cfg_scale", tk.DoubleVar(value=7.0)).get(),
-                    "seed": self.img2img_vars.get("seed", tk.IntVar(value=-1)).get(),
-                    "clip_skip": self.img2img_vars.get("clip_skip", tk.IntVar(value=2)).get(),
-                    "model": self.img2img_vars.get("model", tk.StringVar(value="")).get(),
-                    "vae": self.img2img_vars.get("vae", tk.StringVar(value="")).get(),
-                }
-
-            # upscale config
-            if hasattr(self, "upscale_vars"):
-                config["upscale"] = {
-                    "upscaler": self.upscale_vars.get(
-                        "upscaler", tk.StringVar(value="R-ESRGAN 4x+")
-                    ).get(),
-                    "upscaling_resize": self.upscale_vars.get(
-                        "upscaling_resize", tk.DoubleVar(value=2.0)
-                    ).get(),
-                    "mode": self.upscale_vars.get(
-                        "upscale_mode", tk.StringVar(value="single")
-                    ).get(),
-                    "denoising_strength": self.upscale_vars.get(
-                        "denoising_strength", tk.DoubleVar(value=0.2)
-                    ).get(),
-                    "gfpgan_visibility": self.upscale_vars.get(
-                        "gfpgan_visibility", tk.DoubleVar(value=0.0)
-                    ).get(),
-                    "codeformer_visibility": self.upscale_vars.get(
-                        "codeformer_visibility", tk.DoubleVar(value=0.0)
-                    ).get(),
-                    "codeformer_weight": self.upscale_vars.get(
-                        "codeformer_weight", tk.DoubleVar(value=0.5)
-                    ).get(),
-                }
-
-            # api config
-            if hasattr(self, "api_vars"):
-                config["api"] = {
-                    "base_url": self.api_vars.get(
-                        "base_url", tk.StringVar(value="http://127.0.0.1:7860")
-                    ).get(),
-                    "timeout": self.api_vars.get("timeout", tk.IntVar(value=300)).get(),
-                }
-
-        except Exception as e:
-            self.log_message(f"Error reading config from forms: {e}", "ERROR")
-
-        return config
+        return base_config
 
     def _save_current_pack_config(self):
         """Save current configuration to the selected pack (single pack mode only)"""
@@ -1215,12 +1107,8 @@ class StableNewGUI:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         log_entry = f"[{timestamp}] {message}\n"
 
-        # Only update GUI if log_text widget exists
-        if hasattr(self, "log_text"):
-            self.log_text.config(state=tk.NORMAL)
-            self.log_text.insert(tk.END, log_entry, level)
-            self.log_text.see(tk.END)
-            self.log_text.config(state=tk.DISABLED)
+        if hasattr(self, "log_panel"):
+            self.log_panel.log(log_entry.strip(), level)
 
         # Also log to Python logger
         if level == "ERROR":
@@ -2459,93 +2347,8 @@ class StableNewGUI:
             selected_pack = self.packs_listbox.get(current_selection[0])
 
         try:
-            # txt2img config
-            txt2img_config = config.get("txt2img", {})
-            if hasattr(self, "txt2img_vars"):
-                self.txt2img_vars["steps"].set(txt2img_config.get("steps", 20))
-                # Handle both old and new sampler format
-                sampler_name = txt2img_config.get("sampler_name", "Euler a")
-                if "scheduler" in txt2img_config and txt2img_config["scheduler"] != "Automatic":
-                    sampler_display = f"{sampler_name} {txt2img_config['scheduler']}"
-                else:
-                    sampler_display = sampler_name
-                self.txt2img_vars["sampler_name"].set(sampler_display)
-
-                self.txt2img_vars["cfg_scale"].set(txt2img_config.get("cfg_scale", 7.0))
-                self.txt2img_vars["width"].set(txt2img_config.get("width", 512))
-                self.txt2img_vars["height"].set(txt2img_config.get("height", 512))
-                self.txt2img_vars["negative_prompt"].set(txt2img_config.get("negative_prompt", ""))
-
-                # New parameters
-                self.txt2img_vars["seed"].set(txt2img_config.get("seed", -1))
-                self.txt2img_vars["clip_skip"].set(txt2img_config.get("clip_skip", 2))
-                self.txt2img_vars["scheduler"].set(txt2img_config.get("scheduler", "normal"))
-                self.txt2img_vars["model"].set(txt2img_config.get("model", ""))
-                self.txt2img_vars["vae"].set(txt2img_config.get("vae", ""))
-
-                # Hires.fix parameters
-                self.txt2img_vars["enable_hr"].set(txt2img_config.get("enable_hr", False))
-                self.txt2img_vars["hr_scale"].set(txt2img_config.get("hr_scale", 2.0))
-                self.txt2img_vars["hr_upscaler"].set(
-                    txt2img_config.get("hr_upscaler", "R-ESRGAN 4x+")
-                )
-                self.txt2img_vars["denoising_strength"].set(
-                    txt2img_config.get("denoising_strength", 0.7)
-                )
-
-                # Update text widgets if they exist
-                if hasattr(self, "pos_text"):
-                    self.pos_text.delete(1.0, tk.END)
-                    self.pos_text.insert(1.0, txt2img_config.get("prompt", ""))
-
-                if hasattr(self, "neg_text"):
-                    self.neg_text.delete(1.0, tk.END)
-                    self.neg_text.insert(1.0, txt2img_config.get("negative_prompt", ""))
-
-            # img2img config
-            img2img_config = config.get("img2img", {})
-            if hasattr(self, "img2img_vars"):
-                self.img2img_vars["steps"].set(img2img_config.get("steps", 15))
-                self.img2img_vars["denoising_strength"].set(
-                    img2img_config.get("denoising_strength", 0.3)
-                )
-                self.img2img_vars["sampler_name"].set(img2img_config.get("sampler_name", "Euler a"))
-                self.img2img_vars["scheduler"].set(img2img_config.get("scheduler", "normal"))
-                self.img2img_vars["cfg_scale"].set(img2img_config.get("cfg_scale", 7.0))
-                self.img2img_vars["seed"].set(img2img_config.get("seed", -1))
-                self.img2img_vars["clip_skip"].set(img2img_config.get("clip_skip", 2))
-                self.img2img_vars["model"].set(img2img_config.get("model", ""))
-                self.img2img_vars["vae"].set(img2img_config.get("vae", ""))
-
-            # upscale config
-            upscale_config = config.get("upscale", {})
-            if hasattr(self, "upscale_vars"):
-                self.upscale_vars["upscaler"].set(upscale_config.get("upscaler", "R-ESRGAN 4x+"))
-                self.upscale_vars["upscaling_resize"].set(
-                    upscale_config.get("upscaling_resize", 2.0)
-                )
-                if "upscale_mode" in self.upscale_vars:
-                    self.upscale_vars["upscale_mode"].set(upscale_config.get("mode", "single"))
-                self.upscale_vars["denoising_strength"].set(
-                    upscale_config.get("denoising_strength", 0.2)
-                )
-                self.upscale_vars["gfpgan_visibility"].set(
-                    upscale_config.get("gfpgan_visibility", 0.5)
-                )
-                self.upscale_vars["codeformer_visibility"].set(
-                    upscale_config.get("codeformer_visibility", 0.0)
-                )
-                if "codeformer_weight" in self.upscale_vars:
-                    self.upscale_vars["codeformer_weight"].set(
-                        upscale_config.get("codeformer_weight", 0.5)
-                    )
-
-            # api config
-            api_config = config.get("api", {})
-            if hasattr(self, "api_vars"):
-                self.api_vars["base_url"].set(api_config.get("base_url", "http://127.0.0.1:7860"))
-                self.api_vars["timeout"].set(api_config.get("timeout", 300))
-
+            if hasattr(self, "config_panel"):
+                self.config_panel.set_config(config)
         except Exception as e:
             self.log_message(f"Error loading config into forms: {e}", "ERROR")
 
@@ -2787,7 +2590,7 @@ class StableNewGUI:
             messagebox.showerror("Pipeline Error", error_message)
         except tk.TclError:
             logger.error("Unable to display error dialog", exc_info=True)
-        self.progress_message_var.set("Error")
+        # Progress message update is handled by state transition callback; redundant here.
 
     def _create_video(self):
         """Create video from output images"""
@@ -2830,13 +2633,10 @@ class StableNewGUI:
                 model.get("title", model.get("model_name", "")) for model in models
             ]
 
-            # Update all model comboboxes
-            if hasattr(self, "model_combo"):
-                self.model_combo["values"] = model_names
-            if hasattr(self, "img2img_model_combo"):
-                self.img2img_model_combo["values"] = model_names
+            if hasattr(self, "config_panel"):
+                self.config_panel.set_model_options(model_names)
 
-            self._add_log_message(f"🔄 Loaded {len(models)} SD models")
+            self.log_message(f"🔄 Loaded {len(models)} SD models")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh models: {e}")
 
@@ -2850,13 +2650,10 @@ class StableNewGUI:
             vae_models = self.client.get_vae_models()
             vae_names = [""] + [vae.get("model_name", "") for vae in vae_models]
 
-            # Update all VAE comboboxes
-            if hasattr(self, "vae_combo"):
-                self.vae_combo["values"] = vae_names
-            if hasattr(self, "img2img_vae_combo"):
-                self.img2img_vae_combo["values"] = vae_names
+            if hasattr(self, "config_panel"):
+                self.config_panel.set_vae_options(vae_names)
 
-            self._add_log_message(f"🔄 Loaded {len(vae_models)} VAE models")
+            self.log_message(f"🔄 Loaded {len(vae_models)} VAE models")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh VAE models: {e}")
 
@@ -2872,11 +2669,10 @@ class StableNewGUI:
                 upscaler.get("name", "") for upscaler in upscalers if upscaler.get("name")
             ]
 
-            # Update upscaler combobox
-            if hasattr(self, "upscaler_combo"):
-                self.upscaler_combo["values"] = upscaler_names
+            if hasattr(self, "config_panel"):
+                self.config_panel.set_upscaler_options(upscaler_names)
 
-            self._add_log_message(f"🔄 Loaded {len(upscalers)} upscalers")
+            self.log_message(f"🔄 Loaded {len(upscalers)} upscalers")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh upscalers: {e}")
 
@@ -2889,13 +2685,10 @@ class StableNewGUI:
         try:
             schedulers = self.client.get_schedulers()
 
-            # Update all scheduler comboboxes
-            if hasattr(self, "scheduler_combo"):
-                self.scheduler_combo["values"] = schedulers
-            if hasattr(self, "img2img_scheduler_combo"):
-                self.img2img_scheduler_combo["values"] = schedulers
+            if hasattr(self, "config_panel"):
+                self.config_panel.set_scheduler_options(schedulers)
 
-            self._add_log_message(f"🔄 Loaded {len(schedulers)} schedulers")
+            self.log_message(f"🔄 Loaded {len(schedulers)} schedulers")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh schedulers: {e}")
 
@@ -2904,7 +2697,7 @@ class StableNewGUI:
         # This method can be used to enable/disable hires.fix related controls
         # For now, just log the change
         enabled = self.txt2img_vars.get("enable_hr", tk.BooleanVar()).get()
-        self._add_log_message(f"📏 Hires.fix {'enabled' if enabled else 'disabled'}")
+        self.log_message(f"📏 Hires.fix {'enabled' if enabled else 'disabled'}")
 
     def _randomize_seed(self, var_dict_name):
         """Generate a random seed for the specified variable dictionary"""
@@ -2914,7 +2707,7 @@ class StableNewGUI:
         var_dict = getattr(self, f"{var_dict_name}_vars", {})
         if "seed" in var_dict:
             var_dict["seed"].set(random_seed)
-            self._add_log_message(f"🎲 Random seed generated: {random_seed}")
+            self.log_message(f"🎲 Random seed generated: {random_seed}")
 
     def _randomize_txt2img_seed(self):
         """Generate random seed for txt2img"""
