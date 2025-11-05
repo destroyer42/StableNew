@@ -751,7 +751,7 @@ class StableNewGUI:
 
         # Spacer
         ttk.Label(status_frame, text="", style="Dark.TLabel").pack(
-            side=tk.LEFT, fill=tk.X, expand=True
+            side=tk.LEFT
         )
 
         self._apply_progress_reset()
