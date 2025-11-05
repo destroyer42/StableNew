@@ -70,7 +70,7 @@ def test_progress_eta_display(monkeypatch):
         status_var = getattr(win, "progress_status_var", None)
         eta_var = getattr(win, "progress_eta_var", None)
 
-        assert progress_bar is not None, "MainWindow should expose progress_bar"  # pragma: no cover - clarity
+        assert progress_bar is not None, "MainWindow should expose progress_bar"
         assert status_var is not None, "MainWindow should expose progress_status_var"
         assert eta_var is not None, "MainWindow should expose progress_eta_var"
 
