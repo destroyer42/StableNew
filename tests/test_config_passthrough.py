@@ -70,7 +70,7 @@ class ConfigPassthroughValidator:
                 return {"images": ["fake_base64"], "parameters": payload}
             elif original_method.__name__ == "img2img":
                 return {"images": ["fake_base64"], "parameters": payload}
-            elif original_method.__name__ == "upscale_image":
+            elif original_method.__name__ in {"upscale", "upscale_image"}:
                 return {"image": "fake_upscaled_base64"}
 
         return wrapper
@@ -92,7 +92,7 @@ class ConfigPassthroughValidator:
             patch.object(mock_client, "txt2img", self.capture_api_payload(mock_client.txt2img)),
             patch.object(mock_client, "img2img", self.capture_api_payload(mock_client.img2img)),
             patch.object(
-                mock_client, "upscale_image", self.capture_api_payload(mock_client.upscale_image)
+                mock_client, "upscale", self.capture_api_payload(mock_client.upscale)
             ),
             patch("src.utils.file_io.save_image_from_base64", return_value=True),
             patch("src.utils.file_io.load_image_to_base64", return_value="fake_base64"),
@@ -152,7 +152,7 @@ class ConfigPassthroughValidator:
                 config_section = "txt2img"
             elif method == "img2img":
                 config_section = "img2img"
-            elif method == "upscale_image":
+            elif method in {"upscale", "upscale_image"}:
                 config_section = "upscale"
 
             if config_section and config_section in original_config:
