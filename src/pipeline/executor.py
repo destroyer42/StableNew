@@ -7,7 +7,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from ..api import SDWebUIClient
 from ..utils import ConfigManager, StructuredLogger, load_image_to_base64, save_image_from_base64
