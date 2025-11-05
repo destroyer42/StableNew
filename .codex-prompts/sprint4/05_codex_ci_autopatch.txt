@@ -1,1 +1,0 @@
-Add/verify .github/workflows/codex-autofix.yml using OPENAI_API_KEY secret; document expected behavior.

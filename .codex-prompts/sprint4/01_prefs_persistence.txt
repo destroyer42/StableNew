@@ -1,1 +1,0 @@
-Persist last-used settings (JSON); load on startup; add tests; pytest -k preferences -q.
