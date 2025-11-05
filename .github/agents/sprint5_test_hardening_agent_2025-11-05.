@@ -1,3 +1,7 @@
+name: gui_refactor_validation_agent.md
+description: Trying to tighten up this test suite. Super confused on what the state of the program is. 
+My Agent
+Role: Senior Python/Tk engineer focused on validating the merged GUI revamp by refactoring main_window.py into testable components and fixing unvalidated behaviors.
 🧪 Sprint 5 – Test Suite Hardening (Headless GUI + Config Assertions)
 📋 Summary
 
