@@ -65,6 +65,17 @@ class PipelineController:
         self._epoch_lock = threading.Lock()
         self._epoch_id = 0
 
+        # Progress callbacks
+        self._progress_lock = threading.Lock()
+        self._progress_callback: Callable[[float], None] | None = None
+        self._eta_callback: Callable[[str], None] | None = None
+        self._status_callback: Callable[[str], None] | None = None
+        self._last_progress: dict[str, Any] = {
+            "stage": "Idle",
+            "percent": 0.0,
+            "eta": "ETA: --",
+        }
+
     def start_pipeline(
         self,
         pipeline_func: Callable[[], dict[str, Any]],
@@ -100,10 +111,12 @@ class PipelineController:
                     on_complete(result)
             except CancellationError:
                 self._log("Pipeline cancelled by user", "WARNING")
+                self.report_progress("Cancelled", self._last_progress["percent"], "Cancelled")
             except Exception as e:
                 error_occurred = True
                 self._log(f"Pipeline error: {e}", "ERROR")
                 self.state_manager.transition_to(GUIState.ERROR)
+                self.report_progress("Error", self._last_progress["percent"], "Error")
                 if on_error:
                     on_error(e)
 
@@ -128,6 +141,7 @@ class PipelineController:
             return False
         self.cancel_token.cancel()
         self._terminate_subprocess()
+        self.report_progress("Cancelled", self._last_progress["percent"], "Cancelled")
 
         def cleanup():
             with self._epoch_lock:
@@ -173,9 +187,52 @@ class PipelineController:
         self.lifecycle_event.set()
         self._cleanup_done.set()
 
+        if not error_occurred and not self.cancel_token.is_cancelled():
+            self.report_progress("Idle", 0.0, "Idle")
+
     def set_pipeline(self, pipeline) -> None:
         """Set the pipeline instance to use."""
         self._pipeline = pipeline
+        if pipeline and hasattr(pipeline, "set_progress_controller"):
+            try:
+                pipeline.set_progress_controller(self)
+            except TypeError as exc:  # Catch only known failure mode
+                logger.debug("Failed to attach progress controller (TypeError): %s", exc)
+            except RuntimeError as exc:
+                logger.debug("Failed to attach progress controller (RuntimeError): %s", exc)
+
+    def set_progress_callback(self, callback: Callable[[float], None] | None) -> None:
+        """Register callback for progress percentage updates."""
+        with self._progress_lock:
+            self._progress_callback = callback
+
+    def set_eta_callback(self, callback: Callable[[str], None] | None) -> None:
+        """Register callback for ETA updates."""
+        with self._progress_lock:
+            self._eta_callback = callback
+
+    def set_status_callback(self, callback: Callable[[str], None] | None) -> None:
+        """Register callback for status/stage text updates."""
+        with self._progress_lock:
+            self._status_callback = callback
+
+    def report_progress(self, stage: str, percent: float, eta: str | None) -> None:
+        """Report progress to registered callbacks in a thread-safe manner."""
+
+        eta_text = eta if eta else "ETA: --"
+        with self._progress_lock:
+            self._last_progress = {
+                "stage": stage,
+                "percent": float(percent),
+                "eta": eta_text,
+            }
+
+            if self._status_callback:
+                self._status_callback(stage)
+            if self._progress_callback:
+                self._progress_callback(float(percent))
+            if self._eta_callback:
+                self._eta_callback(eta_text)
 
     def _terminate_subprocess(self) -> None:
         """Terminate any running subprocess (e.g., FFmpeg)."""

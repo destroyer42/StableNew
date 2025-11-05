@@ -18,31 +18,31 @@ class TestSDWebUIClient:
         assert client.base_url == "http://localhost:8080"
         assert client.timeout == 60
 
-    @patch("src.api.client.requests.get")
-    def test_check_api_ready_success(self, mock_get):
+    @patch("src.api.client.requests.request")
+    def test_check_api_ready_success(self, mock_request):
         """Test successful API readiness check"""
         mock_response = Mock()
-        mock_response.status_code = 200
-        mock_get.return_value = mock_response
+        mock_response.raise_for_status.return_value = None
+        mock_request.return_value = mock_response
 
         client = SDWebUIClient()
         assert client.check_api_ready(max_retries=1) is True
 
-    @patch("src.api.client.requests.get")
-    def test_check_api_ready_failure(self, mock_get):
+    @patch("src.api.client.requests.request")
+    def test_check_api_ready_failure(self, mock_request):
         """Test failed API readiness check"""
-        mock_get.side_effect = Exception("Connection error")
+        mock_request.side_effect = Exception("Connection error")
 
         client = SDWebUIClient()
         assert client.check_api_ready(max_retries=1, retry_delay=0) is False
 
-    @patch("src.api.client.requests.post")
-    def test_txt2img_success(self, mock_post):
+    @patch("src.api.client.requests.request")
+    def test_txt2img_success(self, mock_request):
         """Test successful txt2img request"""
         mock_response = Mock()
-        mock_response.status_code = 200
+        mock_response.raise_for_status.return_value = None
         mock_response.json.return_value = {"images": ["base64data"]}
-        mock_post.return_value = mock_response
+        mock_request.return_value = mock_response
 
         client = SDWebUIClient()
         result = client.txt2img({"prompt": "test"})
@@ -51,23 +51,23 @@ class TestSDWebUIClient:
         assert "images" in result
         assert len(result["images"]) == 1
 
-    @patch("src.api.client.requests.post")
-    def test_txt2img_failure(self, mock_post):
+    @patch("src.api.client.requests.request")
+    def test_txt2img_failure(self, mock_request):
         """Test failed txt2img request"""
-        mock_post.side_effect = Exception("API error")
+        mock_request.side_effect = Exception("API error")
 
         client = SDWebUIClient()
         result = client.txt2img({"prompt": "test"})
 
         assert result is None
 
-    @patch("src.api.client.requests.post")
-    def test_img2img_success(self, mock_post):
+    @patch("src.api.client.requests.request")
+    def test_img2img_success(self, mock_request):
         """Test successful img2img request"""
         mock_response = Mock()
-        mock_response.status_code = 200
+        mock_response.raise_for_status.return_value = None
         mock_response.json.return_value = {"images": ["base64data"]}
-        mock_post.return_value = mock_response
+        mock_request.return_value = mock_response
 
         client = SDWebUIClient()
         result = client.img2img({"prompt": "test", "init_images": ["img"]})
@@ -75,27 +75,27 @@ class TestSDWebUIClient:
         assert result is not None
         assert "images" in result
 
-    @patch("src.api.client.requests.post")
-    def test_upscale_success(self, mock_post):
+    @patch("src.api.client.requests.request")
+    def test_upscale_success(self, mock_request):
         """Test successful upscale request"""
         mock_response = Mock()
-        mock_response.status_code = 200
+        mock_response.raise_for_status.return_value = None
         mock_response.json.return_value = {"image": "base64data"}
-        mock_post.return_value = mock_response
+        mock_request.return_value = mock_response
 
         client = SDWebUIClient()
-        result = client.upscale("base64image")
+        result = client.upscale({"image": "base64image"})
 
         assert result is not None
         assert "image" in result
 
-    @patch("src.api.client.requests.get")
-    def test_get_models(self, mock_get):
+    @patch("src.api.client.requests.request")
+    def test_get_models(self, mock_request):
         """Test get models request"""
         mock_response = Mock()
-        mock_response.status_code = 200
+        mock_response.raise_for_status.return_value = None
         mock_response.json.return_value = [{"name": "model1"}]
-        mock_get.return_value = mock_response
+        mock_request.return_value = mock_response
 
         client = SDWebUIClient()
         result = client.get_models()
@@ -103,13 +103,13 @@ class TestSDWebUIClient:
         assert len(result) == 1
         assert result[0]["name"] == "model1"
 
-    @patch("src.api.client.requests.get")
-    def test_get_samplers(self, mock_get):
+    @patch("src.api.client.requests.request")
+    def test_get_samplers(self, mock_request):
         """Test get samplers request"""
         mock_response = Mock()
-        mock_response.status_code = 200
+        mock_response.raise_for_status.return_value = None
         mock_response.json.return_value = [{"name": "Euler a"}]
-        mock_get.return_value = mock_response
+        mock_request.return_value = mock_response
 
         client = SDWebUIClient()
         result = client.get_samplers()
