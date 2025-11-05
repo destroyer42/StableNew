@@ -62,7 +62,15 @@ def run_command(command: str, *, env: Optional[dict[str, str]] = None) -> Comman
     )
 
 
-def gather_repo_snapshot() -> str:
+def gather_repo_snapshot(*, pr_diff_path: Optional[str] = None) -> str:
+    """Gather repository snapshot for analysis.
+    
+    Args:
+        pr_diff_path: Optional path to PR diff file for analysis
+        
+    Returns:
+        Formatted snapshot string with repository metadata
+    """
     snapshot_parts: list[str] = []
     for title, command in (
         ("HEAD", "git rev-parse HEAD"),
@@ -77,6 +85,17 @@ def gather_repo_snapshot() -> str:
         )
         body = result.stdout.strip() or result.stderr.strip() or "(empty)"
         snapshot_parts.append(f"### {title}\n{body}")
+    
+    # Include PR diff if provided (for security: analyzing PR changes without checking out)
+    if pr_diff_path and os.path.exists(pr_diff_path):
+        try:
+            with open(pr_diff_path, encoding="utf-8") as f:
+                diff_content = f.read()
+            if diff_content.strip():
+                snapshot_parts.append(f"### PR Changes\n```diff\n{diff_content}\n```")
+        except Exception as e:
+            snapshot_parts.append(f"### PR Changes\n(Failed to read diff: {e})")
+    
     return "\n\n".join(snapshot_parts)
 
 
@@ -187,6 +206,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Head commit SHA for logging only",
     )
     parser.add_argument(
+        "--base-sha",
+        default="",
+        help="Base commit SHA for context",
+    )
+    parser.add_argument(
+        "--pr-diff",
+        default=None,
+        help="Path to file containing PR diff (for security: analyze changes without checking out untrusted code)",
+    )
+    parser.add_argument(
         "--command",
         default=os.environ.get("CODEX_AUTOFIX_COMMAND", "pytest --maxfail=1 -q"),
         help="Command to run before invoking Codex",
@@ -215,7 +244,7 @@ def main(argv: list[str]) -> int:
         command_result = run_command(args.command)
 
     run_url = f"https://github.com/{args.repo}/actions/runs/{os.environ.get('GITHUB_RUN_ID', 'unknown')}"
-    snapshot = gather_repo_snapshot()
+    snapshot = gather_repo_snapshot(pr_diff_path=args.pr_diff)
     prompt = render_prompt(
         args.repo,
         args.pr,
