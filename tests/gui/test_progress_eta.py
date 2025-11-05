@@ -134,4 +134,5 @@ def test_progress_eta_display(monkeypatch):
             try:
                 win.root.destroy()
             except Exception:
+                # Ignore errors during Tk root destruction in test teardown.
                 pass
