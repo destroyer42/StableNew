@@ -15,6 +15,9 @@ from tkinter import ttk
 
 from src.gui.log_panel import LogPanel, TkinterLogHandler
 
+# Test constants
+SCROLL_POSITION_TOLERANCE = 0.1  # Tolerance for scroll position comparisons
+
 
 class TestLogPanel:
     """Test LogPanel component."""
@@ -28,7 +31,7 @@ class TestLogPanel:
         """Clean up after tests."""
         try:
             self.root.destroy()
-        except Exception:  # noqa: S110
+        except tk.TclError:  # More specific than generic Exception
             pass
 
     def test_panel_creation(self):
@@ -105,7 +108,7 @@ class TestLogPanel:
 
         # Position should be preserved (approximately, due to widget updates)
         top_after, _ = panel.log_text.yview()
-        assert abs(top_before - top_after) < 0.1  # Allow small variance
+        assert abs(top_before - top_after) < SCROLL_POSITION_TOLERANCE
 
     def test_auto_scroll_when_unlocked(self):
         """Test that auto-scroll works when scroll lock is disabled."""
@@ -190,7 +193,7 @@ class TestLogPanel:
 
         # Position should be preserved
         top_after, _ = panel.log_text.yview()
-        assert abs(top_before - top_after) < 0.1
+        assert abs(top_before - top_after) < SCROLL_POSITION_TOLERANCE
 
     def test_line_count_tracking(self):
         """Test that internal line count tracking is accurate."""
@@ -224,7 +227,7 @@ class TestTkinterLogHandler:
         """Clean up after tests."""
         try:
             self.root.destroy()
-        except Exception:  # noqa: S110
+        except tk.TclError:  # More specific than generic Exception
             pass
 
     def test_handler_creation(self):
