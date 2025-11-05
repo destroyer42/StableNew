@@ -1237,7 +1237,7 @@ class Pipeline:
                     "codeformer_weight": config.get("codeformer_weight", 0.5),
                 }
 
-                response = self.client.upscale_image(payload)
+                response = self.client.upscale(payload)
                 response_key = "image"
                 image_key = None
 
