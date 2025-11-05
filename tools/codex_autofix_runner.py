@@ -214,7 +214,7 @@ def main(argv: list[str]) -> int:
     if not args.skip_tests:
         command_result = run_command(args.command)
 
-    run_url = f"https://github.com/{args.repo}/actions/runs/{os.environ.get('GITHUB_RUN_ID')}"
+    run_url = f"https://github.com/{args.repo}/actions/runs/{os.environ.get('GITHUB_RUN_ID', 'unknown')}"
     snapshot = gather_repo_snapshot()
     prompt = render_prompt(
         args.repo,
