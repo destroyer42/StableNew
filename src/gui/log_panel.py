@@ -43,6 +43,15 @@ class LogPanel(ttk.Frame):
         # Message queue for thread-safe logging
         self.log_queue: queue.Queue[tuple[str, str]] = queue.Queue()
 
+        # Scroll lock state
+        self._scroll_lock = tk.BooleanVar(value=False)
+
+        # Track line count to avoid recalculation
+        self._line_count = 0
+
+        # Maximum number of log lines to keep
+        self._max_lines = 1000
+
         # Build UI
         self._build_ui()
 
@@ -54,6 +63,19 @@ class LogPanel(ttk.Frame):
         # Log frame with dark theme
         log_frame = ttk.LabelFrame(self, text="📋 Live Log", style="Dark.TFrame", padding=5)
         log_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Control frame for scroll lock toggle
+        control_frame = ttk.Frame(log_frame)
+        control_frame.pack(fill=tk.X, padx=2, pady=2)
+
+        # Scroll lock checkbox
+        self.scroll_lock_check = ttk.Checkbutton(
+            control_frame,
+            text="🔒 Scroll Lock",
+            variable=self._scroll_lock,
+            command=self._on_scroll_lock_toggle,
+        )
+        self.scroll_lock_check.pack(side=tk.LEFT)
 
         # Scrolled text widget
         self.log_text = scrolledtext.ScrolledText(
@@ -108,29 +130,77 @@ class LogPanel(ttk.Frame):
             message: Log message text
             level: Log level for coloring
         """
+        # Save current scroll position if scroll lock is enabled
+        scroll_pos = None
+        if self._scroll_lock.get():
+            scroll_pos = self.log_text.yview()
+
         # Enable editing temporarily
         self.log_text.configure(state=tk.NORMAL)
 
         # Insert message with appropriate tag
         self.log_text.insert(tk.END, f"{message}\n", level)
+        self._line_count += 1
 
-        # Scroll to end
-        self.log_text.see(tk.END)
+        # Efficiently handle overflow - delete only the oldest line
+        if self._line_count > self._max_lines:
+            # Delete the first line
+            self.log_text.delete("1.0", "2.0")
+            self._line_count -= 1
+
+        # Handle scrolling based on scroll lock state
+        if self._scroll_lock.get() and scroll_pos is not None:
+            # Restore scroll position
+            self.log_text.yview_moveto(scroll_pos[0])
+        else:
+            # Auto-scroll to end
+            self.log_text.see(tk.END)
 
         # Disable editing
         self.log_text.configure(state=tk.DISABLED)
 
-        # Limit log size (keep last 1000 lines)
-        line_count = int(self.log_text.index("end-1c").split(".")[0])
-        if line_count > 1000:
-            self.log_text.configure(state=tk.NORMAL)
-            self.log_text.delete("1.0", f"{line_count - 1000}.0")
-            self.log_text.configure(state=tk.DISABLED)
+    def _on_scroll_lock_toggle(self):
+        """Handle scroll lock toggle."""
+        # No additional action needed - the state is read in _add_log_message
+        pass
+
+    def get_scroll_lock(self) -> bool:
+        """
+        Get the current scroll lock state.
+
+        Returns:
+            True if scroll lock is enabled, False otherwise
+        """
+        return self._scroll_lock.get()
+
+    def set_scroll_lock(self, enabled: bool) -> None:
+        """
+        Set the scroll lock state.
+
+        Args:
+            enabled: True to enable scroll lock, False to disable
+        """
+        self._scroll_lock.set(enabled)
+
+    def _flush_queue_sync(self) -> None:
+        """
+        Synchronously process all pending log messages.
+
+        This is primarily for testing purposes to ensure all queued
+        messages are processed immediately.
+        """
+        while not self.log_queue.empty():
+            try:
+                message, level = self.log_queue.get_nowait()
+                self._add_log_message(message, level)
+            except queue.Empty:
+                break
 
     def clear(self) -> None:
         """Clear all log messages."""
         self.log_text.configure(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
+        self._line_count = 0
         self.log_text.configure(state=tk.DISABLED)
 
 
