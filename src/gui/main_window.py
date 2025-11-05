@@ -807,11 +807,18 @@ class StableNewGUI:
                 self.root.after(0, lambda: self._update_api_status(True, api_url))
 
                 if health["models_loaded"]:
-                    self.root.after(0, lambda: self.log_message(
-                        f"✅ API connected! Found {health.get('model_count', 0)} models", "SUCCESS"
-                    ))
+                    self.root.after(
+                        0,
+                        lambda: self.log_message(
+                            f"✅ API connected! Found {health.get('model_count', 0)} models",
+                            "SUCCESS",
+                        ),
+                    )
                 else:
-                    self.root.after(0, lambda: self.log_message("⚠️ API connected but no models loaded", "WARNING"))
+                    self.root.after(
+                        0,
+                        lambda: self.log_message("⚠️ API connected but no models loaded", "WARNING"),
+                    )
                 return
 
             # If direct connection failed, try port discovery
@@ -819,11 +826,12 @@ class StableNewGUI:
             discovered_url = None
             try:
                 import time
-                for _ in range(getattr(self, 'api_discovery_max_retries', 3)):
+
+                for _ in range(getattr(self, "api_discovery_max_retries", 3)):
                     discovered_url = find_webui_api_port()
                     if discovered_url:
                         break
-                    time.sleep(getattr(self, 'api_discovery_retry_delay', 0.3))
+                    time.sleep(getattr(self, "api_discovery_retry_delay", 0.3))
             except Exception:
                 discovered_url = None
 
@@ -842,21 +850,35 @@ class StableNewGUI:
                     self.root.after(0, lambda: self._update_api_status(True, discovered_url))
 
                     if health["models_loaded"]:
-                        self.root.after(0, lambda: self.log_message(
-                            f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models",
-                            "SUCCESS",
-                        ))
+                        self.root.after(
+                            0,
+                            lambda: self.log_message(
+                                f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models",
+                                "SUCCESS",
+                            ),
+                        )
                     else:
-                        self.root.after(0, lambda: self.log_message("⚠️ API found but no models loaded", "WARNING"))
+                        self.root.after(
+                            0,
+                            lambda: self.log_message("⚠️ API found but no models loaded", "WARNING"),
+                        )
                     return
 
             # Connection failed
             self.api_connected = False
             self.root.after(0, lambda: self._update_api_status(False))
-            self.root.after(0, lambda: self.log_message(
-                "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
-            ))
-            self.root.after(0, lambda: self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO"))
+            self.root.after(
+                0,
+                lambda: self.log_message(
+                    "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
+                ),
+            )
+            self.root.after(
+                0,
+                lambda: self.log_message(
+                    "💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO"
+                ),
+            )
 
         threading.Thread(target=lambda: check_in_thread(api_url_snapshot), daemon=True).start()
 
@@ -874,12 +896,20 @@ class StableNewGUI:
             # Refresh models, VAE, upscalers, and schedulers when connected
             def refresh_all():
                 try:
-                    self._refresh_models()
-                    self._refresh_vae_models()
-                    self._refresh_upscalers()
-                    self._refresh_schedulers()
-                except Exception as e:
-                    self.log_message(f"⚠️ Failed to refresh model lists: {e}", "WARNING")
+                    # Perform API calls in worker thread
+                    self._refresh_models_async()
+                    self._refresh_vae_models_async()
+                    self._refresh_upscalers_async()
+                    self._refresh_schedulers_async()
+                except Exception as exc:
+                    # Marshal error message back to main thread
+                    # Capture exception in default argument to avoid closure issues
+                    self.root.after(
+                        0,
+                        lambda err=exc: self.log_message(
+                            f"⚠️ Failed to refresh model lists: {err}", "WARNING"
+                        ),
+                    )
 
             # Run refresh in a separate thread to avoid blocking UI
             threading.Thread(target=refresh_all, daemon=True).start()
@@ -2801,7 +2831,7 @@ class StableNewGUI:
         messagebox.showerror("Error", "No image directories found")
 
     def _refresh_models(self):
-        """Refresh the list of available SD models"""
+        """Refresh the list of available SD models (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2822,8 +2852,39 @@ class StableNewGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh models: {e}")
 
+    def _refresh_models_async(self):
+        """Refresh the list of available SD models (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            models = self.client.get_models()
+            model_names = [""] + [
+                model.get("title", model.get("model_name", "")) for model in models
+            ]
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "model_combo"):
+                    self.model_combo["values"] = model_names
+                if hasattr(self, "img2img_model_combo"):
+                    self.img2img_model_combo["values"] = model_names
+                self._add_log_message(f"🔄 Loaded {len(models)} SD models")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror("Error", f"Failed to refresh models: {err}"),
+            )
+
     def _refresh_vae_models(self):
-        """Refresh the list of available VAE models"""
+        """Refresh the list of available VAE models (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2842,8 +2903,39 @@ class StableNewGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh VAE models: {e}")
 
+    def _refresh_vae_models_async(self):
+        """Refresh the list of available VAE models (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            vae_models = self.client.get_vae_models()
+            vae_names = [""] + [vae.get("model_name", "") for vae in vae_models]
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "vae_combo"):
+                    self.vae_combo["values"] = vae_names
+                if hasattr(self, "img2img_vae_combo"):
+                    self.img2img_vae_combo["values"] = vae_names
+                self._add_log_message(f"🔄 Loaded {len(vae_models)} VAE models")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror(
+                    "Error", f"Failed to refresh VAE models: {err}"
+                ),
+            )
+
     def _refresh_upscalers(self):
-        """Refresh the list of available upscalers"""
+        """Refresh the list of available upscalers (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2862,8 +2954,39 @@ class StableNewGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh upscalers: {e}")
 
+    def _refresh_upscalers_async(self):
+        """Refresh the list of available upscalers (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            upscalers = self.client.get_upscalers()
+            upscaler_names = [
+                upscaler.get("name", "") for upscaler in upscalers if upscaler.get("name")
+            ]
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "upscaler_combo"):
+                    self.upscaler_combo["values"] = upscaler_names
+                self._add_log_message(f"🔄 Loaded {len(upscalers)} upscalers")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror(
+                    "Error", f"Failed to refresh upscalers: {err}"
+                ),
+            )
+
     def _refresh_schedulers(self):
-        """Refresh the list of available schedulers"""
+        """Refresh the list of available schedulers (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2880,6 +3003,36 @@ class StableNewGUI:
             self._add_log_message(f"🔄 Loaded {len(schedulers)} schedulers")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh schedulers: {e}")
+
+    def _refresh_schedulers_async(self):
+        """Refresh the list of available schedulers (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            schedulers = self.client.get_schedulers()
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "scheduler_combo"):
+                    self.scheduler_combo["values"] = schedulers
+                if hasattr(self, "img2img_scheduler_combo"):
+                    self.img2img_scheduler_combo["values"] = schedulers
+                self._add_log_message(f"🔄 Loaded {len(schedulers)} schedulers")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror(
+                    "Error", f"Failed to refresh schedulers: {err}"
+                ),
+            )
 
     def _on_hires_toggle(self):
         """Handle hires.fix enable/disable toggle"""
@@ -2930,6 +3083,6 @@ class StableNewGUI:
 
         self.root.mainloop()
 
+
 # Backwards compatibility for tests expecting MainWindow
 MainWindow = StableNewGUI
-
