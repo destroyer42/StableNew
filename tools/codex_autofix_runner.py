@@ -136,7 +136,7 @@ def post_comment(*, repo: str, pr_number: int, body: str, token: str) -> None:
     response = requests.post(
         url,
         headers={
-            "Authorization": f"token {token}",
+            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         },
