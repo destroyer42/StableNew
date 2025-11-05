@@ -122,7 +122,9 @@ class SDWebUIClient:
 
         Args:
             max_retries: Maximum number of retry attempts
-            retry_delay: Base delay in seconds for exponential backoff
+            retry_delay: Base delay in seconds for exponential backoff.
+                Overrides the instance's backoff_factor for this call.
+                The actual delay for attempt N is: retry_delay * (2^N) + jitter.
 
         Returns:
             True if API is ready, False otherwise
@@ -476,23 +478,6 @@ class SDWebUIClient:
             return response.json()
         except ValueError as exc:
             logger.error(f"Failed to parse models response: {exc}")
-            return []
-
-    def get_samplers(self) -> list[dict[str, Any]]:
-        """
-        Get list of available samplers.
-
-        Returns:
-            List of available samplers
-        """
-        response = self._perform_request("get", "/sdapi/v1/samplers", timeout=10)
-        if response is None:
-            return []
-
-        try:
-            return response.json()
-        except ValueError as exc:
-            logger.error(f"Failed to parse samplers response: {exc}")
             return []
 
     def get_current_model(self) -> str | None:

@@ -1305,7 +1305,23 @@ class Pipeline:
                     "codeformer_weight": config.get("codeformer_weight", 0.5),
                 }
 
-                response = self.client.upscale_image(payload)
+                if hasattr(self.client, "upscale"):
+                    response = self.client.upscale(payload)
+                else:
+                    response = self.client.upscale_image(
+                        payload["image"],
+                        payload.get("upscaler_1", config.get("upscaler", "R-ESRGAN 4x+")),
+                        payload.get("upscaling_resize", config.get("upscaling_resize", 2.0)),
+                        gfpgan_visibility=payload.get(
+                            "gfpgan_visibility", config.get("gfpgan_visibility", 0.0)
+                        ),
+                        codeformer_visibility=payload.get(
+                            "codeformer_visibility", config.get("codeformer_visibility", 0.0)
+                        ),
+                        codeformer_weight=payload.get(
+                            "codeformer_weight", config.get("codeformer_weight", 0.5)
+                        ),
+                    )
                 response_key = "image"
                 image_key = None
 
