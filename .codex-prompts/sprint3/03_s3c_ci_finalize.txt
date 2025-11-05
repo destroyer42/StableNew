@@ -1,0 +1,1 @@
+Ensure .github/workflows/ci.yml runs ruff, black, mypy, pytest headless (Xvfb); require checks on PRs; validate via PR.

@@ -1,0 +1,1 @@
+Exponential backoff + jitter for API calls; configurable limits; tests for retry sequencing.

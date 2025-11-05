@@ -80,6 +80,9 @@ class StableNewGUI:
         self.loop_count_var = tk.StringVar(value="1")
         self.pack_mode_var = tk.StringVar(value="selected")
         self.images_per_prompt_var = tk.StringVar(value="1")
+        # Connection tuning (configurable)
+        self.api_discovery_max_retries = 3
+        self.api_discovery_retry_delay = 0.3  # seconds
 
         # Apply dark theme
         self._setup_dark_theme()
@@ -779,6 +782,14 @@ class StableNewGUI:
         if hasattr(self, "api_status_label"):
             self.api_status_label.config(text="⏳ Connecting...", foreground="#FF9800")
 
+        # Start spinner animation (on main thread)
+        try:
+            self._api_spinner_running = True
+            self._api_spinner_idx = 0
+            self.root.after(0, self._animate_api_spinner)
+        except Exception:
+            pass
+
         def check_in_thread(api_url: str):
             # Try the specified URL first
             self.root.after(0, lambda: self.log_message("🔍 Checking API connection...", "INFO"))
@@ -808,11 +819,11 @@ class StableNewGUI:
             discovered_url = None
             try:
                 import time
-                for _ in range(3):
+                for _ in range(getattr(self, 'api_discovery_max_retries', 3)):
                     discovered_url = find_webui_api_port()
                     if discovered_url:
                         break
-                    time.sleep(0.3)
+                    time.sleep(getattr(self, 'api_discovery_retry_delay', 0.3))
             except Exception:
                 discovered_url = None
 
@@ -2921,3 +2932,4 @@ class StableNewGUI:
 
 # Backwards compatibility for tests expecting MainWindow
 MainWindow = StableNewGUI
+
