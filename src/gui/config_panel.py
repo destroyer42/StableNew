@@ -831,8 +831,12 @@ class ConfigPanel(ttk.Frame):
             return
         try:
             widget["values"] = tuple(values)
-        except Exception:
-            pass
+        except (AttributeError, tk.TclError) as e:
+            logger.warning(
+                "Failed to set combobox values on widget %s: %s",
+                type(widget).__name__,
+                e,
+            )
 
     def set_model_options(self, models: Iterable[str]) -> None:
         """Update base model selections for txt2img/img2img."""
