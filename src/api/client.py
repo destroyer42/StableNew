@@ -122,7 +122,9 @@ class SDWebUIClient:
 
         Args:
             max_retries: Maximum number of retry attempts
-            retry_delay: Base delay in seconds for exponential backoff
+            retry_delay: Base delay in seconds for exponential backoff.
+                Overrides the instance's backoff_factor for this call.
+                The actual delay for attempt N is: retry_delay * (2^N) + jitter.
 
         Returns:
             True if API is ready, False otherwise
