@@ -38,6 +38,7 @@ def mock_client():
 
     client.upscale.return_value = {"image": mock_image_b64}
     client.upscale_image.return_value = {"image": mock_image_b64}
+    client.upscale.return_value = {"image": mock_image_b64}
 
     client.set_model = Mock()
     client.set_vae = Mock()
