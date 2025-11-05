@@ -1,0 +1,131 @@
+---
+name: name: gui_refactor_validation_agent.md
+description: trying to tighten up this test suite. Super confused on what the state of the program is. 
+---
+
+# My Agent
+
+My Agent
+Role: Senior Python/Tk engineer focused on validating the merged GUI revamp by refactoring main_window.py into testable components and fixing unvalidated behaviors.
+🧪 Sprint 5 – Test Suite Hardening (Headless GUI + Config Assertions)
+📋 Summary
+
+This PR converts legacy GUI and workflow “test” scripts into deterministic, headless pytest modules that can safely run in CI/CD environments.
+It removes modal dialogs, stdout prints, and non-assertive demo scripts, replacing them with clean, isolated, coverage-friendly test logic.
+
+🎯 Goals
+
+Convert GUI test scripts (test_gui_enhancements.py, test_advanced_features.py) into proper pytest modules under tests/gui/
+
+Replace narrative scripts (tests/test_gui_system.py, tests/test_complete_workflow.py) with assertion-based tests
+
+Modernize tests/gui/test_log_panel.py to verify log queue behavior and tag rendering
+
+Ensure full suite passes under:
+
+pre-commit run --all-files
+pytest --cov=src --cov-report=term-missing -q
+pytest -m gui -q
+
+✅ Changes in this PR
+1. GUI Test Refactors
+File	Action	Description
+test_gui_enhancements.py	🔄 Refactored	Converted blocking script to headless pytest test using tk_root, tk_pump, and monkeypatch for dialogs.
+test_advanced_features.py	🪓 Split	Broke into smaller tests for EnhancedSlider and AdvancedPromptEditor; added real assertions.
+tests/gui/conftest.py	➕ Added	Shared fixtures: tk_root (headless Tk) and tk_pump (bounded event loop).
+2. Log Panel Coverage
+File	Action	Description
+tests/gui/test_log_panel.py	🧹 Modernized	Uses fixtures and asserts text/tag correctness; adds regression test for threaded logs.
+3. Config & Workflow Assertions
+File	Action	Description
+tests/test_gui_system.py	🔁 Rewritten	CLI replaced with pytest coverage on ConfigManager + get_prompt_packs.
+tests/test_complete_workflow.py	🔁 Rewritten	Asserts config persistence, precedence, and pack save/load semantics.
+⚙️ Test Infrastructure
+
+New Fixtures (tests/gui/conftest.py):
+
+@pytest.fixture
+def tk_root():
+    import tkinter as tk
+    root = tk.Tk()
+    root.withdraw()
+    yield root
+    root.destroy()
+
+@pytest.fixture
+def tk_pump(tk_root):
+    import time
+    def _pump(ms=10, repeats=5):
+        for _ in range(repeats):
+            tk_root.update_idletasks()
+            tk_root.update()
+            time.sleep(ms / 1000.0)
+    return _pump
+
+
+Dialog stubs:
+
+def stub_dialogs(monkeypatch):
+    from tkinter import filedialog, messagebox
+    monkeypatch.setattr(messagebox, "showinfo", lambda *a, **k: None)
+    monkeypatch.setattr(filedialog, "askopenfilename", lambda *a, **k: "")
+
+🚧 Guardrails
+
+All GUI tests must run headless (no mainloop()).
+
+No print() in tests.
+
+No uncontrolled sleeps (use tk_pump or bounded waits).
+
+Use tmp_path for filesystem writes.
+
+Import via package paths only.
+
+Mark GUI tests with @pytest.mark.gui.
+
+🧩 Acceptance Criteria
+
+ GUI tests run without blocking or modal dialogs
+
+ No stdout printing in test files
+
+ All tests are pytest-discoverable (test_*.py)
+
+ Coverage report completes without hang
+
+ pre-commit hooks pass (flake8, black, isort, etc.)
+
+ pytest --cov=src --cov-report=term-missing -q passes cleanly
+
+ GUI subset passes via pytest -m gui -q
+
+🧱 Commit Guidelines
+
+Use atomic commits per scope:
+
+test(gui): refactor enhancements test to headless pytest
+test(gui): split advanced features into targeted cases
+test(log): modernize log panel test with assertions
+test(config): replace CLI script with pytest assertions
+test(workflow): assert config persistence and precedence
+test: add shared tk fixtures (tk_root, tk_pump)
+
+🪲 Risks / Notes
+
+Some latent GUI issues (e.g., EnhancedSlider.update_label) may surface; fix in separate commits if uncovered.
+
+Tk concurrency may need bounded event pump tuning for CI.
+
+Feature opportunities (to defer):
+
+WebUI launch toggle
+
+Log export/filter
+
+Prompt-pack tagging and deduplication
+
+🧮 Validation Commands
+pre-commit run --all-files
+pytest --cov=src --cov-report=term-missing -q
+pytest -q -m gui

@@ -80,16 +80,20 @@ class PipelineControlsPanel(ttk.Frame):
     It exposes a get_settings() method to retrieve current configuration.
     """
 
-    def __init__(self, parent: tk.Widget, **kwargs):
+    def __init__(
+        self, parent: tk.Widget, initial_state: dict[str, Any] | None = None, **kwargs
+    ):
         """
         Initialize the PipelineControlsPanel.
 
         Args:
             parent: Parent widget
+            initial_state: Optional dictionary used to pre-populate control values
             **kwargs: Additional frame options
         """
         super().__init__(parent, **kwargs)
         self.parent = parent
+        self._initial_state = initial_state or {}
 
         # Initialize control variables
         self._init_variables()
@@ -99,19 +103,23 @@ class PipelineControlsPanel(ttk.Frame):
 
     def _init_variables(self):
         """Initialize all control variables with defaults."""
+        state = self._initial_state
+
         # Stage toggles
-        self.txt2img_enabled = tk.BooleanVar(value=True)
-        self.img2img_enabled = tk.BooleanVar(value=True)
-        self.upscale_enabled = tk.BooleanVar(value=True)
-        self.video_enabled = tk.BooleanVar(value=False)
+        self.txt2img_enabled = tk.BooleanVar(value=bool(state.get("txt2img_enabled", True)))
+        self.img2img_enabled = tk.BooleanVar(value=bool(state.get("img2img_enabled", True)))
+        self.upscale_enabled = tk.BooleanVar(value=bool(state.get("upscale_enabled", True)))
+        self.video_enabled = tk.BooleanVar(value=bool(state.get("video_enabled", False)))
 
         # Loop configuration
-        self.loop_type_var = tk.StringVar(value="single")
-        self.loop_count_var = tk.StringVar(value="1")
+        self.loop_type_var = tk.StringVar(value=str(state.get("loop_type", "single")))
+        self.loop_count_var = tk.StringVar(value=str(state.get("loop_count", 1)))
 
         # Batch configuration
-        self.pack_mode_var = tk.StringVar(value="selected")
-        self.images_per_prompt_var = tk.StringVar(value="1")
+        self.pack_mode_var = tk.StringVar(value=str(state.get("pack_mode", "selected")))
+        self.images_per_prompt_var = tk.StringVar(
+            value=str(state.get("images_per_prompt", 1))
+        )
 
     def _build_ui(self):
         """Build the panel UI."""

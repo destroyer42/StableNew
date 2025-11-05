@@ -4,11 +4,10 @@
 import json
 import logging
 import re
-from pathlib import Path
-from typing import Dict, Any, Optional, List
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Optional
 
 from ..api import SDWebUIClient
 from ..utils import ConfigManager, StructuredLogger, load_image_to_base64, save_image_from_base64
@@ -30,6 +29,12 @@ class Pipeline:
         self.client = client
         self.logger = structured_logger
         self.config_manager = ConfigManager()  # For global negative prompt handling
+        self.progress_controller = None
+
+    def set_progress_controller(self, controller: Any | None) -> None:
+        """Attach a progress reporting controller."""
+
+        self.progress_controller = controller
 
     def run_upscale(
         self,
@@ -110,6 +115,21 @@ class Pipeline:
             "scheduler": "Automatic"
         }
 
+    @staticmethod
+    def _format_eta(seconds: float) -> str:
+        """Format remaining seconds into a human-friendly ETA string."""
+
+        if seconds <= 0:
+            return "ETA: 00:00"
+
+        total_seconds = int(round(seconds))
+        minutes, secs = divmod(total_seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+
+        if hours:
+            return f"ETA: {hours:d}h {minutes:02d}m {secs:02d}s"
+        return f"ETA: {minutes:02d}:{secs:02d}"
+
     def _extract_name_prefix(self, prompt: str) -> Optional[str]:
         """
         Extract name prefix from prompt if it contains 'name:' metadata.
@@ -182,8 +202,8 @@ class Pipeline:
             "prompt": prompt,
             "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 20),
-            "sampler_name": config.get("sampler_name", "Euler a"),
-            "scheduler": config.get("scheduler", "Normal"),
+            "sampler_name": sampler_config["sampler_name"],
+            "scheduler": sampler_config.get("scheduler", "Automatic"),
             "cfg_scale": config.get("cfg_scale", 7.0),
             "width": config.get("width", 512),
             "height": config.get("height", 512),
@@ -689,11 +709,45 @@ class Pipeline:
             "summary": [],
         }
 
+        progress_controller = self.progress_controller
+        total_units = 1
+        completed_units = 0
+        start_time = time.monotonic()
+
+        def compute_eta(units_done: float) -> str:
+            if units_done <= 0:
+                return "ETA: --"
+            elapsed = time.monotonic() - start_time
+            if elapsed <= 0:
+                return "ETA: --"
+            remaining_units = max(total_units - units_done, 0)
+            if remaining_units <= 0:
+                return "ETA: 00:00"
+            avg_per_unit = elapsed / units_done
+            if avg_per_unit <= 0:
+                return "ETA: --"
+            return self._format_eta(avg_per_unit * remaining_units)
+
+        def emit(stage_label: str, units_override: float | None = None) -> None:
+            if progress_controller is None:
+                return
+            units_done = completed_units if units_override is None else units_override
+            percent = 0.0
+            if total_units > 0:
+                percent = max(0.0, min(100.0, (units_done / total_units) * 100.0))
+            eta_text = compute_eta(units_done)
+            progress_controller.report_progress(stage_label, percent, eta_text)
+
+        emit("txt2img", completed_units)
+
         # Step 1: txt2img
         txt2img_results = self.run_txt2img(
             prompt, config.get("txt2img", {}), run_dir, batch_size, cancel_token
         )
         results["txt2img"] = txt2img_results
+
+        completed_units += 1
+        emit("txt2img", completed_units)
 
         # Check for cancellation after txt2img
         if cancel_token and cancel_token.is_cancelled():
@@ -704,18 +758,25 @@ class Pipeline:
             logger.error("Pipeline failed at txt2img stage")
             return results
 
+        total_images = len(txt2img_results)
+        per_image_units = int(bool(img2img_enabled)) + int(bool(upscale_enabled))
+        if per_image_units and total_images:
+            total_units = 1 + total_images * per_image_units
+        else:
+            total_units = max(total_units, 1)
+
         # Step 2: img2img cleanup (optional, for each generated image)
-        for txt2img_meta in txt2img_results:
-            # Check for cancellation before each img2img
+        for index, txt2img_meta in enumerate(txt2img_results, start=1):
             if cancel_token and cancel_token.is_cancelled():
                 logger.info("Pipeline cancelled during img2img loop")
                 break
 
-            # The latest image path starts with the txt2img output
             last_image_path = txt2img_meta["path"]
             final_image_path = last_image_path
+            image_label = f"{index}/{total_images}" if total_images else str(index)
 
             if img2img_enabled:
+                emit(f"img2img ({image_label})", completed_units)
                 img2img_meta = self.run_img2img(
                     Path(txt2img_meta["path"]),
                     prompt,
@@ -725,22 +786,23 @@ class Pipeline:
                 )
                 if img2img_meta:
                     results["img2img"].append(img2img_meta)
-                    last_image_path = img2img_meta["path"]  # Update path to img2img output
+                    last_image_path = img2img_meta["path"]
                     logger.info(f"✓ img2img completed for {txt2img_meta['name']}")
                 else:
                     logger.warning(
                         f"img2img failed for {txt2img_meta['name']}, using txt2img output for next steps"
                     )
+                completed_units += 1
+                emit(f"img2img ({image_label})", completed_units)
             else:
                 logger.info(f"⊘ img2img skipped for {txt2img_meta['name']}")
 
-            # Check for cancellation before upscale
             if cancel_token and cancel_token.is_cancelled():
                 logger.info("Pipeline cancelled before upscale")
                 break
 
-            # Step 3: Upscale (optional)
             if upscale_enabled:
+                emit(f"upscale ({image_label})", completed_units)
                 upscaled_meta = self.run_upscale(
                     Path(last_image_path), config.get("upscale", {}), run_dir, cancel_token
                 )
@@ -753,11 +815,12 @@ class Pipeline:
                         f"upscale failed for {Path(last_image_path).name}, using previous output"
                     )
                     final_image_path = last_image_path
+                completed_units += 1
+                emit(f"upscale ({image_label})", completed_units)
             else:
                 logger.info(f"⊘ upscale skipped for {Path(last_image_path).name}")
                 final_image_path = last_image_path
 
-            # Add to summary
             summary_entry = {
                 "prompt": prompt,
                 "txt2img_path": txt2img_meta["path"],
@@ -766,17 +829,19 @@ class Pipeline:
                 "stages_completed": ["txt2img"],
             }
 
-            # Add img2img path if stage was executed and successful
             if img2img_enabled and len(results["img2img"]) > 0:
                 summary_entry["img2img_path"] = results["img2img"][-1]["path"]
                 summary_entry["stages_completed"].append("img2img")
 
-            # Add upscale path if stage was executed and successful
             if upscale_enabled and len(results["upscaled"]) > 0:
                 summary_entry["upscaled_path"] = results["upscaled"][-1]["path"]
                 summary_entry["stages_completed"].append("upscale")
 
             results["summary"].append(summary_entry)
+
+        if progress_controller and (not cancel_token or not cancel_token.is_cancelled()):
+            completed_units = max(completed_units, total_units)
+            emit("Completed", completed_units)
 
         # Create CSV summary
         if results["summary"]:
@@ -958,6 +1023,9 @@ class Pipeline:
             if txt2img_config.get("vae"):
                 self.client.set_vae(txt2img_config["vae"])
 
+            # Parse sampler configuration for this stage
+            sampler_config = self._parse_sampler_config(txt2img_config)
+
             # Log configuration validation
             logger.debug(f"📝 Input txt2img config: {json.dumps(txt2img_config, indent=2)}")
 
@@ -965,8 +1033,8 @@ class Pipeline:
                 "prompt": prompt,
                 "negative_prompt": enhanced_negative,
                 "steps": txt2img_config.get("steps", 20),
-                "sampler_name": txt2img_config.get("sampler_name", "Euler a"),
-                "scheduler": txt2img_config.get("scheduler", "normal"),
+                "sampler_name": sampler_config["sampler_name"],
+                "scheduler": sampler_config.get("scheduler", "Automatic"),
                 "cfg_scale": txt2img_config.get("cfg_scale", 7.0),
                 "width": txt2img_config.get("width", 512),
                 "height": txt2img_config.get("height", 512),
@@ -1237,7 +1305,23 @@ class Pipeline:
                     "codeformer_weight": config.get("codeformer_weight", 0.5),
                 }
 
-                response = self.client.upscale(payload)
+                if hasattr(self.client, "upscale"):
+                    response = self.client.upscale(payload)
+                else:
+                    response = self.client.upscale_image(
+                        payload["image"],
+                        payload.get("upscaler_1", config.get("upscaler", "R-ESRGAN 4x+")),
+                        payload.get("upscaling_resize", config.get("upscaling_resize", 2.0)),
+                        gfpgan_visibility=payload.get(
+                            "gfpgan_visibility", config.get("gfpgan_visibility", 0.0)
+                        ),
+                        codeformer_visibility=payload.get(
+                            "codeformer_visibility", config.get("codeformer_visibility", 0.0)
+                        ),
+                        codeformer_weight=payload.get(
+                            "codeformer_weight", config.get("codeformer_weight", 0.5)
+                        ),
+                    )
                 response_key = "image"
                 image_key = None
 

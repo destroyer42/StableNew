@@ -15,7 +15,41 @@ Everything is designed to be **reproducible, inspectable, and testable** — no 
 
 ---
 
-### Core Intent
+## Table of Contents
+
+- [Overview](#overview)
+- [Core Intent](#core-intent)
+- [Features](#features)
+  - [Core Pipeline](#core-pipeline)
+  - [User Interface](#user-interface)
+  - [Enhanced Configuration Features](#enhanced-configuration-features)
+  - [Technical Features](#technical-features)
+  - [Content Creation](#content-creation)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Desktop Launcher (Recommended)](#desktop-launcher-recommended)
+  - [GUI Mode](#gui-mode)
+  - [Pipeline Control](#pipeline-control)
+  - [CLI Mode](#cli-mode)
+  - [Demo Assets](#demo-assets)
+- [Project Structure](#project-structure)
+- [Documentation](#documentation)
+- [External File dependencies](#external-file-dependencies)
+- [Example Prompt Pack format](#example-prompt-pack-format)
+- [Recommended Prompt Pack Format](#recommended-prompt-pack-format)
+- [Testing](#testing)
+- [License](#license)
+- [Technical Highlights](#technical-highlights)
+- [Why It Exists](#why-it-exists)
+- [Future Extensions](#future-extensions)
+- [Developer Notes](#developer-notes)
+- [Example One-Click Flow](#example-one-click-flow)
+- [Mission Statement](#mission-statement)
+
+---
+
+## Core Intent
 
 To build a modular, testable system that transforms written prompts into cinematic video clips using Stable Diffusion, with full transparency of inputs, parameters, and outputs.
 
@@ -32,9 +66,6 @@ The architecture emphasizes:
 ## Features
 
 ### Core Pipeline
-```
-
-### Core Pipeline
 
 - **Automated Workflow**: txt2img → img2img cleanup → upscale → video creation
 - **Flexible Stage Control**: Skip img2img or upscale stages as needed via configuration
@@ -42,9 +73,9 @@ The architecture emphasizes:
 - **Advanced Integrations**: Embeddings, LORAs, and custom model support
 - **Global NSFW Prevention**: Automatic negative prompt enhancement for all generations
 
-**Pipeline Configuration:**
+**Pipeline Configuration**
 
-You can control which pipeline stages run by setting flags in your configuration:
+Control pipeline stages by setting flags in your configuration:
 
 ```json
 {
@@ -55,7 +86,7 @@ You can control which pipeline stages run by setting flags in your configuration
 }
 ```
 
-**Stage Combinations:**
+**Stage Combinations**
 - `txt2img → img2img → upscale` (all stages, default)
 - `txt2img → upscale` (skip img2img for faster results)
 - `txt2img → img2img` (skip upscale to save time)
@@ -180,6 +211,18 @@ The GUI provides full control over pipeline execution with responsive feedback:
 ```bash
 python -m src.cli --prompt "your prompt here" --preset default
 ```
+
+### Demo Assets
+
+Reusable walkthroughs for the GUI are cataloged in [`docs/assets/core_flows/`](docs/assets/core_flows/README.md). The actual compressed media lives on the team’s shared asset drive (`/docs/media/core_flows/` on SharePoint) so that binaries stay out of the repository.
+
+To embed the demos in documentation or release notes:
+
+1. Download the required asset (for example, `txt2img_pipeline.webp`) from the shared drive.
+2. Copy it alongside the published documentation (documentation portal, release bundle, etc.).
+3. Reference it in Markdown with a relative link such as `![Pipeline walkthrough](docs/assets/core_flows/txt2img_pipeline.webp)`.
+
+Keep each capture under 2 MB and prefer `.webp`/`.gif` formats for high-quality, low-size walkthroughs.
 
 ## Project Structure
 
