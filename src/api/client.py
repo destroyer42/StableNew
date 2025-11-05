@@ -478,23 +478,6 @@ class SDWebUIClient:
             logger.error(f"Failed to parse models response: {exc}")
             return []
 
-    def get_samplers(self) -> list[dict[str, Any]]:
-        """
-        Get list of available samplers.
-
-        Returns:
-            List of available samplers
-        """
-        response = self._perform_request("get", "/sdapi/v1/samplers", timeout=10)
-        if response is None:
-            return []
-
-        try:
-            return response.json()
-        except ValueError as exc:
-            logger.error(f"Failed to parse samplers response: {exc}")
-            return []
-
     def get_current_model(self) -> str | None:
         """
         Get the currently loaded model.
