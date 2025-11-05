@@ -124,5 +124,39 @@ def test_parse_args_skip_tests_flag():
     assert args.skip_tests is True
 
 
+def test_run_command_validates_dangerous_chars():
+    """Test that run_command rejects commands with dangerous characters."""
+    sys.modules["openai"] = MagicMock()
+    
+    from codex_autofix_runner import run_command
+    
+    # Test newline rejection
+    with pytest.raises(ValueError, match="dangerous characters"):
+        run_command("pytest\necho malicious")
+    
+    # Test backtick rejection
+    with pytest.raises(ValueError, match="dangerous characters"):
+        run_command("pytest `whoami`")
+    
+    # Test command substitution rejection
+    with pytest.raises(ValueError, match="dangerous characters"):
+        run_command("pytest $(whoami)")
+
+
+def test_run_command_allows_safe_commands():
+    """Test that run_command allows legitimate test commands."""
+    sys.modules["openai"] = MagicMock()
+    
+    from codex_autofix_runner import run_command
+    
+    # These should not raise
+    result = run_command("echo test")
+    assert result.returncode == 0
+    
+    result = run_command("pytest --maxfail=1 -q")
+    # May fail if pytest not installed, but shouldn't raise ValueError
+    assert result.command == "pytest --maxfail=1 -q"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

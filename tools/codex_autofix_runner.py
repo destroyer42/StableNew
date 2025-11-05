@@ -47,6 +47,26 @@ class CommandResult:
 
 
 def run_command(command: str, *, env: Optional[dict[str, str]] = None) -> CommandResult:
+    """Run a shell command and capture output.
+    
+    Args:
+        command: Shell command to execute. Should be from trusted source only.
+        env: Optional environment variables to add
+        
+    Returns:
+        CommandResult with command output and exit code
+        
+    Security Note:
+        Uses shell=True to support composite commands (e.g., "pytest -x").
+        Command should only come from trusted workflow inputs, never from PR content.
+        Basic validation prevents obvious injection attempts.
+    """
+    # Basic validation to prevent obvious injection attempts
+    # Note: This is defense-in-depth; primary security is permission gating
+    dangerous_chars = ["\n", "\r", "`", "$("]
+    if any(char in command for char in dangerous_chars):
+        raise ValueError(f"Command contains potentially dangerous characters: {command}")
+    
     process = subprocess.run(  # noqa: S603,S607 - intentional shell invocation for composite commands
         command,
         shell=True,
