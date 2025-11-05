@@ -84,6 +84,10 @@ class StableNewGUI:
         self.api_discovery_max_retries = 3
         self.api_discovery_retry_delay = 0.3  # seconds
 
+        # Status bar defaults
+        self._progress_eta_default = "ETA: --"
+        self._progress_idle_message = "Ready for next run"
+
         # Apply dark theme
         self._setup_dark_theme()
 
@@ -728,8 +732,19 @@ class StableNewGUI:
         )
         self.state_label.pack(side=tk.LEFT, padx=5)
 
+        # Progress bar
+        self.progress_bar = ttk.Progressbar(status_frame, mode="determinate")
+        self.progress_bar.config(maximum=100, value=0)
+        self.progress_bar.pack(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
+
+        # ETA indicator
+        self.eta_var = tk.StringVar(value=self._progress_eta_default)
+        ttk.Label(status_frame, textvariable=self.eta_var, style="Dark.TLabel").pack(
+            side=tk.LEFT, padx=5
+        )
+
         # Progress message
-        self.progress_message_var = tk.StringVar(value="Ready")
+        self.progress_message_var = tk.StringVar(value=self._progress_idle_message)
         ttk.Label(status_frame, textvariable=self.progress_message_var, style="Dark.TLabel").pack(
             side=tk.LEFT, padx=10
         )
@@ -738,6 +753,40 @@ class StableNewGUI:
         ttk.Label(status_frame, text="", style="Dark.TLabel").pack(
             side=tk.LEFT, fill=tk.X, expand=True
         )
+
+        self._apply_progress_reset()
+
+    def _apply_progress_reset(self, message: str | None = None) -> None:
+        """Reset progress UI elements synchronously."""
+        if hasattr(self, "progress_bar"):
+            self.progress_bar.config(value=0)
+        if hasattr(self, "eta_var"):
+            self.eta_var.set(self._progress_eta_default)
+        if hasattr(self, "progress_message_var"):
+            self.progress_message_var.set(message or self._progress_idle_message)
+
+    def _reset_progress_ui(self, message: str | None = None) -> None:
+        """Thread-safe reset for the progress UI."""
+        self.root.after(0, lambda: self._apply_progress_reset(message))
+
+    def _apply_progress_update(self, stage: str, percent: float, eta: str | None) -> None:
+        """Apply progress updates to the UI synchronously."""
+        clamped_percent = max(0.0, min(100.0, float(percent) if percent is not None else 0.0))
+        if hasattr(self, "progress_bar"):
+            self.progress_bar.config(value=clamped_percent)
+
+        if hasattr(self, "progress_message_var"):
+            stage_text = stage.strip() if stage else "Progress"
+            self.progress_message_var.set(f"{stage_text} ({clamped_percent:.0f}%)")
+
+        if hasattr(self, "eta_var"):
+            self.eta_var.set(
+                f"ETA: {eta}" if eta else self._progress_eta_default
+            )
+
+    def _update_progress(self, stage: str, percent: float, eta: str | None = None) -> None:
+        """Schedule a progress UI update from worker threads."""
+        self.root.after(0, lambda: self._apply_progress_update(stage, percent, eta))
 
     def _setup_state_callbacks(self):
         """Setup callbacks for state transitions"""
@@ -757,7 +806,10 @@ class StableNewGUI:
             # Update button states
             if new_state == GUIState.RUNNING:
                 self.run_pipeline_btn.config(state=tk.DISABLED)
-            elif new_state in (GUIState.IDLE, GUIState.ERROR):
+            elif new_state == GUIState.IDLE:
+                self._reset_progress_ui()
+                self.run_pipeline_btn.config(state=tk.NORMAL if self.api_connected else tk.DISABLED)
+            elif new_state == GUIState.ERROR:
                 self.run_pipeline_btn.config(state=tk.NORMAL if self.api_connected else tk.DISABLED)
 
         self.state_manager.on_transition(on_state_change)
@@ -2725,7 +2777,7 @@ class StableNewGUI:
         batch_size = self.batch_size_var.get()
         run_name = self.run_name_var.get() or None
 
-        self.progress_message_var.set("Running pipeline...")
+        self._apply_progress_reset("Running pipeline...")
 
         # Define pipeline function that checks cancel token
         def pipeline_func():
