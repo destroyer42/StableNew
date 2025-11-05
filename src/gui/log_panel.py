@@ -160,8 +160,16 @@ class LogPanel(ttk.Frame):
         self.log_records.append((message, normalized_level))
 
         if len(self.log_records) > self.max_log_lines:
+            # Only trim and refresh when the log first exceeds the limit
             self.log_records = self.log_records[-self.max_log_lines :]
             self._refresh_display()
+            return
+        elif len(self.log_records) == self.max_log_lines:
+            # Already at limit, pop oldest and insert efficiently
+            self.log_records.pop(0)
+            self.log_records.append((message, normalized_level))
+            if self._should_display(normalized_level):
+                self._insert_message(message, normalized_level)
             return
 
         if self._should_display(normalized_level):
