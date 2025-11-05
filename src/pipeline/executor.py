@@ -764,7 +764,6 @@ class Pipeline:
             total_units = 1 + total_images * per_image_units
         else:
             total_units = max(total_units, 1)
-        emit("txt2img", completed_units)
 
         # Step 2: img2img cleanup (optional, for each generated image)
         for index, txt2img_meta in enumerate(txt2img_results, start=1):
