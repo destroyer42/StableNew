@@ -126,10 +126,14 @@ def request_codex_suggestion(prompt: str, *, api_key: str) -> str:
         max_output_tokens=1200,
     )
 
-    # Parse response using OpenAI chat completion API format
+    # Parse response using Responses API format
     try:
-        return response.choices[0].message.content.strip()
-    except (AttributeError, IndexError) as exc:
+        # Responses API uses 'output' or 'output_text', not 'choices'
+        output = getattr(response, 'output', None) or getattr(response, 'output_text', None)
+        if not output:
+            raise AttributeError("Response missing both 'output' and 'output_text' attributes")
+        return output.strip()
+    except AttributeError as exc:
         raise RuntimeError("Codex response did not contain any text output") from exc
 def post_comment(*, repo: str, pr_number: int, body: str, token: str) -> None:
     url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
