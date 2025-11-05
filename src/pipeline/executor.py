@@ -182,8 +182,8 @@ class Pipeline:
             "prompt": prompt,
             "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 20),
-            "sampler_name": config.get("sampler_name", "Euler a"),
-            "scheduler": config.get("scheduler", "Normal"),
+            "sampler_name": sampler_config["sampler_name"],
+            "scheduler": sampler_config.get("scheduler", "Automatic"),
             "cfg_scale": config.get("cfg_scale", 7.0),
             "width": config.get("width", 512),
             "height": config.get("height", 512),
@@ -958,6 +958,9 @@ class Pipeline:
             if txt2img_config.get("vae"):
                 self.client.set_vae(txt2img_config["vae"])
 
+            # Parse sampler configuration for this stage
+            sampler_config = self._parse_sampler_config(txt2img_config)
+
             # Log configuration validation
             logger.debug(f"📝 Input txt2img config: {json.dumps(txt2img_config, indent=2)}")
 
@@ -965,8 +968,8 @@ class Pipeline:
                 "prompt": prompt,
                 "negative_prompt": enhanced_negative,
                 "steps": txt2img_config.get("steps", 20),
-                "sampler_name": txt2img_config.get("sampler_name", "Euler a"),
-                "scheduler": txt2img_config.get("scheduler", "normal"),
+                "sampler_name": sampler_config["sampler_name"],
+                "scheduler": sampler_config.get("scheduler", "Automatic"),
                 "cfg_scale": txt2img_config.get("cfg_scale", 7.0),
                 "width": txt2img_config.get("width", 512),
                 "height": txt2img_config.get("height", 512),
