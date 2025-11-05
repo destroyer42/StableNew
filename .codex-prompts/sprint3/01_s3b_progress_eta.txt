@@ -1,1 +1,0 @@
-Implement S3-B progress bar + ETA using ttk.Progressbar and controller callbacks; add tests under tests/gui/test_progress_eta.py; run pytest -k progress -q.
