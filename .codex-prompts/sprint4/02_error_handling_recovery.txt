@@ -1,0 +1,1 @@
+Graceful error handling with messagebox + logs; retry/abort flow; tests simulate failures.

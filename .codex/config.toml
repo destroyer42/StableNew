@@ -1,0 +1,22 @@
+# ~/.codex/config.toml
+
+[profiles.stablenew]
+model = "gpt-5-codex"
+working_dir = "C:/Users/rober/projects/StableNew"
+memory = { agents_md = true }
+
+# Approvals: what Codex may do without asking
+[profiles.stablenew.approvals]
+git  = "allow"   # create branches, commits, apply diffs
+shell = "allow"    # change to "allow" if you want scripts to run without prompts
+pip  = "ask"
+npm  = "ask"
+
+# Write sandbox: where Codex can edit files freely
+[profiles.stablenew.sandbox]
+write_allow = [
+  "src/**", "tests/**", "utils/**", "presets/**",
+  ".github/**", "README.md", "AGENTS.md",
+  "pyproject.toml", "requirements*.txt"
+]
+write_deny = ["venv/**", ".venv/**", "node_modules/**", "**/*.png", "**/*.jpg"]
