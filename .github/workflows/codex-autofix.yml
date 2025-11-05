@@ -36,7 +36,7 @@ jobs:
           script: |
             const prNumber = context.eventName === 'issue_comment'
               ? context.payload.issue.number
-              : parseInt(core.getInput('pr_number'));
+              : parseInt('${{ inputs.pr_number }}');
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
