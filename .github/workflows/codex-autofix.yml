@@ -1,0 +1,112 @@
+name: Codex AutoFix
+
+on:
+  issue_comment:
+    types:
+      - created
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to analyze"
+        required: true
+      test_command:
+        description: "Command Codex should attempt to fix"
+        required: false
+        default: "pytest --maxfail=1 -q"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  run:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '/codex-autofix'))
+    runs-on: ubuntu-latest
+    env:
+      CODEX_AUTOFIX_COMMAND: ${{ inputs.test_command || 'pytest --maxfail=1 -q' }}
+    steps:
+      - name: Check commenter permissions
+        if: github.event_name == 'issue_comment'
+        id: permission
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: permissionLevel } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.actor,
+            });
+            const hasPermission = ['write', 'admin', 'maintain'].includes(permissionLevel.permission);
+            if (!hasPermission) {
+              core.setFailed(`User ${context.actor} does not have write access. Only repository collaborators with write access can trigger Codex AutoFix.`);
+              return;
+            }
+            core.info(`User ${context.actor} has ${permissionLevel.permission} permission`);
+      - name: Determine pull request metadata
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.eventName === 'issue_comment'
+              ? context.payload.issue.number
+              : parseInt('${{ inputs.pr_number }}');
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            core.setOutput('number', prNumber);
+            core.setOutput('head_ref', pr.head.ref);
+            core.setOutput('head_repo', pr.head.repo.full_name);
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('base_ref', pr.base.ref);
+            core.setOutput('base_sha', pr.base.sha);
+      - name: Checkout base branch (trusted code)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.pr.outputs.base_ref }}
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install trusted dependencies only
+        run: |
+          python -m pip install --upgrade pip
+          pip install openai requests
+          # Install dependencies from BASE branch only (trusted code)
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      - name: Fetch PR changes for analysis (read-only)
+        run: |
+          # Fetch the PR head for diff analysis without checking it out
+          git fetch origin pull/${{ steps.pr.outputs.number }}/head:pr-${{ steps.pr.outputs.number }}
+          # Create a diff for analysis
+          git diff ${{ steps.pr.outputs.base_sha }}..${{ steps.pr.outputs.head_sha }} > /tmp/pr.diff || true
+      - name: Verify base branch checkout (security check)
+        run: |
+          # Ensure we're on the base branch (trusted code), not PR head
+          CURRENT_SHA=$(git rev-parse HEAD)
+          if [ "$CURRENT_SHA" != "${{ steps.pr.outputs.base_sha }}" ]; then
+            echo "ERROR: Not on base branch! Current: $CURRENT_SHA, Expected: ${{ steps.pr.outputs.base_sha }}"
+            exit 1
+          fi
+          echo "Verified: Running on base branch (trusted code)"
+      - name: Run Codex AutoFix with trusted code
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # SECURITY: This executes tools/codex_autofix_runner.py from the BASE branch (trusted),
+          # NOT from the PR. The PR changes are analyzed via the diff file only.
+          # codeql[actions/untrusted-checkout-toctou]: False positive - we checkout and execute base branch only
+          python tools/codex_autofix_runner.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ steps.pr.outputs.number }}" \
+            --head-sha "${{ steps.pr.outputs.head_sha }}" \
+            --base-sha "${{ steps.pr.outputs.base_sha }}" \
+            --pr-diff "/tmp/pr.diff" \
+            --command "$CODEX_AUTOFIX_COMMAND"

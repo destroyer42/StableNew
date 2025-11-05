@@ -1,0 +1,1 @@
+Status/Log panel improvements: level colors, scroll-lock, copy; tests for toggles.

@@ -1,0 +1,1 @@
+Audit Sprint 3: run pre-commit and pytest; summarize failures; map to S3 items; propose minimal PR plan.
