@@ -1,6 +1,4 @@
-"""
-Tests for LogPanel component.
-"""
+"""Tests for LogPanel component."""
 
 import logging
 import time
@@ -24,8 +22,11 @@ class TestLogPanel:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.root = tk.Tk()
-        self.root.withdraw()
+        try:
+            self.root = tk.Tk()
+            self.root.withdraw()
+        except tk.TclError:
+            pytest.skip("Tk/Tcl unavailable in this environment")
 
     def teardown_method(self):
         """Clean up after tests."""
@@ -213,6 +214,57 @@ class TestLogPanel:
         # Widget line count includes implicit empty line at end
         widget_lines = int(panel.log_text.index("end-1c").split(".")[0])
         assert widget_lines == 51  # 50 lines + 1 implicit empty line
+    def test_log_level_tags_are_created(self):
+        """Log messages should be tagged for colorization by level."""
+        panel = LogPanel(self.root)
+
+        panel.log("Color test info", "INFO")
+        panel.log("Color test warn", "WARNING")
+        panel.log("Color test error", "ERROR")
+
+        self.root.update()
+
+        assert panel.log_text.tag_ranges("INFO"), "INFO tag should have ranges"
+        assert panel.log_text.tag_ranges("WARNING"), "WARNING tag should have ranges"
+        assert panel.log_text.tag_ranges("ERROR"), "ERROR tag should have ranges"
+
+    def test_copy_to_clipboard_includes_visible_log(self):
+        """Copy to clipboard should include the visible log content."""
+        panel = LogPanel(self.root)
+
+        panel.log("Clipboard test", "INFO")
+        self.root.update()
+
+        panel.copy_log_to_clipboard()
+
+        clipboard_text = panel.clipboard_get()
+        assert "Clipboard test" in clipboard_text
+
+    def test_filter_toggle_updates_display(self):
+        """Turning off a level filter should hide matching messages."""
+        panel = LogPanel(self.root)
+
+        panel.log("Info toggle", "INFO")
+        panel.log("Error toggle", "ERROR")
+
+        for _ in range(2):
+            self.root.update()
+            time.sleep(0.01)
+
+        panel.level_filter_vars["INFO"].set(False)
+        panel._on_filter_change()
+        self.root.update()
+
+        content = panel.log_text.get("1.0", "end-1c")
+        assert "Info toggle" not in content
+        assert "Error toggle" in content
+
+        panel.level_filter_vars["INFO"].set(True)
+        panel._on_filter_change()
+        self.root.update()
+
+        content = panel.log_text.get("1.0", "end-1c")
+        assert "Info toggle" in content
 
 
 class TestTkinterLogHandler:
@@ -220,8 +272,11 @@ class TestTkinterLogHandler:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.root = tk.Tk()
-        self.root.withdraw()
+        try:
+            self.root = tk.Tk()
+            self.root.withdraw()
+        except tk.TclError:
+            pytest.skip("Tk/Tcl unavailable in this environment")
 
     def teardown_method(self):
         """Clean up after tests."""

@@ -12,7 +12,7 @@ from typing import Any
 
 from ..api import SDWebUIClient
 from ..pipeline import Pipeline, VideoCreator
-from ..utils import ConfigManager, StructuredLogger, setup_logging
+from ..utils import ConfigManager, PreferencesManager, StructuredLogger, setup_logging
 from ..utils.file_io import read_prompt_pack
 from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
 from .advanced_prompt_editor import AdvancedPromptEditor
@@ -24,6 +24,7 @@ from .log_panel import LogPanel, TkinterLogHandler
 from .pipeline_controls_panel import PipelineControlsPanel
 from .prompt_pack_list_manager import PromptPackListManager
 from .prompt_pack_panel import PromptPackPanel
+from .self_test_runner import SelfTestRunner
 from .state import GUIState, StateManager
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,10 @@ class StableNewGUI:
 
         # Initialize components
         self.config_manager = ConfigManager()
+        self.preferences_manager = PreferencesManager()
+        self.preferences = self.preferences_manager.load_preferences(
+            self.config_manager.get_default_config()
+        )
         self.structured_logger = StructuredLogger()
         self.client = None
         self.pipeline = None
@@ -62,26 +67,46 @@ class StableNewGUI:
         self.pack_list_manager = PromptPackListManager()
 
         # GUI state
-        self.selected_packs = []
+        config_preferences = self.preferences.get("config", {})
+        api_preferences = config_preferences.get("api", {})
+        pipeline_preferences = self.preferences.get("pipeline_controls", {})
+
+        self.selected_packs = list(self.preferences.get("selected_packs", []))
         self.current_config = None
         self.api_connected = False
         self._last_selected_pack = None
-        self.current_preset = "default"
+        self.current_preset = self.preferences.get("preset", "default")
         self._refreshing_config = False  # Flag to prevent recursive refreshes
 
         # Initialize GUI variables early
-        self.api_url_var = tk.StringVar(value="http://127.0.0.1:7860")
-        self.preset_var = tk.StringVar(value="default")
+        self.api_url_var = tk.StringVar(
+            value=api_preferences.get("base_url", "http://127.0.0.1:7860")
+        )
+        self.preset_var = tk.StringVar(value=self.current_preset)
 
         # Initialize other GUI variables that are used before UI building
-        self.txt2img_enabled = tk.BooleanVar(value=True)
-        self.img2img_enabled = tk.BooleanVar(value=True)
-        self.upscale_enabled = tk.BooleanVar(value=True)
-        self.video_enabled = tk.BooleanVar(value=False)
-        self.loop_type_var = tk.StringVar(value="single")
-        self.loop_count_var = tk.StringVar(value="1")
-        self.pack_mode_var = tk.StringVar(value="selected")
-        self.images_per_prompt_var = tk.StringVar(value="1")
+        self.txt2img_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("txt2img_enabled", True)
+        )
+        self.img2img_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("img2img_enabled", True)
+        )
+        self.upscale_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("upscale_enabled", True)
+        )
+        self.video_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("video_enabled", False)
+        )
+        self.loop_type_var = tk.StringVar(value=pipeline_preferences.get("loop_type", "single"))
+        self.loop_count_var = tk.StringVar(
+            value=str(pipeline_preferences.get("loop_count", 1))
+        )
+        self.pack_mode_var = tk.StringVar(
+            value=pipeline_preferences.get("pack_mode", "selected")
+        )
+        self.images_per_prompt_var = tk.StringVar(
+            value=str(pipeline_preferences.get("images_per_prompt", 1))
+        )
         # Connection tuning (configurable)
         self.api_discovery_max_retries = 3
         self.api_discovery_retry_delay = 0.3  # seconds
@@ -98,8 +123,18 @@ class StableNewGUI:
         # Build UI
         self._build_ui()
 
+        # Apply saved preferences after UI construction
+        self.root.after(0, self._apply_saved_preferences)
+
         # Setup logging redirect
         setup_logging("INFO")
+
+        # Initialize self-test runner after UI widgets are ready
+        self.self_test_runner = SelfTestRunner(
+            self.root,
+            on_log=lambda message: self.log_message(message, "INFO"),
+            on_state_change=self._on_self_test_state_change,
+        )
 
     def _setup_dark_theme(self):
         """Setup dark theme for the application"""
@@ -400,8 +435,13 @@ class StableNewGUI:
         # Destroy old panel if present
         if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
             self.pipeline_controls_panel.destroy()
+        # Determine initial state for the new panel
+        initial_state = prev_state if prev_state is not None else self.preferences.get("pipeline_controls")
+
         # Create the PipelineControlsPanel component
-        self.pipeline_controls_panel = PipelineControlsPanel(parent, style="Dark.TFrame")
+        self.pipeline_controls_panel = PipelineControlsPanel(
+            parent, initial_state=initial_state, style="Dark.TFrame"
+        )
         self.pipeline_controls_panel.pack(fill=tk.BOTH, expand=True)
         # Restore previous state if available
         if prev_state:
@@ -682,6 +722,14 @@ class StableNewGUI:
         util_buttons = ttk.Frame(actions_frame, style="Dark.TFrame")
         util_buttons.pack(side=tk.RIGHT)
 
+        self.smoke_tests_btn = ttk.Button(
+            util_buttons,
+            text="🧪 Smoke Tests",
+            command=self._run_smoke_tests,
+            style="Dark.TButton",
+        )
+        self.smoke_tests_btn.pack(side=tk.LEFT, padx=(0, 10))
+
         ttk.Button(
             util_buttons,
             text="📁 Open Output",
@@ -801,11 +849,18 @@ class StableNewGUI:
                 self.root.after(0, lambda: self._update_api_status(True, api_url))
 
                 if health["models_loaded"]:
-                    self.root.after(0, lambda: self.log_message(
-                        f"✅ API connected! Found {health.get('model_count', 0)} models", "SUCCESS"
-                    ))
+                    self.root.after(
+                        0,
+                        lambda: self.log_message(
+                            f"✅ API connected! Found {health.get('model_count', 0)} models",
+                            "SUCCESS",
+                        ),
+                    )
                 else:
-                    self.root.after(0, lambda: self.log_message("⚠️ API connected but no models loaded", "WARNING"))
+                    self.root.after(
+                        0,
+                        lambda: self.log_message("⚠️ API connected but no models loaded", "WARNING"),
+                    )
                 return
 
             # If direct connection failed, try port discovery
@@ -813,11 +868,12 @@ class StableNewGUI:
             discovered_url = None
             try:
                 import time
-                for _ in range(getattr(self, 'api_discovery_max_retries', 3)):
+
+                for _ in range(getattr(self, "api_discovery_max_retries", 3)):
                     discovered_url = find_webui_api_port()
                     if discovered_url:
                         break
-                    time.sleep(getattr(self, 'api_discovery_retry_delay', 0.3))
+                    time.sleep(getattr(self, "api_discovery_retry_delay", 0.3))
             except Exception:
                 discovered_url = None
 
@@ -836,21 +892,35 @@ class StableNewGUI:
                     self.root.after(0, lambda: self._update_api_status(True, discovered_url))
 
                     if health["models_loaded"]:
-                        self.root.after(0, lambda: self.log_message(
-                            f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models",
-                            "SUCCESS",
-                        ))
+                        self.root.after(
+                            0,
+                            lambda: self.log_message(
+                                f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models",
+                                "SUCCESS",
+                            ),
+                        )
                     else:
-                        self.root.after(0, lambda: self.log_message("⚠️ API found but no models loaded", "WARNING"))
+                        self.root.after(
+                            0,
+                            lambda: self.log_message("⚠️ API found but no models loaded", "WARNING"),
+                        )
                     return
 
             # Connection failed
             self.api_connected = False
             self.root.after(0, lambda: self._update_api_status(False))
-            self.root.after(0, lambda: self.log_message(
-                "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
-            ))
-            self.root.after(0, lambda: self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO"))
+            self.root.after(
+                0,
+                lambda: self.log_message(
+                    "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
+                ),
+            )
+            self.root.after(
+                0,
+                lambda: self.log_message(
+                    "💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO"
+                ),
+            )
 
         threading.Thread(target=lambda: check_in_thread(api_url_snapshot), daemon=True).start()
 
@@ -869,12 +939,20 @@ class StableNewGUI:
             # Refresh models, VAE, upscalers, and schedulers when connected
             def refresh_all():
                 try:
-                    self._refresh_models()
-                    self._refresh_vae_models()
-                    self._refresh_upscalers()
-                    self._refresh_schedulers()
-                except Exception as e:
-                    self.log_message(f"⚠️ Failed to refresh model lists: {e}", "WARNING")
+                    # Perform API calls in worker thread
+                    self._refresh_models_async()
+                    self._refresh_vae_models_async()
+                    self._refresh_upscalers_async()
+                    self._refresh_schedulers_async()
+                except Exception as exc:
+                    # Marshal error message back to main thread
+                    # Capture exception in default argument to avoid closure issues
+                    self.root.after(
+                        0,
+                        lambda err=exc: self.log_message(
+                            f"⚠️ Failed to refresh model lists: {err}", "WARNING"
+                        ),
+                    )
 
             # Run refresh in a separate thread to avoid blocking UI
             threading.Thread(target=refresh_all, daemon=True).start()
@@ -1117,6 +1195,24 @@ class StableNewGUI:
             logger.warning(message)
         else:
             logger.info(message)
+
+    def _on_self_test_state_change(self, is_running: bool) -> None:
+        """Update UI controls when smoke tests start or complete."""
+
+        if hasattr(self, "smoke_tests_btn"):
+            new_state = tk.DISABLED if is_running else tk.NORMAL
+            self.smoke_tests_btn.config(state=new_state)
+
+    def _run_smoke_tests(self) -> None:
+        """Trigger the background smoke test run."""
+
+        if not getattr(self, "self_test_runner", None):
+            messagebox.showerror("Smoke Tests", "Self-test runner not initialized")
+            return
+
+        started = self.self_test_runner.run_smoke_tests()
+        if not started:
+            messagebox.showinfo("Smoke Tests", "Smoke tests are already running.")
 
     def _run_full_pipeline(self):
         """Run the complete pipeline"""
@@ -1461,6 +1557,14 @@ class StableNewGUI:
             self.log_message("✅ Graceful shutdown complete", "SUCCESS")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
+
+        # Persist current preferences
+        try:
+            preferences = self._collect_preferences()
+            if self.preferences_manager.save_preferences(preferences):
+                self.preferences = preferences
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            logger.error(f"Failed to save preferences: {exc}")
 
         self.root.quit()
         self.root.destroy()
@@ -2360,6 +2464,77 @@ class StableNewGUI:
                     self.packs_listbox.activate(i)
                     break
 
+    def _apply_saved_preferences(self):
+        """Apply persisted preferences to the current UI session."""
+
+        prefs = getattr(self, "preferences", None)
+        if not prefs:
+            return
+
+        try:
+            # Restore preset selection and override mode
+            self.current_preset = prefs.get("preset", "default")
+            if hasattr(self, "preset_var"):
+                self.preset_var.set(self.current_preset)
+            if hasattr(self, "override_pack_var"):
+                self.override_pack_var.set(prefs.get("override_pack", False))
+
+            # Restore pipeline control toggles
+            pipeline_state = prefs.get("pipeline_controls")
+            if pipeline_state and hasattr(self, "pipeline_controls_panel"):
+                try:
+                    self.pipeline_controls_panel.set_state(pipeline_state)
+                except Exception as exc:
+                    logger.warning(f"Failed to restore pipeline preferences: {exc}")
+
+            # Restore pack selections
+            selected_packs = prefs.get("selected_packs", [])
+            if selected_packs and hasattr(self, "packs_listbox"):
+                self.packs_listbox.selection_clear(0, tk.END)
+                for pack_name in selected_packs:
+                    for index in range(self.packs_listbox.size()):
+                        if self.packs_listbox.get(index) == pack_name:
+                            self.packs_listbox.selection_set(index)
+                            self.packs_listbox.activate(index)
+                self._update_selection_highlights()
+                self.selected_packs = selected_packs
+                if selected_packs:
+                    self._last_selected_pack = selected_packs[0]
+
+            # Restore configuration values into forms
+            config = prefs.get("config")
+            if config:
+                self._load_config_into_forms(config)
+                self.current_config = config
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            logger.warning(f"Failed to apply saved preferences: {exc}")
+
+    def _collect_preferences(self) -> dict[str, Any]:
+        """Collect current UI preferences for persistence."""
+
+        preferences = {
+            "preset": self.preset_var.get() if hasattr(self, "preset_var") else "default",
+            "selected_packs": [],
+            "override_pack": bool(self.override_pack_var.get())
+            if hasattr(self, "override_pack_var")
+            else False,
+            "pipeline_controls": self.preferences_manager.default_pipeline_controls(),
+            "config": self._get_config_from_forms(),
+        }
+
+        if hasattr(self, "packs_listbox"):
+            preferences["selected_packs"] = [
+                self.packs_listbox.get(i) for i in self.packs_listbox.curselection()
+            ]
+
+        if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
+            try:
+                preferences["pipeline_controls"] = self.pipeline_controls_panel.get_state()
+            except Exception as exc:  # pragma: no cover - defensive logging path
+                logger.warning(f"Failed to capture pipeline controls state: {exc}")
+
+        return preferences
+
     def _build_pipeline_tab(self, parent):
         """Build pipeline execution tab"""
         # API Connection Frame
@@ -2622,7 +2797,7 @@ class StableNewGUI:
         messagebox.showerror("Error", "No image directories found")
 
     def _refresh_models(self):
-        """Refresh the list of available SD models"""
+        """Refresh the list of available SD models (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2640,8 +2815,39 @@ class StableNewGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh models: {e}")
 
+    def _refresh_models_async(self):
+        """Refresh the list of available SD models (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            models = self.client.get_models()
+            model_names = [""] + [
+                model.get("title", model.get("model_name", "")) for model in models
+            ]
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "model_combo"):
+                    self.model_combo["values"] = model_names
+                if hasattr(self, "img2img_model_combo"):
+                    self.img2img_model_combo["values"] = model_names
+                self._add_log_message(f"🔄 Loaded {len(models)} SD models")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror("Error", f"Failed to refresh models: {err}"),
+            )
+
     def _refresh_vae_models(self):
-        """Refresh the list of available VAE models"""
+        """Refresh the list of available VAE models (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2657,8 +2863,39 @@ class StableNewGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh VAE models: {e}")
 
+    def _refresh_vae_models_async(self):
+        """Refresh the list of available VAE models (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            vae_models = self.client.get_vae_models()
+            vae_names = [""] + [vae.get("model_name", "") for vae in vae_models]
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "vae_combo"):
+                    self.vae_combo["values"] = vae_names
+                if hasattr(self, "img2img_vae_combo"):
+                    self.img2img_vae_combo["values"] = vae_names
+                self._add_log_message(f"🔄 Loaded {len(vae_models)} VAE models")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror(
+                    "Error", f"Failed to refresh VAE models: {err}"
+                ),
+            )
+
     def _refresh_upscalers(self):
-        """Refresh the list of available upscalers"""
+        """Refresh the list of available upscalers (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2676,8 +2913,39 @@ class StableNewGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh upscalers: {e}")
 
+    def _refresh_upscalers_async(self):
+        """Refresh the list of available upscalers (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            upscalers = self.client.get_upscalers()
+            upscaler_names = [
+                upscaler.get("name", "") for upscaler in upscalers if upscaler.get("name")
+            ]
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "upscaler_combo"):
+                    self.upscaler_combo["values"] = upscaler_names
+                self._add_log_message(f"🔄 Loaded {len(upscalers)} upscalers")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror(
+                    "Error", f"Failed to refresh upscalers: {err}"
+                ),
+            )
+
     def _refresh_schedulers(self):
-        """Refresh the list of available schedulers"""
+        """Refresh the list of available schedulers (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2691,6 +2959,36 @@ class StableNewGUI:
             self.log_message(f"🔄 Loaded {len(schedulers)} schedulers")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh schedulers: {e}")
+
+    def _refresh_schedulers_async(self):
+        """Refresh the list of available schedulers (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            schedulers = self.client.get_schedulers()
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "scheduler_combo"):
+                    self.scheduler_combo["values"] = schedulers
+                if hasattr(self, "img2img_scheduler_combo"):
+                    self.img2img_scheduler_combo["values"] = schedulers
+                self._add_log_message(f"🔄 Loaded {len(schedulers)} schedulers")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror(
+                    "Error", f"Failed to refresh schedulers: {err}"
+                ),
+            )
 
     def _on_hires_toggle(self):
         """Handle hires.fix enable/disable toggle"""
@@ -2741,6 +3039,6 @@ class StableNewGUI:
 
         self.root.mainloop()
 
+
 # Backwards compatibility for tests expecting MainWindow
 MainWindow = StableNewGUI
-

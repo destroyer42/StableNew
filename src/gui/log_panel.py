@@ -12,6 +12,18 @@ from tkinter import scrolledtext, ttk
 logger = logging.getLogger(__name__)
 
 
+LEVEL_STYLES: dict[str, str] = {
+    "DEBUG": "#888888",
+    "INFO": "#4CAF50",
+    "SUCCESS": "#2196F3",
+    "WARNING": "#FF9800",
+    "ERROR": "#f44336",
+}
+
+LEVEL_ORDER: tuple[str, ...] = tuple(LEVEL_STYLES.keys())
+DEFAULT_LEVEL = "INFO"
+
+
 class LogPanel(ttk.Frame):
     """
     A UI panel for displaying live log messages.
@@ -43,14 +55,13 @@ class LogPanel(ttk.Frame):
         # Message queue for thread-safe logging
         self.log_queue: queue.Queue[tuple[str, str]] = queue.Queue()
 
-        # Scroll lock state
-        self._scroll_lock = tk.BooleanVar(value=False)
+        # Buffer to support filtering and clipboard operations
+        self.log_records: list[tuple[str, str]] = []
+        self.max_log_lines = 1000
 
-        # Track line count to avoid recalculation
-        self._line_count = 0
-
-        # Maximum number of log lines to keep
-        self._max_lines = 1000
+        # Scroll and filter state
+        self.scroll_lock_var = tk.BooleanVar(master=self, value=False)
+        self.level_filter_vars: dict[str, tk.BooleanVar] = {}
 
         # Build UI
         self._build_ui()
@@ -64,18 +75,34 @@ class LogPanel(ttk.Frame):
         log_frame = ttk.LabelFrame(self, text="📋 Live Log", style="Dark.TFrame", padding=5)
         log_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Control frame for scroll lock toggle
-        control_frame = ttk.Frame(log_frame)
-        control_frame.pack(fill=tk.X, padx=2, pady=2)
+        controls_frame = ttk.Frame(log_frame)
+        controls_frame.pack(fill=tk.X, pady=(0, 5))
 
-        # Scroll lock checkbox
-        self.scroll_lock_check = ttk.Checkbutton(
-            control_frame,
-            text="🔒 Scroll Lock",
-            variable=self._scroll_lock,
+        ttk.Checkbutton(
+            controls_frame,
+            text="Scroll Lock",
+            variable=self.scroll_lock_var,
             command=self._on_scroll_lock_toggle,
-        )
-        self.scroll_lock_check.pack(side=tk.LEFT)
+        ).pack(side=tk.LEFT)
+
+        ttk.Button(
+            controls_frame,
+            text="Copy Log",
+            command=self.copy_log_to_clipboard,
+        ).pack(side=tk.RIGHT)
+
+        filter_frame = ttk.Frame(log_frame)
+        filter_frame.pack(fill=tk.X, pady=(0, 5))
+
+        for level in LEVEL_ORDER:
+            var = tk.BooleanVar(master=self, value=True)
+            self.level_filter_vars[level] = var
+            ttk.Checkbutton(
+                filter_frame,
+                text=level.title(),
+                variable=var,
+                command=self._on_filter_change,
+            ).pack(side=tk.LEFT, padx=(0, 4))
 
         # Scrolled text widget
         self.log_text = scrolledtext.ScrolledText(
@@ -89,12 +116,8 @@ class LogPanel(ttk.Frame):
         )
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
-        # Configure log level colors
-        self.log_text.tag_configure("INFO", foreground="#4CAF50")
-        self.log_text.tag_configure("WARNING", foreground="#FF9800")
-        self.log_text.tag_configure("ERROR", foreground="#f44336")
-        self.log_text.tag_configure("SUCCESS", foreground="#2196F3")
-        self.log_text.tag_configure("DEBUG", foreground="#888888")
+        for level, color in LEVEL_STYLES.items():
+            self.log_text.tag_configure(level, foreground=color)
 
     def log(self, message: str, level: str = "INFO") -> None:
         """
@@ -130,74 +153,70 @@ class LogPanel(ttk.Frame):
             message: Log message text
             level: Log level for coloring
         """
-        # Save current scroll position if scroll lock is enabled
-        scroll_pos = None
-        if self._scroll_lock.get():
-            scroll_pos = self.log_text.yview()
+        normalized_level = level.upper()
+        if normalized_level not in LEVEL_STYLES:
+            logger.debug(f"Unknown log level '{level}' encountered; falling back to DEFAULT_LEVEL ('{DEFAULT_LEVEL}').")
+            normalized_level = DEFAULT_LEVEL
 
-        # Enable editing temporarily
+        self.log_records.append((message, normalized_level))
+
+        if len(self.log_records) > self.max_log_lines:
+            # Only trim and refresh when the log first exceeds the limit
+            self.log_records = self.log_records[-self.max_log_lines :]
+            self._refresh_display()
+            return
+        elif len(self.log_records) == self.max_log_lines:
+            # Already at limit, pop oldest and insert efficiently
+            self.log_records.pop(0)
+            self.log_records.append((message, normalized_level))
+            if self._should_display(normalized_level):
+                self._insert_message(message, normalized_level)
+            return
+
+        if self._should_display(normalized_level):
+            self._insert_message(message, normalized_level)
+
+    def _insert_message(self, message: str, level: str) -> None:
         self.log_text.configure(state=tk.NORMAL)
-
-        # Insert message with appropriate tag
         self.log_text.insert(tk.END, f"{message}\n", level)
-        self._line_count += 1
-
-        # Efficiently handle overflow - delete only the oldest line
-        if self._line_count > self._max_lines:
-            # Delete the first line
-            self.log_text.delete("1.0", "2.0")
-            self._line_count -= 1
-
-        # Handle scrolling based on scroll lock state
-        if self._scroll_lock.get() and scroll_pos is not None:
-            # Restore scroll position
-            self.log_text.yview_moveto(scroll_pos[0])
-        else:
-            # Auto-scroll to end
+        if not self.scroll_lock_var.get():
             self.log_text.see(tk.END)
-
-        # Disable editing
         self.log_text.configure(state=tk.DISABLED)
 
-    def _on_scroll_lock_toggle(self):
-        """Handle scroll lock toggle."""
-        # No additional action needed - the state is read in _add_log_message
-        pass
+    def _should_display(self, level: str) -> bool:
+        var = self.level_filter_vars.get(level)
+        return True if var is None else bool(var.get())
 
-    def get_scroll_lock(self) -> bool:
-        """
-        Get the current scroll lock state.
+    def _refresh_display(self) -> None:
+        self.log_text.configure(state=tk.NORMAL)
+        self.log_text.delete("1.0", tk.END)
+        for message, level in self.log_records:
+            if self._should_display(level):
+                self.log_text.insert(tk.END, f"{message}\n", level)
+        if not self.scroll_lock_var.get():
+            self.log_text.see(tk.END)
+        self.log_text.configure(state=tk.DISABLED)
 
-        Returns:
-            True if scroll lock is enabled, False otherwise
-        """
-        return self._scroll_lock.get()
+    def _on_filter_change(self) -> None:
+        self._refresh_display()
 
-    def set_scroll_lock(self, enabled: bool) -> None:
-        """
-        Set the scroll lock state.
+    def _on_scroll_lock_toggle(self) -> None:
+        if not self.scroll_lock_var.get():
+            self.log_text.see(tk.END)
 
-        Args:
-            enabled: True to enable scroll lock, False to disable
-        """
-        self._scroll_lock.set(enabled)
-
-    def _flush_queue_sync(self) -> None:
-        """
-        Synchronously process all pending log messages.
-
-        This is primarily for testing purposes to ensure all queued
-        messages are processed immediately.
-        """
-        while not self.log_queue.empty():
-            try:
-                message, level = self.log_queue.get_nowait()
-                self._add_log_message(message, level)
-            except queue.Empty:
-                break
+    def copy_log_to_clipboard(self) -> None:
+        """Copy the current log contents to the system clipboard."""
+        content = self.log_text.get("1.0", tk.END).strip()
+        try:
+            self.clipboard_clear()
+            if content:
+                self.clipboard_append(content)
+        except tk.TclError:
+            logger.debug("Clipboard unavailable for log copy")
 
     def clear(self) -> None:
         """Clear all log messages."""
+        self.log_records.clear()
         self.log_text.configure(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
         self._line_count = 0
