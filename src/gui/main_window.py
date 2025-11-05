@@ -12,7 +12,7 @@ from typing import Any
 
 from ..api import SDWebUIClient
 from ..pipeline import Pipeline, VideoCreator
-from ..utils import ConfigManager, StructuredLogger, setup_logging
+from ..utils import ConfigManager, PreferencesManager, StructuredLogger, setup_logging
 from ..utils.file_io import read_prompt_pack
 from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
 from .advanced_prompt_editor import AdvancedPromptEditor
@@ -49,6 +49,10 @@ class StableNewGUI:
 
         # Initialize components
         self.config_manager = ConfigManager()
+        self.preferences_manager = PreferencesManager()
+        self.preferences = self.preferences_manager.load_preferences(
+            self.config_manager.get_default_config()
+        )
         self.structured_logger = StructuredLogger()
         self.client = None
         self.pipeline = None
@@ -62,26 +66,46 @@ class StableNewGUI:
         self.pack_list_manager = PromptPackListManager()
 
         # GUI state
-        self.selected_packs = []
+        config_preferences = self.preferences.get("config", {})
+        api_preferences = config_preferences.get("api", {})
+        pipeline_preferences = self.preferences.get("pipeline_controls", {})
+
+        self.selected_packs = list(self.preferences.get("selected_packs", []))
         self.current_config = None
         self.api_connected = False
         self._last_selected_pack = None
-        self.current_preset = "default"
+        self.current_preset = self.preferences.get("preset", "default")
         self._refreshing_config = False  # Flag to prevent recursive refreshes
 
         # Initialize GUI variables early
-        self.api_url_var = tk.StringVar(value="http://127.0.0.1:7860")
-        self.preset_var = tk.StringVar(value="default")
+        self.api_url_var = tk.StringVar(
+            value=api_preferences.get("base_url", "http://127.0.0.1:7860")
+        )
+        self.preset_var = tk.StringVar(value=self.current_preset)
 
         # Initialize other GUI variables that are used before UI building
-        self.txt2img_enabled = tk.BooleanVar(value=True)
-        self.img2img_enabled = tk.BooleanVar(value=True)
-        self.upscale_enabled = tk.BooleanVar(value=True)
-        self.video_enabled = tk.BooleanVar(value=False)
-        self.loop_type_var = tk.StringVar(value="single")
-        self.loop_count_var = tk.StringVar(value="1")
-        self.pack_mode_var = tk.StringVar(value="selected")
-        self.images_per_prompt_var = tk.StringVar(value="1")
+        self.txt2img_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("txt2img_enabled", True)
+        )
+        self.img2img_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("img2img_enabled", True)
+        )
+        self.upscale_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("upscale_enabled", True)
+        )
+        self.video_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("video_enabled", False)
+        )
+        self.loop_type_var = tk.StringVar(value=pipeline_preferences.get("loop_type", "single"))
+        self.loop_count_var = tk.StringVar(
+            value=str(pipeline_preferences.get("loop_count", 1))
+        )
+        self.pack_mode_var = tk.StringVar(
+            value=pipeline_preferences.get("pack_mode", "selected")
+        )
+        self.images_per_prompt_var = tk.StringVar(
+            value=str(pipeline_preferences.get("images_per_prompt", 1))
+        )
         # Connection tuning (configurable)
         self.api_discovery_max_retries = 3
         self.api_discovery_retry_delay = 0.3  # seconds
@@ -97,6 +121,9 @@ class StableNewGUI:
 
         # Build UI
         self._build_ui()
+
+        # Apply saved preferences after UI construction
+        self.root.after(0, self._apply_saved_preferences)
 
         # Setup logging redirect
         setup_logging("INFO")
@@ -400,8 +427,13 @@ class StableNewGUI:
         # Destroy old panel if present
         if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
             self.pipeline_controls_panel.destroy()
+        # Determine initial state for the new panel
+        initial_state = prev_state if prev_state is not None else self.preferences.get("pipeline_controls")
+
         # Create the PipelineControlsPanel component
-        self.pipeline_controls_panel = PipelineControlsPanel(parent, style="Dark.TFrame")
+        self.pipeline_controls_panel = PipelineControlsPanel(
+            parent, initial_state=initial_state, style="Dark.TFrame"
+        )
         self.pipeline_controls_panel.pack(fill=tk.BOTH, expand=True)
         # Restore previous state if available
         if prev_state:
@@ -1462,6 +1494,14 @@ class StableNewGUI:
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
 
+        # Persist current preferences
+        try:
+            preferences = self._collect_preferences()
+            if self.preferences_manager.save_preferences(preferences):
+                self.preferences = preferences
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            logger.error(f"Failed to save preferences: {exc}")
+
         self.root.quit()
         self.root.destroy()
 
@@ -2359,6 +2399,77 @@ class StableNewGUI:
                     self.packs_listbox.selection_set(i)
                     self.packs_listbox.activate(i)
                     break
+
+    def _apply_saved_preferences(self):
+        """Apply persisted preferences to the current UI session."""
+
+        prefs = getattr(self, "preferences", None)
+        if not prefs:
+            return
+
+        try:
+            # Restore preset selection and override mode
+            self.current_preset = prefs.get("preset", "default")
+            if hasattr(self, "preset_var"):
+                self.preset_var.set(self.current_preset)
+            if hasattr(self, "override_pack_var"):
+                self.override_pack_var.set(prefs.get("override_pack", False))
+
+            # Restore pipeline control toggles
+            pipeline_state = prefs.get("pipeline_controls")
+            if pipeline_state and hasattr(self, "pipeline_controls_panel"):
+                try:
+                    self.pipeline_controls_panel.set_state(pipeline_state)
+                except Exception as exc:
+                    logger.warning(f"Failed to restore pipeline preferences: {exc}")
+
+            # Restore pack selections
+            selected_packs = prefs.get("selected_packs", [])
+            if selected_packs and hasattr(self, "packs_listbox"):
+                self.packs_listbox.selection_clear(0, tk.END)
+                for pack_name in selected_packs:
+                    for index in range(self.packs_listbox.size()):
+                        if self.packs_listbox.get(index) == pack_name:
+                            self.packs_listbox.selection_set(index)
+                            self.packs_listbox.activate(index)
+                self._update_selection_highlights()
+                self.selected_packs = selected_packs
+                if selected_packs:
+                    self._last_selected_pack = selected_packs[0]
+
+            # Restore configuration values into forms
+            config = prefs.get("config")
+            if config:
+                self._load_config_into_forms(config)
+                self.current_config = config
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            logger.warning(f"Failed to apply saved preferences: {exc}")
+
+    def _collect_preferences(self) -> dict[str, Any]:
+        """Collect current UI preferences for persistence."""
+
+        preferences = {
+            "preset": self.preset_var.get() if hasattr(self, "preset_var") else "default",
+            "selected_packs": [],
+            "override_pack": bool(self.override_pack_var.get())
+            if hasattr(self, "override_pack_var")
+            else False,
+            "pipeline_controls": self.preferences_manager.default_pipeline_controls(),
+            "config": self._get_config_from_forms(),
+        }
+
+        if hasattr(self, "packs_listbox"):
+            preferences["selected_packs"] = [
+                self.packs_listbox.get(i) for i in self.packs_listbox.curselection()
+            ]
+
+        if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
+            try:
+                preferences["pipeline_controls"] = self.pipeline_controls_panel.get_state()
+            except Exception as exc:  # pragma: no cover - defensive logging path
+                logger.warning(f"Failed to capture pipeline controls state: {exc}")
+
+        return preferences
 
     def _build_pipeline_tab(self, parent):
         """Build pipeline execution tab"""
