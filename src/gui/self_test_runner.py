@@ -46,7 +46,7 @@ class TestSummary:
         return self.failed + self.errors
 
 
-SUMMARY_PATTERN = re.compile(r"(\d+)\s+(passed|failed|errors?|skipped)")
+SUMMARY_PATTERN = re.compile(r"(\d+)\s+(passed|failed|error|skipped)")
 
 
 def parse_pytest_summary(output: str | Iterable[str]) -> TestSummary:
