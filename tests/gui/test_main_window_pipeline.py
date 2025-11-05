@@ -6,6 +6,32 @@ from unittest import mock
 import pytest
 
 
+def wait_until(predicate, tk_root, timeout=5.0, step=0.02):
+    """Wait until predicate returns True or timeout is reached.
+    
+    Pumps the Tk event loop while waiting to allow UI updates to process.
+    
+    Args:
+        predicate: Callable that returns True when the condition is met
+        tk_root: Tk root window to pump events for
+        timeout: Maximum time to wait in seconds
+        step: Time to sleep between checks in seconds
+        
+    Returns:
+        True if predicate became True, False if timeout was reached
+    """
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        try:
+            tk_root.update()
+        except Exception:
+            pass
+        if predicate():
+            return True
+        time.sleep(step)
+    return False
+
+
 @pytest.fixture
 def minimal_app(tk_root, monkeypatch):
     """Create a StableNewGUI instance with a minimal UI for pipeline tests."""
@@ -94,9 +120,14 @@ def test_pipeline_error_triggers_alert_and_logs(minimal_app, monkeypatch):
 
     assert minimal_app.controller.lifecycle_event.wait(timeout=1.0)
 
-    for _ in range(5):
-        minimal_app.root.update()
-        time.sleep(0.01)
+    # Wait for UI state to update after error
+    def ui_settled():
+        return (
+            minimal_app.state_manager.current == GUIState.ERROR
+            and minimal_app.progress_message_var.get() == "Error"
+        )
+
+    assert wait_until(ui_settled, minimal_app.root, timeout=1.0)
 
     showerror.assert_called_once()
     title, message = showerror.call_args.args
@@ -145,9 +176,12 @@ def test_cancel_transitions_to_idle_with_ready_status(minimal_app, monkeypatch):
 
     assert minimal_app.controller.lifecycle_event.wait(timeout=1.0)
 
-    for _ in range(5):
-        minimal_app.root.update()
-        time.sleep(0.01)
+    # Wait for UI state to update after cancellation
+    def ui_settled():
+        return (
+            minimal_app.state_manager.current == GUIState.IDLE
+            and minimal_app.progress_message_var.get() == "Ready"
+        )
 
-    assert minimal_app.state_manager.current == GUIState.IDLE
-    assert minimal_app.progress_message_var.get() == "Ready"
+    assert wait_until(ui_settled, minimal_app.root, timeout=1.0)
+
