@@ -52,6 +52,7 @@ class PipelineController:
         self._cleanup_lock = threading.Lock()
         self._cleanup_started = False            # per-run guard (reset at start of each pipeline run)
         self._cleanup_done = threading.Event()   # signals cleanup completed (per run)
+        self._cleanup_done.set()  # no prior run on init; don't block first start
 
         # Lifecycle signals
         self.lifecycle_event = threading.Event()  # terminal (IDLE/ERROR)
