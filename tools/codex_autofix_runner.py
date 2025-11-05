@@ -126,19 +126,11 @@ def request_codex_suggestion(prompt: str, *, api_key: str) -> str:
         max_output_tokens=1200,
     )
 
-    if hasattr(response, "output_text") and response.output_text:
-        return response.output_text.strip()
-
-    chunks: list[str] = []
-    for item in getattr(response, "output", []):
-        for part in getattr(item, "content", []):
-            if getattr(part, "type", None) == "output_text":
-                chunks.append(getattr(part, "text", ""))
-    if not chunks:
-        raise RuntimeError("Codex response did not contain any text output")
-    return "".join(chunks).strip()
-
-
+    # Parse response using OpenAI chat completion API format
+    try:
+        return response.choices[0].message.content.strip()
+    except (AttributeError, IndexError) as exc:
+        raise RuntimeError("Codex response did not contain any text output") from exc
 def post_comment(*, repo: str, pr_number: int, body: str, token: str) -> None:
     url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
     response = requests.post(
