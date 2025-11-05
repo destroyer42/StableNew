@@ -195,8 +195,10 @@ class PipelineController:
         if pipeline and hasattr(pipeline, "set_progress_controller"):
             try:
                 pipeline.set_progress_controller(self)
-            except Exception as exc:  # pragma: no cover - defensive guard
-                logger.debug("Failed to attach progress controller: %s", exc)
+            except TypeError as exc:  # Catch only known failure mode
+                logger.debug("Failed to attach progress controller (TypeError): %s", exc)
+            except RuntimeError as exc:
+                logger.debug("Failed to attach progress controller (RuntimeError): %s", exc)
 
     def set_progress_callback(self, callback: Callable[[float], None] | None) -> None:
         """Register callback for progress percentage updates."""
