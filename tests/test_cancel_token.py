@@ -34,6 +34,7 @@ def mock_client():
     client = Mock()
     client.txt2img = Mock(return_value={"images": ["base64_image_data"]})
     client.img2img = Mock(return_value={"images": ["base64_image_data"]})
+    client.upscale = Mock(return_value={"image": "base64_image_data"})
     client.upscale_image = Mock(return_value={"image": "base64_image_data"})
     client.set_model = Mock()
     client.set_vae = Mock()
@@ -200,6 +201,7 @@ class TestPipelineEarlyOut:
         client = Mock()
         client.txt2img = Mock(return_value={"images": ["img"]})
         client.img2img = Mock(return_value={"images": ["img"]})
+        client.upscale = Mock(return_value={"image": "img"})
         client.upscale_image = Mock(return_value={"image": "img"})
         client.set_model = Mock()
         client.set_vae = Mock()
@@ -227,4 +229,4 @@ class TestPipelineEarlyOut:
         # img2img should not be called
         assert mock_client.img2img.call_count == 0
         # upscale should not be called
-        assert mock_client.upscale_image.call_count == 0
+        assert mock_client.upscale.call_count == 0

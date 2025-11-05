@@ -36,6 +36,7 @@ def mock_client():
 
     client.img2img.return_value = {"images": [mock_image_b64], "parameters": {}}
 
+    client.upscale.return_value = {"image": mock_image_b64}
     client.upscale_image.return_value = {"image": mock_image_b64}
 
     client.set_model = Mock()
@@ -99,7 +100,7 @@ class TestFullPipelineJourney:
         # Verify API calls were made
         assert mock_client.txt2img.called
         assert mock_client.img2img.called
-        assert mock_client.upscale_image.called
+        assert mock_client.upscale.called
 
     def test_config_passthrough_txt2img(self, pipeline, mock_client, tmp_path):
         """Test that txt2img config is correctly passed to API"""
@@ -167,7 +168,7 @@ class TestOptionalStages:
         # Verify API calls
         assert mock_client.txt2img.called
         assert not mock_client.img2img.called  # Should NOT be called
-        assert mock_client.upscale_image.called
+        assert mock_client.upscale.called
 
     def test_skip_upscale(self, pipeline, mock_client, tmp_path):
         """Test pipeline with upscale disabled: txt2img → img2img"""
@@ -196,7 +197,7 @@ class TestOptionalStages:
         # Verify API calls
         assert mock_client.txt2img.called
         assert mock_client.img2img.called
-        assert not mock_client.upscale_image.called  # Should NOT be called
+        assert not mock_client.upscale.called  # Should NOT be called
 
     def test_skip_both_img2img_and_upscale(self, pipeline, mock_client, tmp_path):
         """Test pipeline with both img2img and upscale disabled: txt2img only"""
@@ -225,7 +226,7 @@ class TestOptionalStages:
         # Verify only txt2img was called
         assert mock_client.txt2img.called
         assert not mock_client.img2img.called
-        assert not mock_client.upscale_image.called
+        assert not mock_client.upscale.called
 
 
 class TestBatchProcessing:
@@ -369,7 +370,7 @@ class TestErrorHandling:
         mock_image_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
         mock_client.txt2img.return_value = {"images": [mock_image_b64]}
         mock_client.img2img.return_value = None  # img2img fails
-        mock_client.upscale_image.return_value = {"image": mock_image_b64}
+        mock_client.upscale.return_value = {"image": mock_image_b64}
 
         config = {
             "txt2img": {"steps": 20},
