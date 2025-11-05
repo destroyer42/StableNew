@@ -1,6 +1,9 @@
 """API client for Stable Diffusion WebUI"""
 
+from __future__ import annotations
+
 import logging
+import random
 import time
 from typing import Any
 
@@ -12,42 +15,133 @@ logger = logging.getLogger(__name__)
 class SDWebUIClient:
     """Client for interacting with Stable Diffusion WebUI API"""
 
-    def __init__(self, base_url: str = "http://127.0.0.1:7860", timeout: int = 300):
+    def __init__(
+        self,
+        base_url: str = "http://127.0.0.1:7860",
+        timeout: int = 300,
+        max_retries: int = 3,
+        backoff_factor: float = 1.0,
+        max_backoff: float = 30.0,
+        jitter: float = 0.5,
+    ):
         """
         Initialize the SD WebUI API client.
 
         Args:
             base_url: Base URL of the SD WebUI API
             timeout: Request timeout in seconds
+            max_retries: Maximum number of attempts for API requests
+            backoff_factor: Base delay (in seconds) used for exponential backoff
+            max_backoff: Maximum delay between retry attempts
+            jitter: Maximum random jitter added to the backoff delay
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.max_retries = max(1, max_retries)
+        self.backoff_factor = max(0.0, backoff_factor)
+        self.max_backoff = max(0.0, max_backoff)
+        self.jitter = max(0.0, jitter)
 
-    def check_api_ready(self, max_retries: int = 5, retry_delay: int = 2) -> bool:
+    def _sleep(self, duration: float) -> None:
+        """Sleep helper that can be overridden in tests."""
+
+        time.sleep(duration)
+
+    def _calculate_backoff(self, attempt: int, backoff_factor: float | None = None) -> float:
+        """Calculate the backoff delay for a retry attempt."""
+
+        base = self.backoff_factor if backoff_factor is None else max(0.0, backoff_factor)
+        if base <= 0:
+            return 0.0
+
+        delay = base * (2**attempt)
+        if self.max_backoff > 0:
+            delay = min(delay, self.max_backoff)
+
+        if self.jitter > 0 and delay > 0:
+            delay += random.uniform(0, self.jitter)
+
+        return delay
+
+    def _perform_request(
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        timeout: float | None = None,
+        max_retries: int | None = None,
+        backoff_factor: float | None = None,
+        **kwargs: Any,
+    ) -> requests.Response | None:
+        """Perform an HTTP request with retry/backoff handling."""
+
+        retries = max_retries if max_retries is not None else self.max_retries
+        retries = max(1, retries)
+        timeout_value = self.timeout if timeout is None else timeout
+        url = f"{self.base_url}{endpoint}"
+        last_exception: Exception | None = None
+
+        for attempt in range(retries):
+            try:
+                response = requests.request(
+                    method.upper(), url, timeout=timeout_value, **kwargs
+                )
+                response.raise_for_status()
+                return response
+            except Exception as exc:  # noqa: BLE001 - broad to ensure retries
+                last_exception = exc
+                logger.warning(
+                    "Request %s %s attempt %s/%s failed: %s",
+                    method.upper(),
+                    url,
+                    attempt + 1,
+                    retries,
+                    exc,
+                )
+                if attempt >= retries - 1:
+                    break
+
+                delay = self._calculate_backoff(attempt, backoff_factor)
+                if delay > 0:
+                    self._sleep(delay)
+
+        if last_exception is not None:
+            logger.error(
+                "Request %s %s failed after %s attempts: %s",
+                method.upper(),
+                url,
+                retries,
+                last_exception,
+            )
+
+        return None
+
+    def check_api_ready(self, max_retries: int = 5, retry_delay: float = 2.0) -> bool:
         """
         Check if the API is ready to accept requests.
 
         Args:
             max_retries: Maximum number of retry attempts
-            retry_delay: Delay between retries in seconds
+            retry_delay: Base delay in seconds for exponential backoff
 
         Returns:
             True if API is ready, False otherwise
         """
-        for attempt in range(max_retries):
-            try:
-                response = requests.get(f"{self.base_url}/sdapi/v1/sd-models", timeout=10)
-                if response.status_code == 200:
-                    logger.info("SD WebUI API is ready")
-                    return True
-            except Exception as e:
-                logger.warning(f"API check attempt {attempt + 1}/{max_retries} failed: {e}")
 
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay)
+        response = self._perform_request(
+            "get",
+            "/sdapi/v1/sd-models",
+            timeout=10,
+            max_retries=max_retries,
+            backoff_factor=retry_delay,
+        )
 
-        logger.error("SD WebUI API is not ready after max retries")
-        return False
+        if response is None:
+            logger.error("SD WebUI API is not ready after max retries")
+            return False
+
+        logger.info("SD WebUI API is ready")
+        return True
 
     def txt2img(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         """
@@ -59,19 +153,26 @@ class SDWebUIClient:
         Returns:
             Response data including base64 encoded images
         """
-        try:
-            response = requests.post(
-                f"{self.base_url}/sdapi/v1/txt2img", json=payload, timeout=self.timeout
-            )
-            response.raise_for_status()
-            data = response.json()
-            logger.info(
-                f"txt2img completed successfully, generated {len(data.get('images', []))} images"
-            )
-            return data
-        except Exception as e:
-            logger.error(f"txt2img request failed: {e}")
+        response = self._perform_request(
+            "post",
+            "/sdapi/v1/txt2img",
+            json=payload,
+        )
+
+        if response is None:
             return None
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.error(f"txt2img response parsing failed: {exc}")
+            return None
+
+        logger.info(
+            "txt2img completed successfully, generated %s images",
+            len(data.get("images", [])),
+        )
+        return data
 
     def img2img(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         """
@@ -83,17 +184,23 @@ class SDWebUIClient:
         Returns:
             Response data including base64 encoded images
         """
-        try:
-            response = requests.post(
-                f"{self.base_url}/sdapi/v1/img2img", json=payload, timeout=self.timeout
-            )
-            response.raise_for_status()
-            data = response.json()
-            logger.info("img2img completed successfully")
-            return data
-        except Exception as e:
-            logger.error(f"img2img request failed: {e}")
+        response = self._perform_request(
+            "post",
+            "/sdapi/v1/img2img",
+            json=payload,
+        )
+
+        if response is None:
             return None
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.error(f"img2img response parsing failed: {exc}")
+            return None
+
+        logger.info("img2img completed successfully")
+        return data
 
     def upscale(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         """
@@ -105,34 +212,23 @@ class SDWebUIClient:
         Returns:
             Response data including base64 encoded upscaled image
         """
-        try:
-            response = requests.post(
-                f"{self.base_url}/sdapi/v1/extra-single-image", json=payload, timeout=self.timeout
-            )
-            response.raise_for_status()
-            data = response.json()
-            logger.info("Upscaling completed successfully")
-            return data
-        except Exception as e:
-            logger.error(f"Upscale request failed: {e}")
+        response = self._perform_request(
+            "post",
+            "/sdapi/v1/extra-single-image",
+            json=payload,
+        )
+
+        if response is None:
             return None
 
-    def get_models(self) -> list[dict[str, Any]] | None:
-        """
-        Get list of available models.
-
-        Returns:
-            List of model information
-        """
         try:
-            response = requests.get(f"{self.base_url}/sdapi/v1/sd-models", timeout=10)
-            response.raise_for_status()
             data = response.json()
-            logger.info(f"Retrieved {len(data)} models")
-            return data
-        except Exception as e:
-            logger.error(f"img2img request failed: {e}")
+        except ValueError as exc:
+            logger.error(f"Upscale response parsing failed: {exc}")
             return None
+
+        logger.info("Upscaling completed successfully")
+        return data
 
     def upscale_image(
         self,
@@ -157,37 +253,40 @@ class SDWebUIClient:
         Returns:
             Response data with upscaled image
         """
-        try:
-            payload = {
-                "resize_mode": 0,
-                "upscaling_resize": upscaling_resize,
-                "upscaler_1": upscaler,
-                "image": image_base64,
-                "gfpgan_visibility": gfpgan_visibility,
-                "codeformer_visibility": codeformer_visibility,
-                "codeformer_weight": codeformer_weight,
-            }
-            response = requests.post(
-                f"{self.base_url}/sdapi/v1/extra-single-image", json=payload, timeout=self.timeout
-            )
-            response.raise_for_status()
-            data = response.json()
+        payload = {
+            "resize_mode": 0,
+            "upscaling_resize": upscaling_resize,
+            "upscaler_1": upscaler,
+            "image": image_base64,
+            "gfpgan_visibility": gfpgan_visibility,
+            "codeformer_visibility": codeformer_visibility,
+            "codeformer_weight": codeformer_weight,
+        }
+        response = self._perform_request(
+            "post",
+            "/sdapi/v1/extra-single-image",
+            json=payload,
+        )
 
-            # Log face restoration usage
-            face_restoration_used = []
-            if gfpgan_visibility > 0:
-                face_restoration_used.append(f"GFPGAN({gfpgan_visibility})")
-            if codeformer_visibility > 0:
-                face_restoration_used.append(f"CodeFormer({codeformer_visibility})")
-
-            restoration_info = (
-                f" + {', '.join(face_restoration_used)}" if face_restoration_used else ""
-            )
-            logger.info(f"Upscale completed successfully with {upscaler}{restoration_info}")
-            return data
-        except Exception as e:
-            logger.error(f"Upscale request failed: {e}")
+        if response is None:
             return None
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.error(f"Upscale response parsing failed: {exc}")
+            return None
+
+        # Log face restoration usage
+        face_restoration_used = []
+        if gfpgan_visibility > 0:
+            face_restoration_used.append(f"GFPGAN({gfpgan_visibility})")
+        if codeformer_visibility > 0:
+            face_restoration_used.append(f"CodeFormer({codeformer_visibility})")
+
+        restoration_info = f" + {', '.join(face_restoration_used)}" if face_restoration_used else ""
+        logger.info(f"Upscale completed successfully with {upscaler}{restoration_info}")
+        return data
 
     def get_models(self) -> list[dict[str, Any]]:
         """
@@ -196,15 +295,19 @@ class SDWebUIClient:
         Returns:
             List of model information
         """
-        try:
-            response = requests.get(f"{self.base_url}/sdapi/v1/sd-models", timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            logger.info(f"Retrieved {len(data)} models")
-            return data
-        except Exception as e:
-            logger.error(f"Failed to get models: {e}")
+
+        response = self._perform_request("get", "/sdapi/v1/sd-models", timeout=10)
+        if response is None:
             return []
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.error(f"Failed to parse models response: {exc}")
+            return []
+
+        logger.info("Retrieved %s models", len(data))
+        return data
 
     def get_vae_models(self) -> list[dict[str, Any]]:
         """
@@ -213,15 +316,18 @@ class SDWebUIClient:
         Returns:
             List of VAE model information
         """
-        try:
-            response = requests.get(f"{self.base_url}/sdapi/v1/sd-vae", timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            logger.info(f"Retrieved {len(data)} VAE models")
-            return data
-        except Exception as e:
-            logger.error(f"Failed to get VAE models: {e}")
+        response = self._perform_request("get", "/sdapi/v1/sd-vae", timeout=10)
+        if response is None:
             return []
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.error(f"Failed to parse VAE models response: {exc}")
+            return []
+
+        logger.info("Retrieved %s VAE models", len(data))
+        return data
 
     def get_samplers(self) -> list[dict[str, Any]]:
         """
@@ -230,15 +336,18 @@ class SDWebUIClient:
         Returns:
             List of sampler information
         """
-        try:
-            response = requests.get(f"{self.base_url}/sdapi/v1/samplers", timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            logger.info(f"Retrieved {len(data)} samplers")
-            return data
-        except Exception as e:
-            logger.error(f"Failed to get samplers: {e}")
+        response = self._perform_request("get", "/sdapi/v1/samplers", timeout=10)
+        if response is None:
             return []
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.error(f"Failed to parse samplers response: {exc}")
+            return []
+
+        logger.info("Retrieved %s samplers", len(data))
+        return data
 
     def get_upscalers(self) -> list[dict[str, Any]]:
         """
@@ -247,15 +356,18 @@ class SDWebUIClient:
         Returns:
             List of upscaler information
         """
-        try:
-            response = requests.get(f"{self.base_url}/sdapi/v1/upscalers", timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            logger.info(f"Retrieved {len(data)} upscalers")
-            return data
-        except Exception as e:
-            logger.error(f"Failed to get upscalers: {e}")
+        response = self._perform_request("get", "/sdapi/v1/upscalers", timeout=10)
+        if response is None:
             return []
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.error(f"Failed to parse upscalers response: {exc}")
+            return []
+
+        logger.info("Retrieved %s upscalers", len(data))
+        return data
 
     def get_schedulers(self) -> list[str]:
         """
@@ -264,18 +376,9 @@ class SDWebUIClient:
         Returns:
             List of scheduler names
         """
-        try:
-            response = requests.get(f"{self.base_url}/sdapi/v1/schedulers", timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            schedulers = [
-                scheduler.get("name", scheduler.get("label", "")) for scheduler in data if scheduler
-            ]
-            logger.info(f"Retrieved {len(schedulers)} schedulers")
-            return schedulers
-        except Exception as e:
-            logger.warning(f"Failed to get schedulers from API: {e}")
-            # Fallback to common schedulers with proper capitalization
+        response = self._perform_request("get", "/sdapi/v1/schedulers", timeout=10)
+        if response is None:
+            logger.warning("Failed to get schedulers from API; using defaults")
             return [
                 "Normal",
                 "Karras",
@@ -288,6 +391,28 @@ class SDWebUIClient:
                 "Cosine",
             ]
 
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.warning(f"Failed to parse schedulers response: {exc}; using defaults")
+            return [
+                "Normal",
+                "Karras",
+                "Exponential",
+                "SGM Uniform",
+                "Simple",
+                "DDIM Uniform",
+                "Beta",
+                "Linear",
+                "Cosine",
+            ]
+
+        schedulers = [
+            scheduler.get("name", scheduler.get("label", "")) for scheduler in data if scheduler
+        ]
+        logger.info("Retrieved %s schedulers", len(schedulers))
+        return schedulers
+
     def set_model(self, model_name: str) -> bool:
         """
         Set the current SD model.
@@ -298,19 +423,19 @@ class SDWebUIClient:
         Returns:
             True if successful
         """
-        try:
-            payload = {"sd_model_checkpoint": model_name}
-            response = requests.post(
-                f"{self.base_url}/sdapi/v1/options",
-                json=payload,
-                timeout=30,  # Model switching can take time
-            )
-            response.raise_for_status()
-            logger.info(f"Set model to: {model_name}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to set model: {e}")
+        payload = {"sd_model_checkpoint": model_name}
+        response = self._perform_request(
+            "post",
+            "/sdapi/v1/options",
+            json=payload,
+            timeout=30,  # Model switching can take time
+        )
+
+        if response is None:
             return False
+
+        logger.info(f"Set model to: {model_name}")
+        return True
 
     def set_vae(self, vae_name: str) -> bool:
         """
@@ -322,15 +447,19 @@ class SDWebUIClient:
         Returns:
             True if successful
         """
-        try:
-            payload = {"sd_vae": vae_name}
-            response = requests.post(f"{self.base_url}/sdapi/v1/options", json=payload, timeout=10)
-            response.raise_for_status()
-            logger.info(f"Set VAE to: {vae_name}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to set VAE: {e}")
+        payload = {"sd_vae": vae_name}
+        response = self._perform_request(
+            "post",
+            "/sdapi/v1/options",
+            json=payload,
+            timeout=10,
+        )
+
+        if response is None:
             return False
+
+        logger.info(f"Set VAE to: {vae_name}")
+        return True
 
     def get_models_old(self) -> list[dict[str, Any]]:
         """
@@ -339,12 +468,14 @@ class SDWebUIClient:
         Returns:
             List of available models
         """
+        response = self._perform_request("get", "/sdapi/v1/sd-models", timeout=10)
+        if response is None:
+            return []
+
         try:
-            response = requests.get(f"{self.base_url}/sdapi/v1/sd-models", timeout=10)
-            response.raise_for_status()
             return response.json()
-        except Exception as e:
-            logger.error(f"Failed to get models: {e}")
+        except ValueError as exc:
+            logger.error(f"Failed to parse models response: {exc}")
             return []
 
     def get_samplers(self) -> list[dict[str, Any]]:
@@ -354,12 +485,14 @@ class SDWebUIClient:
         Returns:
             List of available samplers
         """
+        response = self._perform_request("get", "/sdapi/v1/samplers", timeout=10)
+        if response is None:
+            return []
+
         try:
-            response = requests.get(f"{self.base_url}/sdapi/v1/samplers", timeout=10)
-            response.raise_for_status()
             return response.json()
-        except Exception as e:
-            logger.error(f"Failed to get samplers: {e}")
+        except ValueError as exc:
+            logger.error(f"Failed to parse samplers response: {exc}")
             return []
 
     def get_current_model(self) -> str | None:
@@ -369,11 +502,14 @@ class SDWebUIClient:
         Returns:
             Current model name
         """
-        try:
-            response = requests.get(f"{self.base_url}/sdapi/v1/options", timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            return data.get("sd_model_checkpoint")
-        except Exception as e:
-            logger.error(f"Failed to get current model: {e}")
+        response = self._perform_request("get", "/sdapi/v1/options", timeout=10)
+        if response is None:
             return None
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.error(f"Failed to parse current model response: {exc}")
+            return None
+
+        return data.get("sd_model_checkpoint")

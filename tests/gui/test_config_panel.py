@@ -2,6 +2,13 @@
 Tests for ConfigPanel component.
 """
 
+import os
+import sys
+
+# Handle headless testing
+if sys.platform.startswith("linux") and "DISPLAY" not in os.environ:
+    os.environ["DISPLAY"] = ":99"
+
 import pytest
 
 # Skip these tests if tkinter is not available
@@ -327,3 +334,73 @@ class TestConfigPanelRoundTrip:
         final = panel.get_config()
         assert final["txt2img"]["steps"] == 25
         assert final["txt2img"]["cfg_scale"] == 7.5
+
+
+class TestConfigPanelOptionSetters:
+    """Test option setter methods (set_model_options, etc.)."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.root = tk.Tk()
+        self.root.withdraw()
+
+    def teardown_method(self):
+        """Clean up after tests."""
+        try:
+            self.root.destroy()
+        except:
+            pass
+
+    def test_set_model_options_with_valid_widgets(self):
+        """Test setting model options updates combobox values."""
+        panel = ConfigPanel(self.root)
+        models = ["model1.safetensors", "model2.ckpt", "model3.safetensors"]
+
+        # Should not raise an exception
+        panel.set_model_options(models)
+
+    def test_set_vae_options_with_valid_widgets(self):
+        """Test setting VAE options updates combobox values."""
+        panel = ConfigPanel(self.root)
+        vae_models = ["vae1.safetensors", "vae2.pt"]
+
+        # Should not raise an exception
+        panel.set_vae_options(vae_models)
+
+    def test_set_upscaler_options_with_valid_widgets(self):
+        """Test setting upscaler options updates combobox values."""
+        panel = ConfigPanel(self.root)
+        upscalers = ["R-ESRGAN 4x+", "ESRGAN_4x", "Lanczos"]
+
+        # Should not raise an exception
+        panel.set_upscaler_options(upscalers)
+
+    def test_set_scheduler_options_with_valid_widgets(self):
+        """Test setting scheduler options updates combobox values."""
+        panel = ConfigPanel(self.root)
+        schedulers = ["DPM++ 2M", "Euler a", "DDIM"]
+
+        # Should not raise an exception
+        panel.set_scheduler_options(schedulers)
+
+    def test_set_combobox_values_with_none_widget(self):
+        """Test that _set_combobox_values handles None widget gracefully."""
+        panel = ConfigPanel(self.root)
+
+        # Should not raise an exception when widget is None
+        panel._set_combobox_values(None, ["option1", "option2"])
+
+    def test_set_combobox_values_with_invalid_widget(self, caplog):
+        """Test that _set_combobox_values logs warning for invalid widget."""
+        import logging
+
+        panel = ConfigPanel(self.root)
+
+        # Create a widget that doesn't support 'values' attribute
+        invalid_widget = tk.Label(self.root, text="Not a combobox")
+
+        with caplog.at_level(logging.WARNING):
+            panel._set_combobox_values(invalid_widget, ["option1", "option2"])
+
+        # Should have logged a warning
+        assert any("Failed to set combobox values" in record.message for record in caplog.records)

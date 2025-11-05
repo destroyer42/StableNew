@@ -1,33 +1,81 @@
-"""Tests for LogPanel log method and scrolling.
-Created: 2025-11-02 22:31:47
-Updated: 2025-11-04
-"""
+"""Tests for LogPanel behaviors such as scrolling, filters, and clipboard."""
 
 import time
 
 from src.gui.log_panel import LogPanel
 
 
+def _pump_events(root, iterations=3, delay=0.05):
+    for _ in range(iterations):
+        root.update()
+        time.sleep(delay)
+
+
 def test_log_appends_to_widget_and_scrolls(tk_root):
-    """Test that log() appends messages and keeps view at bottom."""
+    """Test that log() appends messages and keeps view at bottom by default."""
     panel = LogPanel(tk_root, height=3)
 
-    # Add several log messages to force scrolling
     for i in range(20):
         panel.log(f"Message {i+1}", "INFO")
 
-    # Process the queue with multiple update cycles
-    for _ in range(3):
-        tk_root.update()
-        time.sleep(0.1)
+    _pump_events(tk_root)
 
-    # Check that messages were added
     log_content = panel.log_text.get("1.0", "end-1c")
     assert "Message 1" in log_content
     assert "Message 20" in log_content
 
-    # Verify scrolled near the bottom
     yview = panel.log_text.yview()
-    # Should be scrolled to bottom (bottom_fraction should be high)
-    # Using 0.9 threshold to account for Tk event loop timing
     assert yview[1] >= 0.9, f"Not scrolled near bottom: yview={yview}"
+
+
+def test_scroll_lock_prevents_auto_scroll(tk_root):
+    """Enabling scroll lock should prevent auto-scrolling on new messages."""
+    panel = LogPanel(tk_root, height=4)
+
+    for i in range(10):
+        panel.log(f"Initial {i}", "INFO")
+
+    _pump_events(tk_root)
+
+    panel.scroll_lock_var.set(True)
+    panel._on_scroll_lock_toggle()
+
+    panel.log_text.yview_moveto(0.0)
+
+    panel.log("Locked message", "INFO")
+
+    _pump_events(tk_root, iterations=2)
+
+    yview = panel.log_text.yview()
+    assert yview[1] < 0.9, "Scroll lock should keep the view away from the bottom"
+
+
+def test_level_filter_hides_and_restores_messages(tk_root):
+    """Disabling a level filter hides messages and re-enabling shows them again."""
+    panel = LogPanel(tk_root)
+
+    panel.log("Info visible", "INFO")
+    panel.log("Error visible", "ERROR")
+
+    _pump_events(tk_root)
+
+    content = panel.log_text.get("1.0", "end-1c")
+    assert "Info visible" in content
+    assert "Error visible" in content
+
+    panel.level_filter_vars["INFO"].set(False)
+    panel._on_filter_change()
+
+    _pump_events(tk_root, iterations=1)
+
+    filtered_content = panel.log_text.get("1.0", "end-1c")
+    assert "Info visible" not in filtered_content
+    assert "Error visible" in filtered_content
+
+    panel.level_filter_vars["INFO"].set(True)
+    panel._on_filter_change()
+
+    _pump_events(tk_root, iterations=1)
+
+    restored_content = panel.log_text.get("1.0", "end-1c")
+    assert "Info visible" in restored_content

@@ -1,6 +1,5 @@
 """Modern Tkinter GUI for Stable Diffusion pipeline with dark theme"""
 
-import json
 import logging
 import subprocess
 import sys
@@ -8,20 +7,24 @@ import threading
 import tkinter as tk
 import tkinter.simpledialog
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from ..api import SDWebUIClient
 from ..pipeline import Pipeline, VideoCreator
-from ..utils import ConfigManager, StructuredLogger, setup_logging
+from ..utils import ConfigManager, PreferencesManager, StructuredLogger, setup_logging
 from ..utils.file_io import read_prompt_pack
 from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
 from .advanced_prompt_editor import AdvancedPromptEditor
+from .api_status_panel import APIStatusPanel
+from .config_panel import ConfigPanel
 from .controller import PipelineController
 from .enhanced_slider import EnhancedSlider
+from .log_panel import LogPanel, TkinterLogHandler
 from .pipeline_controls_panel import PipelineControlsPanel
 from .prompt_pack_list_manager import PromptPackListManager
 from .prompt_pack_panel import PromptPackPanel
+from .self_test_runner import SelfTestRunner
 from .state import GUIState, StateManager
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,10 @@ class StableNewGUI:
 
         # Initialize components
         self.config_manager = ConfigManager()
+        self.preferences_manager = PreferencesManager()
+        self.preferences = self.preferences_manager.load_preferences(
+            self.config_manager.get_default_config()
+        )
         self.structured_logger = StructuredLogger()
         self.client = None
         self.pipeline = None
@@ -71,29 +78,53 @@ class StableNewGUI:
         self.pack_list_manager = PromptPackListManager()
 
         # GUI state
-        self.selected_packs = []
+        config_preferences = self.preferences.get("config", {})
+        api_preferences = config_preferences.get("api", {})
+        pipeline_preferences = self.preferences.get("pipeline_controls", {})
+
+        self.selected_packs = list(self.preferences.get("selected_packs", []))
         self.current_config = None
         self.api_connected = False
         self._last_selected_pack = None
-        self.current_preset = "default"
+        self.current_preset = self.preferences.get("preset", "default")
         self._refreshing_config = False  # Flag to prevent recursive refreshes
 
         # Initialize GUI variables early
-        self.api_url_var = tk.StringVar(value="http://127.0.0.1:7860")
-        self.preset_var = tk.StringVar(value="default")
+        self.api_url_var = tk.StringVar(
+            value=api_preferences.get("base_url", "http://127.0.0.1:7860")
+        )
+        self.preset_var = tk.StringVar(value=self.current_preset)
 
         # Initialize other GUI variables that are used before UI building
-        self.txt2img_enabled = tk.BooleanVar(value=True)
-        self.img2img_enabled = tk.BooleanVar(value=True)
-        self.upscale_enabled = tk.BooleanVar(value=True)
-        self.video_enabled = tk.BooleanVar(value=False)
-        self.loop_type_var = tk.StringVar(value="single")
-        self.loop_count_var = tk.StringVar(value="1")
-        self.pack_mode_var = tk.StringVar(value="selected")
-        self.images_per_prompt_var = tk.StringVar(value="1")
+        self.txt2img_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("txt2img_enabled", True)
+        )
+        self.img2img_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("img2img_enabled", True)
+        )
+        self.upscale_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("upscale_enabled", True)
+        )
+        self.video_enabled = tk.BooleanVar(
+            value=pipeline_preferences.get("video_enabled", False)
+        )
+        self.loop_type_var = tk.StringVar(value=pipeline_preferences.get("loop_type", "single"))
+        self.loop_count_var = tk.StringVar(
+            value=str(pipeline_preferences.get("loop_count", 1))
+        )
+        self.pack_mode_var = tk.StringVar(
+            value=pipeline_preferences.get("pack_mode", "selected")
+        )
+        self.images_per_prompt_var = tk.StringVar(
+            value=str(pipeline_preferences.get("images_per_prompt", 1))
+        )
         # Connection tuning (configurable)
         self.api_discovery_max_retries = 3
         self.api_discovery_retry_delay = 0.3  # seconds
+
+        # Status bar defaults
+        self._progress_eta_default = "ETA: --"
+        self._progress_idle_message = "Ready for next run"
 
         # Apply dark theme
         self._setup_dark_theme()
@@ -107,8 +138,18 @@ class StableNewGUI:
         # Build UI
         self._build_ui()
 
+        # Apply saved preferences after UI construction
+        self.root.after(0, self._apply_saved_preferences)
+
         # Setup logging redirect
         setup_logging("INFO")
+
+        # Initialize self-test runner after UI widgets are ready
+        self.self_test_runner = SelfTestRunner(
+            self.root,
+            on_log=lambda message: self.log_message(message, "INFO"),
+            on_state_change=self._on_self_test_state_change,
+        )
 
     def _setup_dark_theme(self):
         """Setup dark theme for the application"""
@@ -350,11 +391,9 @@ class StableNewGUI:
         )
         self.check_api_btn.pack(side=tk.LEFT, padx=(0, 10))
 
-        # Status indicator - compact
-        self.api_status_label = ttk.Label(
-            api_frame, text="● Disconnected", style="Dark.TLabel", foreground="#ff6b6b"
-        )
-        self.api_status_label.pack(side=tk.LEFT)
+        # Status indicator panel
+        self.api_status_panel = APIStatusPanel(api_frame, coordinator=self, style="Dark.TFrame")
+        self.api_status_panel.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def _build_prompt_pack_panel(self, parent):
         """Build compact prompt pack selection panel using PromptPackPanel component"""
@@ -385,12 +424,16 @@ class StableNewGUI:
         right_panel = ttk.Frame(parent, style="Dark.TFrame")
         right_panel.grid(row=0, column=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
 
-        # Configuration notebook in center
-        config_notebook = ttk.Notebook(center_panel, style="Dark.TNotebook")
-        config_notebook.pack(fill=tk.BOTH, expand=True)
+        # Unified configuration panel in center
+        self.config_panel = ConfigPanel(center_panel, coordinator=self, style="Dark.TFrame")
+        self.config_panel.pack(fill=tk.BOTH, expand=True)
 
-        # Configuration display tab
-        self._build_config_display_tab(config_notebook)
+        # Expose config panel variable dictionaries for legacy helpers
+        self.txt2img_vars = self.config_panel.txt2img_vars
+        self.img2img_vars = self.config_panel.img2img_vars
+        self.upscale_vars = self.config_panel.upscale_vars
+        self.api_vars = self.config_panel.api_vars
+        self.config_status_label = self.config_panel.config_status_label
 
         # Pipeline controls in right panel
         self._build_pipeline_controls_panel(right_panel)
@@ -407,8 +450,13 @@ class StableNewGUI:
         # Destroy old panel if present
         if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
             self.pipeline_controls_panel.destroy()
+        # Determine initial state for the new panel
+        initial_state = prev_state if prev_state is not None else self.preferences.get("pipeline_controls")
+
         # Create the PipelineControlsPanel component
-        self.pipeline_controls_panel = PipelineControlsPanel(parent, style="Dark.TFrame")
+        self.pipeline_controls_panel = PipelineControlsPanel(
+            parent, initial_state=initial_state, style="Dark.TFrame"
+        )
         self.pipeline_controls_panel.pack(fill=tk.BOTH, expand=True)
         # Restore previous state if available
         if prev_state:
@@ -689,6 +737,14 @@ class StableNewGUI:
         util_buttons = ttk.Frame(actions_frame, style="Dark.TFrame")
         util_buttons.pack(side=tk.RIGHT)
 
+        self.smoke_tests_btn = ttk.Button(
+            util_buttons,
+            text="🧪 Smoke Tests",
+            command=self._run_smoke_tests,
+            style="Dark.TButton",
+        )
+        self.smoke_tests_btn.pack(side=tk.LEFT, padx=(0, 10))
+
         ttk.Button(
             util_buttons,
             text="📁 Open Output",
@@ -706,27 +762,13 @@ class StableNewGUI:
             side=tk.LEFT
         )  # Red accent for exit
 
-        # Compact live log panel
-        log_frame = ttk.LabelFrame(bottom_frame, text="📋 Live Log", style="Dark.TFrame", padding=5)
-        log_frame.pack(fill=tk.BOTH, expand=True)
+        # Live log panel using LogPanel component
+        self.log_panel = LogPanel(bottom_frame, coordinator=self, height=6, style="Dark.TFrame")
+        self.log_panel.pack(fill=tk.BOTH, expand=True)
 
-        # Compact log text widget
-        self.log_text = scrolledtext.ScrolledText(
-            log_frame,
-            height=6,
-            wrap=tk.WORD,
-            bg="#1e1e1e",
-            fg="#ffffff",
-            font=("Consolas", 8),
-            state=tk.DISABLED,
-        )
-        self.log_text.pack(fill=tk.BOTH, expand=True)
-
-        # Configure log colors
-        self.log_text.tag_configure("INFO", foreground="#4CAF50")
-        self.log_text.tag_configure("WARNING", foreground="#FF9800")
-        self.log_text.tag_configure("ERROR", foreground="#f44336")
-        self.log_text.tag_configure("SUCCESS", foreground="#2196F3")
+        # Attach logging handler to redirect standard logging to GUI
+        self.gui_log_handler = TkinterLogHandler(self.log_panel)
+        logging.getLogger().addHandler(self.gui_log_handler)
 
     def _build_status_bar(self, parent):
         """Build status bar showing current state"""
@@ -739,7 +781,19 @@ class StableNewGUI:
         )
         self.state_label.pack(side=tk.LEFT, padx=5)
 
+        # Progress bar
+        self.progress_bar = ttk.Progressbar(status_frame, mode="determinate")
+        self.progress_bar.config(maximum=100, value=0)
+        self.progress_bar.pack(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
+
+        # ETA indicator
+        self.eta_var = tk.StringVar(value=self._progress_eta_default)
+        ttk.Label(status_frame, textvariable=self.eta_var, style="Dark.TLabel").pack(
+            side=tk.LEFT, padx=5
+        )
+
         # Progress message
+        self.progress_message_var = tk.StringVar(value=self._progress_idle_message)
         ttk.Label(status_frame, textvariable=self.progress_message_var, style="Dark.TLabel").pack(
             side=tk.LEFT, padx=10
         )
@@ -748,6 +802,40 @@ class StableNewGUI:
         ttk.Label(status_frame, text="", style="Dark.TLabel").pack(
             side=tk.LEFT, fill=tk.X, expand=True
         )
+
+        self._apply_progress_reset()
+
+    def _apply_progress_reset(self, message: str | None = None) -> None:
+        """Reset progress UI elements synchronously."""
+        if hasattr(self, "progress_bar"):
+            self.progress_bar.config(value=0)
+        if hasattr(self, "eta_var"):
+            self.eta_var.set(self._progress_eta_default)
+        if hasattr(self, "progress_message_var"):
+            self.progress_message_var.set(message or self._progress_idle_message)
+
+    def _reset_progress_ui(self, message: str | None = None) -> None:
+        """Thread-safe reset for the progress UI."""
+        self.root.after(0, lambda: self._apply_progress_reset(message))
+
+    def _apply_progress_update(self, stage: str, percent: float, eta: str | None) -> None:
+        """Apply progress updates to the UI synchronously."""
+        clamped_percent = max(0.0, min(100.0, float(percent) if percent is not None else 0.0))
+        if hasattr(self, "progress_bar"):
+            self.progress_bar.config(value=clamped_percent)
+
+        if hasattr(self, "progress_message_var"):
+            stage_text = stage.strip() if stage else "Progress"
+            self.progress_message_var.set(f"{stage_text} ({clamped_percent:.0f}%)")
+
+        if hasattr(self, "eta_var"):
+            self.eta_var.set(
+                f"ETA: {eta}" if eta else self._progress_eta_default
+            )
+
+    def _update_progress(self, stage: str, percent: float, eta: str | None = None) -> None:
+        """Schedule a progress UI update from worker threads."""
+        self.root.after(0, lambda: self._apply_progress_update(stage, percent, eta))
 
     def _setup_state_callbacks(self):
         """Setup callbacks for state transitions"""
@@ -764,10 +852,22 @@ class StableNewGUI:
             color, text = state_colors.get(new_state, ("#888888", "● Unknown"))
             self.state_label.config(text=text, foreground=color)
 
+            if new_state == GUIState.RUNNING:
+                self.progress_message_var.set("Running pipeline...")
+            elif new_state == GUIState.STOPPING:
+                self.progress_message_var.set("Cancelling pipeline...")
+            elif new_state == GUIState.ERROR:
+                self.progress_message_var.set("Error")
+            elif new_state == GUIState.IDLE and old_state == GUIState.STOPPING:
+                self.progress_message_var.set("Ready")
+
             # Update button states
             if new_state == GUIState.RUNNING:
                 self.run_pipeline_btn.config(state=tk.DISABLED)
-            elif new_state in (GUIState.IDLE, GUIState.ERROR):
+            elif new_state == GUIState.IDLE:
+                self._reset_progress_ui()
+                self.run_pipeline_btn.config(state=tk.NORMAL if self.api_connected else tk.DISABLED)
+            elif new_state == GUIState.ERROR:
                 self.run_pipeline_btn.config(state=tk.NORMAL if self.api_connected else tk.DISABLED)
 
         self.state_manager.on_transition(on_state_change)
@@ -820,16 +920,11 @@ class StableNewGUI:
         api_url_snapshot = self.api_url_var.get()
 
         # Indicate connecting state immediately
-        if hasattr(self, "api_status_label"):
-            self.api_status_label.config(text="⏳ Connecting...", foreground="#FF9800")
+        if hasattr(self, "api_status_panel"):
+            self.api_status_panel.set_status("Connecting...", "yellow")
 
         # Start spinner animation (on main thread)
-        try:
-            self._api_spinner_running = True
-            self._api_spinner_idx = 0
-            self.root.after(0, self._animate_api_spinner)
-        except Exception:
-            pass
+        self._api_spinner_running = False
 
         def check_in_thread(api_url: str):
             # Try the specified URL first
@@ -849,11 +944,18 @@ class StableNewGUI:
                 self.root.after(0, lambda: self._update_api_status(True, api_url))
 
                 if health["models_loaded"]:
-                    self.root.after(0, lambda: self.log_message(
-                        f"✅ API connected! Found {health.get('model_count', 0)} models", "SUCCESS"
-                    ))
+                    self.root.after(
+                        0,
+                        lambda: self.log_message(
+                            f"✅ API connected! Found {health.get('model_count', 0)} models",
+                            "SUCCESS",
+                        ),
+                    )
                 else:
-                    self.root.after(0, lambda: self.log_message("⚠️ API connected but no models loaded", "WARNING"))
+                    self.root.after(
+                        0,
+                        lambda: self.log_message("⚠️ API connected but no models loaded", "WARNING"),
+                    )
                 return
 
             # If direct connection failed, try port discovery
@@ -861,11 +963,12 @@ class StableNewGUI:
             discovered_url = None
             try:
                 import time
-                for _ in range(getattr(self, 'api_discovery_max_retries', 3)):
+
+                for _ in range(getattr(self, "api_discovery_max_retries", 3)):
                     discovered_url = find_webui_api_port()
                     if discovered_url:
                         break
-                    time.sleep(getattr(self, 'api_discovery_retry_delay', 0.3))
+                    time.sleep(getattr(self, "api_discovery_retry_delay", 0.3))
             except Exception:
                 discovered_url = None
 
@@ -885,28 +988,43 @@ class StableNewGUI:
                     self.root.after(0, lambda: self._update_api_status(True, discovered_url))
 
                     if health["models_loaded"]:
-                        self.root.after(0, lambda: self.log_message(
-                            f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models",
-                            "SUCCESS",
-                        ))
+                        self.root.after(
+                            0,
+                            lambda: self.log_message(
+                                f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models",
+                                "SUCCESS",
+                            ),
+                        )
                     else:
-                        self.root.after(0, lambda: self.log_message("⚠️ API found but no models loaded", "WARNING"))
+                        self.root.after(
+                            0,
+                            lambda: self.log_message("⚠️ API found but no models loaded", "WARNING"),
+                        )
                     return
 
             # Connection failed
             self.api_connected = False
             self.root.after(0, lambda: self._update_api_status(False))
-            self.root.after(0, lambda: self.log_message(
-                "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
-            ))
-            self.root.after(0, lambda: self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO"))
+            self.root.after(
+                0,
+                lambda: self.log_message(
+                    "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
+                ),
+            )
+            self.root.after(
+                0,
+                lambda: self.log_message(
+                    "💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO"
+                ),
+            )
 
         threading.Thread(target=lambda: check_in_thread(api_url_snapshot), daemon=True).start()
 
     def _update_api_status(self, connected: bool, url: str = None):
         """Update API status indicator"""
         if connected:
-            self.api_status_label.config(text="● Connected", foreground="#4CAF50")
+            if hasattr(self, "api_status_panel"):
+                self.api_status_panel.set_status("Connected", "green")
             self.run_pipeline_btn.config(state=tk.NORMAL)
 
             # Update URL field if we found a different working port
@@ -917,17 +1035,26 @@ class StableNewGUI:
             # Refresh models, VAE, upscalers, and schedulers when connected
             def refresh_all():
                 try:
-                    self._refresh_models()
-                    self._refresh_vae_models()
-                    self._refresh_upscalers()
-                    self._refresh_schedulers()
-                except Exception as e:
-                    self.log_message(f"⚠️ Failed to refresh model lists: {e}", "WARNING")
+                    # Perform API calls in worker thread
+                    self._refresh_models_async()
+                    self._refresh_vae_models_async()
+                    self._refresh_upscalers_async()
+                    self._refresh_schedulers_async()
+                except Exception as exc:
+                    # Marshal error message back to main thread
+                    # Capture exception in default argument to avoid closure issues
+                    self.root.after(
+                        0,
+                        lambda err=exc: self.log_message(
+                            f"⚠️ Failed to refresh model lists: {err}", "WARNING"
+                        ),
+                    )
 
             # Run refresh in a separate thread to avoid blocking UI
             threading.Thread(target=refresh_all, daemon=True).start()
         else:
-            self.api_status_label.config(text="● Disconnected", foreground="#f44336")
+            if hasattr(self, "api_status_panel"):
+                self.api_status_panel.set_status("Disconnected", "red")
             self.run_pipeline_btn.config(state=tk.DISABLED)
 
     def _on_pack_selection_changed_mediator(self, selected_packs: list[str]):
@@ -942,10 +1069,10 @@ class StableNewGUI:
 
         if selected_packs:
             pack_name = selected_packs[0]
-            self._add_log_message(f"📦 Selected pack: {pack_name}")
+            self.log_message(f"📦 Selected pack: {pack_name}")
             self._last_selected_pack = pack_name
         else:
-            self._add_log_message("No pack selected")
+            self.log_message("No pack selected")
             self._last_selected_pack = None
 
         # Refresh configuration for selected pack
@@ -956,7 +1083,7 @@ class StableNewGUI:
         selected_indices = self.packs_listbox.curselection()
         if selected_indices:
             pack_name = self.packs_listbox.get(selected_indices[0])
-            self._add_log_message(f"📦 Selected pack: {pack_name}")
+            self.log_message(f"📦 Selected pack: {pack_name}")
 
             # Store current selection to prevent unwanted deselection
             self._last_selected_pack = pack_name
@@ -970,7 +1097,7 @@ class StableNewGUI:
                 self._preserve_pack_selection()
                 return  # Don't proceed if we're restoring selection
             else:
-                self._add_log_message("No pack selected")
+                self.log_message("No pack selected")
                 self._last_selected_pack = None
 
         # Refresh configuration for selected pack
@@ -996,7 +1123,7 @@ class StableNewGUI:
             self.prompt_pack_panel.select_first_pack()
 
         # Update log
-        self._add_log_message("GUI initialized - ready for pipeline configuration")
+        self.log_message("GUI initialized - ready for pipeline configuration")
 
     def _refresh_prompt_packs(self):
         """Refresh the prompt packs list"""
@@ -1112,122 +1239,27 @@ class StableNewGUI:
 
     def _set_config_editable(self, editable: bool):
         """Enable/disable config form controls"""
-        state = "normal" if editable else "disabled"
-
-        # Disable/enable config widgets (this will be enhanced when we add the status display)
-        if hasattr(self, "txt2img_vars"):
-            for widget_name in ["steps", "cfg_scale", "width", "height", "sampler_name"]:
-                if widget_name in getattr(self, "txt2img_widgets", {}):
-                    try:
-                        self.txt2img_widgets[widget_name].configure(state=state)
-                    except:
-                        pass  # Some widgets might not support state changes
+        if hasattr(self, "config_panel"):
+            self.config_panel.set_editable(editable)
 
     def _show_config_status(self, message: str):
         """Show configuration status message in the config area"""
-        if hasattr(self, "config_status_label"):
-            self.config_status_label.configure(text=message)
+        if hasattr(self, "config_panel"):
+            self.config_panel.set_status_message(message)
 
     def _get_config_from_forms(self) -> dict[str, Any]:
         """Extract current configuration from GUI forms"""
-        config = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        base_config = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        if hasattr(self, "config_panel"):
+            try:
+                base_config = self.config_panel.get_config()
+            except Exception as exc:
+                self.log_message(f"Error reading config from forms: {exc}", "ERROR")
 
-        try:
-            # txt2img config
-            if hasattr(self, "txt2img_vars"):
-                config["txt2img"] = {
-                    "steps": self.txt2img_vars.get("steps", tk.IntVar(value=20)).get(),
-                    "cfg_scale": self.txt2img_vars.get("cfg_scale", tk.DoubleVar(value=7.0)).get(),
-                    "width": self.txt2img_vars.get("width", tk.IntVar(value=512)).get(),
-                    "height": self.txt2img_vars.get("height", tk.IntVar(value=512)).get(),
-                    "negative_prompt": self.txt2img_vars.get(
-                        "negative_prompt", tk.StringVar()
-                    ).get(),
-                    "sampler_name": self.txt2img_vars.get(
-                        "sampler_name", tk.StringVar(value="Euler a")
-                    ).get(),
-                    "scheduler": self.txt2img_vars.get(
-                        "scheduler", tk.StringVar(value="normal")
-                    ).get(),
-                    "seed": self.txt2img_vars.get("seed", tk.IntVar(value=-1)).get(),
-                    "clip_skip": self.txt2img_vars.get("clip_skip", tk.IntVar(value=2)).get(),
-                    "model": self.txt2img_vars.get("model", tk.StringVar(value="")).get(),
-                    "vae": self.txt2img_vars.get("vae", tk.StringVar(value="")).get(),
-                    "enable_hr": self.txt2img_vars.get(
-                        "enable_hr", tk.BooleanVar(value=False)
-                    ).get(),
-                    "hr_scale": self.txt2img_vars.get("hr_scale", tk.DoubleVar(value=2.0)).get(),
-                    "hr_upscaler": self.txt2img_vars.get(
-                        "hr_upscaler", tk.StringVar(value="Latent")
-                    ).get(),
-                    "denoising_strength": self.txt2img_vars.get(
-                        "denoising_strength", tk.DoubleVar(value=0.7)
-                    ).get(),
-                }
+        if hasattr(self, "pipeline_controls_panel"):
+            base_config["pipeline"] = self.pipeline_controls_panel.get_settings()
 
-                # Get prompt from text widget if available
-                if hasattr(self, "pos_text"):
-                    config["txt2img"]["prompt"] = self.pos_text.get(1.0, tk.END).strip()
-
-            # img2img config
-            if hasattr(self, "img2img_vars"):
-                config["img2img"] = {
-                    "steps": self.img2img_vars.get("steps", tk.IntVar(value=15)).get(),
-                    "denoising_strength": self.img2img_vars.get(
-                        "denoising_strength", tk.DoubleVar(value=0.3)
-                    ).get(),
-                    "sampler_name": self.img2img_vars.get(
-                        "sampler_name", tk.StringVar(value="Euler a")
-                    ).get(),
-                    "scheduler": self.img2img_vars.get(
-                        "scheduler", tk.StringVar(value="normal")
-                    ).get(),
-                    "cfg_scale": self.img2img_vars.get("cfg_scale", tk.DoubleVar(value=7.0)).get(),
-                    "seed": self.img2img_vars.get("seed", tk.IntVar(value=-1)).get(),
-                    "clip_skip": self.img2img_vars.get("clip_skip", tk.IntVar(value=2)).get(),
-                    "model": self.img2img_vars.get("model", tk.StringVar(value="")).get(),
-                    "vae": self.img2img_vars.get("vae", tk.StringVar(value="")).get(),
-                }
-
-            # upscale config
-            if hasattr(self, "upscale_vars"):
-                config["upscale"] = {
-                    "upscaler": self.upscale_vars.get(
-                        "upscaler", tk.StringVar(value="R-ESRGAN 4x+")
-                    ).get(),
-                    "upscaling_resize": self.upscale_vars.get(
-                        "upscaling_resize", tk.DoubleVar(value=2.0)
-                    ).get(),
-                    "mode": self.upscale_vars.get(
-                        "upscale_mode", tk.StringVar(value="single")
-                    ).get(),
-                    "denoising_strength": self.upscale_vars.get(
-                        "denoising_strength", tk.DoubleVar(value=0.2)
-                    ).get(),
-                    "gfpgan_visibility": self.upscale_vars.get(
-                        "gfpgan_visibility", tk.DoubleVar(value=0.0)
-                    ).get(),
-                    "codeformer_visibility": self.upscale_vars.get(
-                        "codeformer_visibility", tk.DoubleVar(value=0.0)
-                    ).get(),
-                    "codeformer_weight": self.upscale_vars.get(
-                        "codeformer_weight", tk.DoubleVar(value=0.5)
-                    ).get(),
-                }
-
-            # api config
-            if hasattr(self, "api_vars"):
-                config["api"] = {
-                    "base_url": self.api_vars.get(
-                        "base_url", tk.StringVar(value="http://127.0.0.1:7860")
-                    ).get(),
-                    "timeout": self.api_vars.get("timeout", tk.IntVar(value=300)).get(),
-                }
-
-        except Exception as e:
-            self.log_message(f"Error reading config from forms: {e}", "ERROR")
-
-        return config
+        return base_config
 
     def _save_current_pack_config(self):
         """Save current configuration to the selected pack (single pack mode only)"""
@@ -1249,12 +1281,8 @@ class StableNewGUI:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         log_entry = f"[{timestamp}] {message}\n"
 
-        # Only update GUI if log_text widget exists
-        if hasattr(self, "log_text"):
-            self.log_text.config(state=tk.NORMAL)
-            self.log_text.insert(tk.END, log_entry, level)
-            self.log_text.see(tk.END)
-            self.log_text.config(state=tk.DISABLED)
+        if hasattr(self, "log_panel"):
+            self.log_panel.log(log_entry.strip(), level)
 
         # Also log to Python logger
         if level == "ERROR":
@@ -1263,6 +1291,24 @@ class StableNewGUI:
             logger.warning(message)
         else:
             logger.info(message)
+
+    def _on_self_test_state_change(self, is_running: bool) -> None:
+        """Update UI controls when smoke tests start or complete."""
+
+        if hasattr(self, "smoke_tests_btn"):
+            new_state = tk.DISABLED if is_running else tk.NORMAL
+            self.smoke_tests_btn.config(state=new_state)
+
+    def _run_smoke_tests(self) -> None:
+        """Trigger the background smoke test run."""
+
+        if not getattr(self, "self_test_runner", None):
+            messagebox.showerror("Smoke Tests", "Self-test runner not initialized")
+            return
+
+        started = self.self_test_runner.run_smoke_tests()
+        if not started:
+            messagebox.showinfo("Smoke Tests", "Smoke tests are already running.")
 
     def _run_full_pipeline(self):
         """Run the complete pipeline"""
@@ -1607,6 +1653,14 @@ class StableNewGUI:
             self.log_message("✅ Graceful shutdown complete", "SUCCESS")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
+
+        # Persist current preferences
+        try:
+            preferences = self._collect_preferences()
+            if self.preferences_manager.save_preferences(preferences):
+                self.preferences = preferences
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            logger.error(f"Failed to save preferences: {exc}")
 
         self.root.quit()
         self.root.destroy()
@@ -2493,93 +2547,8 @@ class StableNewGUI:
             selected_pack = self.packs_listbox.get(current_selection[0])
 
         try:
-            # txt2img config
-            txt2img_config = config.get("txt2img", {})
-            if hasattr(self, "txt2img_vars"):
-                self.txt2img_vars["steps"].set(txt2img_config.get("steps", 20))
-                # Handle both old and new sampler format
-                sampler_name = txt2img_config.get("sampler_name", "Euler a")
-                if "scheduler" in txt2img_config and txt2img_config["scheduler"] != "Automatic":
-                    sampler_display = f"{sampler_name} {txt2img_config['scheduler']}"
-                else:
-                    sampler_display = sampler_name
-                self.txt2img_vars["sampler_name"].set(sampler_display)
-
-                self.txt2img_vars["cfg_scale"].set(txt2img_config.get("cfg_scale", 7.0))
-                self.txt2img_vars["width"].set(txt2img_config.get("width", 512))
-                self.txt2img_vars["height"].set(txt2img_config.get("height", 512))
-                self.txt2img_vars["negative_prompt"].set(txt2img_config.get("negative_prompt", ""))
-
-                # New parameters
-                self.txt2img_vars["seed"].set(txt2img_config.get("seed", -1))
-                self.txt2img_vars["clip_skip"].set(txt2img_config.get("clip_skip", 2))
-                self.txt2img_vars["scheduler"].set(txt2img_config.get("scheduler", "normal"))
-                self.txt2img_vars["model"].set(txt2img_config.get("model", ""))
-                self.txt2img_vars["vae"].set(txt2img_config.get("vae", ""))
-
-                # Hires.fix parameters
-                self.txt2img_vars["enable_hr"].set(txt2img_config.get("enable_hr", False))
-                self.txt2img_vars["hr_scale"].set(txt2img_config.get("hr_scale", 2.0))
-                self.txt2img_vars["hr_upscaler"].set(
-                    txt2img_config.get("hr_upscaler", "R-ESRGAN 4x+")
-                )
-                self.txt2img_vars["denoising_strength"].set(
-                    txt2img_config.get("denoising_strength", 0.7)
-                )
-
-                # Update text widgets if they exist
-                if hasattr(self, "pos_text"):
-                    self.pos_text.delete(1.0, tk.END)
-                    self.pos_text.insert(1.0, txt2img_config.get("prompt", ""))
-
-                if hasattr(self, "neg_text"):
-                    self.neg_text.delete(1.0, tk.END)
-                    self.neg_text.insert(1.0, txt2img_config.get("negative_prompt", ""))
-
-            # img2img config
-            img2img_config = config.get("img2img", {})
-            if hasattr(self, "img2img_vars"):
-                self.img2img_vars["steps"].set(img2img_config.get("steps", 15))
-                self.img2img_vars["denoising_strength"].set(
-                    img2img_config.get("denoising_strength", 0.3)
-                )
-                self.img2img_vars["sampler_name"].set(img2img_config.get("sampler_name", "Euler a"))
-                self.img2img_vars["scheduler"].set(img2img_config.get("scheduler", "normal"))
-                self.img2img_vars["cfg_scale"].set(img2img_config.get("cfg_scale", 7.0))
-                self.img2img_vars["seed"].set(img2img_config.get("seed", -1))
-                self.img2img_vars["clip_skip"].set(img2img_config.get("clip_skip", 2))
-                self.img2img_vars["model"].set(img2img_config.get("model", ""))
-                self.img2img_vars["vae"].set(img2img_config.get("vae", ""))
-
-            # upscale config
-            upscale_config = config.get("upscale", {})
-            if hasattr(self, "upscale_vars"):
-                self.upscale_vars["upscaler"].set(upscale_config.get("upscaler", "R-ESRGAN 4x+"))
-                self.upscale_vars["upscaling_resize"].set(
-                    upscale_config.get("upscaling_resize", 2.0)
-                )
-                if "upscale_mode" in self.upscale_vars:
-                    self.upscale_vars["upscale_mode"].set(upscale_config.get("mode", "single"))
-                self.upscale_vars["denoising_strength"].set(
-                    upscale_config.get("denoising_strength", 0.2)
-                )
-                self.upscale_vars["gfpgan_visibility"].set(
-                    upscale_config.get("gfpgan_visibility", 0.5)
-                )
-                self.upscale_vars["codeformer_visibility"].set(
-                    upscale_config.get("codeformer_visibility", 0.0)
-                )
-                if "codeformer_weight" in self.upscale_vars:
-                    self.upscale_vars["codeformer_weight"].set(
-                        upscale_config.get("codeformer_weight", 0.5)
-                    )
-
-            # api config
-            api_config = config.get("api", {})
-            if hasattr(self, "api_vars"):
-                self.api_vars["base_url"].set(api_config.get("base_url", "http://127.0.0.1:7860"))
-                self.api_vars["timeout"].set(api_config.get("timeout", 300))
-
+            if hasattr(self, "config_panel"):
+                self.config_panel.set_config(config)
         except Exception as e:
             self.log_message(f"Error loading config into forms: {e}", "ERROR")
 
@@ -2590,6 +2559,77 @@ class StableNewGUI:
                     self.packs_listbox.selection_set(i)
                     self.packs_listbox.activate(i)
                     break
+
+    def _apply_saved_preferences(self):
+        """Apply persisted preferences to the current UI session."""
+
+        prefs = getattr(self, "preferences", None)
+        if not prefs:
+            return
+
+        try:
+            # Restore preset selection and override mode
+            self.current_preset = prefs.get("preset", "default")
+            if hasattr(self, "preset_var"):
+                self.preset_var.set(self.current_preset)
+            if hasattr(self, "override_pack_var"):
+                self.override_pack_var.set(prefs.get("override_pack", False))
+
+            # Restore pipeline control toggles
+            pipeline_state = prefs.get("pipeline_controls")
+            if pipeline_state and hasattr(self, "pipeline_controls_panel"):
+                try:
+                    self.pipeline_controls_panel.set_state(pipeline_state)
+                except Exception as exc:
+                    logger.warning(f"Failed to restore pipeline preferences: {exc}")
+
+            # Restore pack selections
+            selected_packs = prefs.get("selected_packs", [])
+            if selected_packs and hasattr(self, "packs_listbox"):
+                self.packs_listbox.selection_clear(0, tk.END)
+                for pack_name in selected_packs:
+                    for index in range(self.packs_listbox.size()):
+                        if self.packs_listbox.get(index) == pack_name:
+                            self.packs_listbox.selection_set(index)
+                            self.packs_listbox.activate(index)
+                self._update_selection_highlights()
+                self.selected_packs = selected_packs
+                if selected_packs:
+                    self._last_selected_pack = selected_packs[0]
+
+            # Restore configuration values into forms
+            config = prefs.get("config")
+            if config:
+                self._load_config_into_forms(config)
+                self.current_config = config
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            logger.warning(f"Failed to apply saved preferences: {exc}")
+
+    def _collect_preferences(self) -> dict[str, Any]:
+        """Collect current UI preferences for persistence."""
+
+        preferences = {
+            "preset": self.preset_var.get() if hasattr(self, "preset_var") else "default",
+            "selected_packs": [],
+            "override_pack": bool(self.override_pack_var.get())
+            if hasattr(self, "override_pack_var")
+            else False,
+            "pipeline_controls": self.preferences_manager.default_pipeline_controls(),
+            "config": self._get_config_from_forms(),
+        }
+
+        if hasattr(self, "packs_listbox"):
+            preferences["selected_packs"] = [
+                self.packs_listbox.get(i) for i in self.packs_listbox.curselection()
+            ]
+
+        if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
+            try:
+                preferences["pipeline_controls"] = self.pipeline_controls_panel.get_state()
+            except Exception as exc:  # pragma: no cover - defensive logging path
+                logger.warning(f"Failed to capture pipeline controls state: {exc}")
+
+        return preferences
 
     def _build_pipeline_tab(self, parent):
         """Build pipeline execution tab"""
@@ -2824,12 +2864,21 @@ class StableNewGUI:
 
         # Error callback
         def on_error(e):
-            self.root.after(0, lambda: self.log_message(f"✗ Error: {str(e)}", "ERROR"))
-            self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
-            self.root.after(0, lambda: self.controller.report_progress("Error", 0.0, "Error"))
+            self.root.after(0, lambda: self._handle_pipeline_error(e))
 
         # Start pipeline using controller
         self.controller.start_pipeline(pipeline_func, on_complete=on_complete, on_error=on_error)
+
+    def _handle_pipeline_error(self, error: Exception) -> None:
+        """Log and surface pipeline errors to the user."""
+
+        error_message = f"Pipeline failed: {type(error).__name__}: {error}"
+        self.log_message(f"✗ {error_message}", "ERROR")
+        try:
+            messagebox.showerror("Pipeline Error", error_message)
+        except tk.TclError:
+            logger.error("Unable to display error dialog", exc_info=True)
+        # Progress message update is handled by state transition callback; redundant here.
 
     def _create_video(self):
         """Create video from output images"""
@@ -2861,7 +2910,7 @@ class StableNewGUI:
         messagebox.showerror("Error", "No image directories found")
 
     def _refresh_models(self):
-        """Refresh the list of available SD models"""
+        """Refresh the list of available SD models (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2872,18 +2921,46 @@ class StableNewGUI:
                 model.get("title", model.get("model_name", "")) for model in models
             ]
 
-            # Update all model comboboxes
-            if hasattr(self, "model_combo"):
-                self.model_combo["values"] = model_names
-            if hasattr(self, "img2img_model_combo"):
-                self.img2img_model_combo["values"] = model_names
+            if hasattr(self, "config_panel"):
+                self.config_panel.set_model_options(model_names)
 
-            self._add_log_message(f"🔄 Loaded {len(models)} SD models")
+            self.log_message(f"🔄 Loaded {len(models)} SD models")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh models: {e}")
 
+    def _refresh_models_async(self):
+        """Refresh the list of available SD models (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            models = self.client.get_models()
+            model_names = [""] + [
+                model.get("title", model.get("model_name", "")) for model in models
+            ]
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "model_combo"):
+                    self.model_combo["values"] = model_names
+                if hasattr(self, "img2img_model_combo"):
+                    self.img2img_model_combo["values"] = model_names
+                self._add_log_message(f"🔄 Loaded {len(models)} SD models")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror("Error", f"Failed to refresh models: {err}"),
+            )
+
     def _refresh_vae_models(self):
-        """Refresh the list of available VAE models"""
+        """Refresh the list of available VAE models (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2892,18 +2969,46 @@ class StableNewGUI:
             vae_models = self.client.get_vae_models()
             vae_names = [""] + [vae.get("model_name", "") for vae in vae_models]
 
-            # Update all VAE comboboxes
-            if hasattr(self, "vae_combo"):
-                self.vae_combo["values"] = vae_names
-            if hasattr(self, "img2img_vae_combo"):
-                self.img2img_vae_combo["values"] = vae_names
+            if hasattr(self, "config_panel"):
+                self.config_panel.set_vae_options(vae_names)
 
-            self._add_log_message(f"🔄 Loaded {len(vae_models)} VAE models")
+            self.log_message(f"🔄 Loaded {len(vae_models)} VAE models")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh VAE models: {e}")
 
+    def _refresh_vae_models_async(self):
+        """Refresh the list of available VAE models (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            vae_models = self.client.get_vae_models()
+            vae_names = [""] + [vae.get("model_name", "") for vae in vae_models]
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "vae_combo"):
+                    self.vae_combo["values"] = vae_names
+                if hasattr(self, "img2img_vae_combo"):
+                    self.img2img_vae_combo["values"] = vae_names
+                self._add_log_message(f"🔄 Loaded {len(vae_models)} VAE models")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror(
+                    "Error", f"Failed to refresh VAE models: {err}"
+                ),
+            )
+
     def _refresh_upscalers(self):
-        """Refresh the list of available upscalers"""
+        """Refresh the list of available upscalers (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2914,16 +3019,46 @@ class StableNewGUI:
                 upscaler.get("name", "") for upscaler in upscalers if upscaler.get("name")
             ]
 
-            # Update upscaler combobox
-            if hasattr(self, "upscaler_combo"):
-                self.upscaler_combo["values"] = upscaler_names
+            if hasattr(self, "config_panel"):
+                self.config_panel.set_upscaler_options(upscaler_names)
 
-            self._add_log_message(f"🔄 Loaded {len(upscalers)} upscalers")
+            self.log_message(f"🔄 Loaded {len(upscalers)} upscalers")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh upscalers: {e}")
 
+    def _refresh_upscalers_async(self):
+        """Refresh the list of available upscalers (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            upscalers = self.client.get_upscalers()
+            upscaler_names = [
+                upscaler.get("name", "") for upscaler in upscalers if upscaler.get("name")
+            ]
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "upscaler_combo"):
+                    self.upscaler_combo["values"] = upscaler_names
+                self._add_log_message(f"🔄 Loaded {len(upscalers)} upscalers")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror(
+                    "Error", f"Failed to refresh upscalers: {err}"
+                ),
+            )
+
     def _refresh_schedulers(self):
-        """Refresh the list of available schedulers"""
+        """Refresh the list of available schedulers (main thread version)"""
         if not self.client:
             messagebox.showerror("Error", "API client not connected")
             return
@@ -2931,22 +3066,49 @@ class StableNewGUI:
         try:
             schedulers = self.client.get_schedulers()
 
-            # Update all scheduler comboboxes
-            if hasattr(self, "scheduler_combo"):
-                self.scheduler_combo["values"] = schedulers
-            if hasattr(self, "img2img_scheduler_combo"):
-                self.img2img_scheduler_combo["values"] = schedulers
+            if hasattr(self, "config_panel"):
+                self.config_panel.set_scheduler_options(schedulers)
 
-            self._add_log_message(f"🔄 Loaded {len(schedulers)} schedulers")
+            self.log_message(f"🔄 Loaded {len(schedulers)} schedulers")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh schedulers: {e}")
+
+    def _refresh_schedulers_async(self):
+        """Refresh the list of available schedulers (thread-safe version)"""
+        if not self.client:
+            # Schedule error message on main thread
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
+            return
+
+        try:
+            # Perform API call in worker thread
+            schedulers = self.client.get_schedulers()
+
+            # Marshal widget updates back to main thread
+            def update_widgets():
+                if hasattr(self, "scheduler_combo"):
+                    self.scheduler_combo["values"] = schedulers
+                if hasattr(self, "img2img_scheduler_combo"):
+                    self.img2img_scheduler_combo["values"] = schedulers
+                self._add_log_message(f"🔄 Loaded {len(schedulers)} schedulers")
+
+            self.root.after(0, update_widgets)
+        except Exception as exc:
+            # Marshal error message back to main thread
+            # Capture exception in default argument to avoid closure issues
+            self.root.after(
+                0,
+                lambda err=exc: messagebox.showerror(
+                    "Error", f"Failed to refresh schedulers: {err}"
+                ),
+            )
 
     def _on_hires_toggle(self):
         """Handle hires.fix enable/disable toggle"""
         # This method can be used to enable/disable hires.fix related controls
         # For now, just log the change
         enabled = self.txt2img_vars.get("enable_hr", tk.BooleanVar()).get()
-        self._add_log_message(f"📏 Hires.fix {'enabled' if enabled else 'disabled'}")
+        self.log_message(f"📏 Hires.fix {'enabled' if enabled else 'disabled'}")
 
     def _randomize_seed(self, var_dict_name):
         """Generate a random seed for the specified variable dictionary"""
@@ -2956,7 +3118,7 @@ class StableNewGUI:
         var_dict = getattr(self, f"{var_dict_name}_vars", {})
         if "seed" in var_dict:
             var_dict["seed"].set(random_seed)
-            self._add_log_message(f"🎲 Random seed generated: {random_seed}")
+            self.log_message(f"🎲 Random seed generated: {random_seed}")
 
     def _randomize_txt2img_seed(self):
         """Generate random seed for txt2img"""
@@ -2990,6 +3152,6 @@ class StableNewGUI:
 
         self.root.mainloop()
 
+
 # Backwards compatibility for tests expecting MainWindow
 MainWindow = StableNewGUI
-
