@@ -754,6 +754,15 @@ class StableNewGUI:
             color, text = state_colors.get(new_state, ("#888888", "● Unknown"))
             self.state_label.config(text=text, foreground=color)
 
+            if new_state == GUIState.RUNNING:
+                self.progress_message_var.set("Running pipeline...")
+            elif new_state == GUIState.STOPPING:
+                self.progress_message_var.set("Cancelling pipeline...")
+            elif new_state == GUIState.ERROR:
+                self.progress_message_var.set("Error")
+            elif new_state == GUIState.IDLE and old_state == GUIState.STOPPING:
+                self.progress_message_var.set("Ready")
+
             # Update button states
             if new_state == GUIState.RUNNING:
                 self.run_pipeline_btn.config(state=tk.DISABLED)
@@ -2764,12 +2773,21 @@ class StableNewGUI:
 
         # Error callback
         def on_error(e):
-            self.root.after(0, lambda: self.log_message(f"✗ Error: {str(e)}", "ERROR"))
-            self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
-            self.root.after(0, lambda: self.progress_message_var.set("Error"))
+            self.root.after(0, lambda: self._handle_pipeline_error(e))
 
         # Start pipeline using controller
         self.controller.start_pipeline(pipeline_func, on_complete=on_complete, on_error=on_error)
+
+    def _handle_pipeline_error(self, error: Exception) -> None:
+        """Log and surface pipeline errors to the user."""
+
+        error_message = f"Pipeline failed: {type(error).__name__}: {error}"
+        self.log_message(f"✗ {error_message}", "ERROR")
+        try:
+            messagebox.showerror("Pipeline Error", error_message)
+        except tk.TclError:
+            logger.error("Unable to display error dialog", exc_info=True)
+        self.progress_message_var.set("Error")
 
     def _create_video(self):
         """Create video from output images"""
