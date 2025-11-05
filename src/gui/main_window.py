@@ -814,7 +814,6 @@ class StableNewGUI:
         messages = self.controller.get_log_messages()
         for msg in messages:
             self.log_message(msg.message, msg.level)
-            self.progress_message_var.set(msg.message)
 
         # Schedule next poll
         self.root.after(100, self._poll_controller_logs)
