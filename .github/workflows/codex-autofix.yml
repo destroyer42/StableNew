@@ -86,12 +86,23 @@ jobs:
           git fetch origin pull/${{ steps.pr.outputs.number }}/head:pr-${{ steps.pr.outputs.number }}
           # Create a diff for analysis
           git diff ${{ steps.pr.outputs.base_sha }}..${{ steps.pr.outputs.head_sha }} > /tmp/pr.diff || true
+      - name: Verify base branch checkout (security check)
+        run: |
+          # Ensure we're on the base branch (trusted code), not PR head
+          CURRENT_SHA=$(git rev-parse HEAD)
+          if [ "$CURRENT_SHA" != "${{ steps.pr.outputs.base_sha }}" ]; then
+            echo "ERROR: Not on base branch! Current: $CURRENT_SHA, Expected: ${{ steps.pr.outputs.base_sha }}"
+            exit 1
+          fi
+          echo "Verified: Running on base branch (trusted code)"
       - name: Run Codex AutoFix with trusted code
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Run the autofix runner from BASE branch (trusted code)
+          # SECURITY: This executes tools/codex_autofix_runner.py from the BASE branch (trusted),
+          # NOT from the PR. The PR changes are analyzed via the diff file only.
+          # codeql[actions/untrusted-checkout-toctou]: False positive - we checkout and execute base branch only
           python tools/codex_autofix_runner.py \
             --repo "${{ github.repository }}" \
             --pr "${{ steps.pr.outputs.number }}" \

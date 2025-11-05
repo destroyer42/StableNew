@@ -96,7 +96,20 @@ A malicious contributor could:
 
 **Effect**: PR changes are analyzed as a diff without executing untrusted code.
 
-#### 5. Updated Runner Arguments
+#### 5. Base Branch Verification
+```yaml
+- name: Verify base branch checkout (security check)
+  run: |
+    CURRENT_SHA=$(git rev-parse HEAD)
+    if [ "$CURRENT_SHA" != "${{ steps.pr.outputs.base_sha }}" ]; then
+      echo "ERROR: Not on base branch!"
+      exit 1
+    fi
+```
+
+**Effect**: Runtime verification that we're executing code from the base branch, preventing TOCTOU attacks.
+
+#### 6. Updated Runner Arguments
 ```python
 python tools/codex_autofix_runner.py \
   --repo "${{ github.repository }}" \
@@ -117,7 +130,8 @@ After the fix:
 ✅ **Permission-gated workflow trigger**  
 ✅ **Isolated from malicious dependencies**  
 ✅ **Secrets only accessible to trusted code**  
-✅ **PR changes analyzed in read-only mode**
+✅ **PR changes analyzed in read-only mode**  
+✅ **Runtime verification of base branch checkout (TOCTOU protection)**
 
 ## Testing
 
