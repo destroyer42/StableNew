@@ -18,6 +18,9 @@
 ### Tools & Utilities
 - [Launchers](LAUNCHERS.md) - Desktop launcher scripts and setup
 
+### CI & Automation
+- [Codex AutoFix Workflow](CODEX_AUTOFIX.md) - Slash-command workflow that posts Codex patch suggestions
+
 ### Version History
 - [CHANGELOG](../CHANGELOG.md) - Complete version history and changes
 
