@@ -1294,18 +1294,14 @@ class Pipeline:
                 image_key = 0
             else:
                 # Use traditional upscaling
-                payload = {
-                    "image": input_image_b64,
-                    "upscaling_resize": config.get("upscaling_resize", 2.0),
-                    "upscaler_1": config.get("upscaler", "R-ESRGAN 4x+"),
-                    "upscaler_2": config.get("upscaler_2", "None"),
-                    "extras_upscaler_2_visibility": config.get("extras_upscaler_2_visibility", 0),
-                    "gfpgan_visibility": config.get("gfpgan_visibility", 0.0),
-                    "codeformer_visibility": config.get("codeformer_visibility", 0.0),
-                    "codeformer_weight": config.get("codeformer_weight", 0.5),
-                }
-
-                response = self.client.upscale_image(payload)
+                response = self.client.upscale_image(
+                    image_base64=input_image_b64,
+                    upscaler=config.get("upscaler", "R-ESRGAN 4x+"),
+                    upscaling_resize=config.get("upscaling_resize", 2.0),
+                    gfpgan_visibility=config.get("gfpgan_visibility", 0.0),
+                    codeformer_visibility=config.get("codeformer_visibility", 0.0),
+                    codeformer_weight=config.get("codeformer_weight", 0.5),
+                )
                 response_key = "image"
                 image_key = None
 
