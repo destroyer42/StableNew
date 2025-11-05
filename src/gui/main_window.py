@@ -2787,7 +2787,7 @@ class StableNewGUI:
             messagebox.showerror("Pipeline Error", error_message)
         except tk.TclError:
             logger.error("Unable to display error dialog", exc_info=True)
-        self.progress_message_var.set("Error")
+        # Progress message update is handled by state transition callback; redundant here.
 
     def _create_video(self):
         """Create video from output images"""
