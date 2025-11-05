@@ -1,90 +1,140 @@
-# StableNew - Copilot Instructions
+# StableNew — GitHub Copilot Instructions (merged 2025-11-04)
 
-This is a **Stable Diffusion WebUI automation pipeline** that orchestrates txt2img → img2img → upscale → video creation through both GUI and CLI interfaces.
+> **Context:** Stable Diffusion WebUI automation (txt2img → img2img → upscale → video) with Python 3.11, Tk/Ttk GUI, FFmpeg, pytest, ruff, black, mypy, and pre-commit. This file guides GitHub Copilot coding agent, Copilot Chat, and human contributors for **StableNew**.
 
-## Architecture Overview
+## 1) Branching & Release Flow
+- **main**: release-only (protected). No direct pushes.
+- **postGemini**: integration branch for GUI + controller work.
+- **Feature branches**: create per task, e.g. `feature/gui-stop-cancel`, `fix/editor-status-text`.
+- **PR route**: `feature` → `postGemini` (manual journey tests) → `main` (RC/tag).
 
-**Core Pipeline Flow**: `src/pipeline/executor.py` orchestrates the 4-stage pipeline:
-1. `txt2img` - Generate from prompt via `/sdapi/v1/txt2img`
-2. `img2img` - Optional cleanup/refinement via `/sdapi/v1/img2img` 
-3. `upscale` - Enhancement via `/sdapi/v1/extra-single-image`
-4. `video` - FFmpeg sequence assembly via `src/pipeline/video.py`
+## 2) Architecture Guardrails (GUI + Controller)
+- GUI is componentized; `main_window.py` is the **mediator**.
+  - Panels: `PromptPackPanel`, `PipelineControlsPanel`, `ConfigPanel`, `APIStatusPanel`, `LogPanel`.
+  - Panels own their `tk.*Var` state and expose `get_state()/set_state()` or `get_settings()`.
+  - Events bubble **up** to mediator; mediator pushes updates **down**.
+- Controller is authoritative for lifecycle and the **only** place that joins workers.
+  - GUI/tests **must not** join worker threads.
+  - Use cooperative cancellation; Tk main thread must remain non‑blocking.
+- Pipeline (high level): `txt2img` → (optional) `img2img` → `upscale` → `video`.
+  - SD WebUI API readiness is checked before calls; use exponential backoff.
+  - Base64 image handling goes through `utils/file_io.py` helpers.
+  - Each run writes manifests (JSON) + CSV rollups into time‑stamped `output/run_YYYYMMDD_HHMMSS/...`
 
-**API Client**: `src/api/client.py` handles all SD WebUI communication with built-in readiness checks and timeout handling. Always check `client.check_api_ready()` before pipeline operations.
+## 3) How to Work (Copilot + Humans)
+**We use strict TDD and small PRs.**
+1. Write/extend tests under `tests/` first (`tests/gui` for panels).
+2. Run: `pre-commit run --all-files` then `pytest --cov=src --cov-report=term-missing`.
+3. Implement the minimal change to make tests pass.
+4. Refactor with tests green. Update docs and changelog.
 
-**Configuration System**: JSON presets in `presets/` directory with hierarchical structure (txt2img/img2img/upscale/video/api sections). Use `ConfigManager.load_preset()` for runtime config.
+**Task sizing for Copilot**
+- Prefer focused tasks: bug fixes, UI polish, test coverage, docs, config validation, technical debt.
+- Avoid broad refactors, cross-repo changes, or domain‑heavy business logic in a single task.
+- If a task is ambiguous, add acceptance criteria **before** starting.
 
-## Key Patterns
+**How to assign tasks/prompts**
+- Issues double as prompts. Include:
+  - What to change (files/paths), acceptance tests, success criteria.
+  - Any GUI behaviors (non‑blocking, cancel, log, status text) and validation points.
+- In PRs, mention **@copilot** with batched review comments (use “Start a review”), not single comments.
 
-**Structured Logging**: All operations generate JSON manifests per image AND CSV rollups via `StructuredLogger`. Every image gets metadata tracking prompt, config, timestamps, and file paths.
+## 4) Build, Test, Lint (local + CI)
+```cmd
+:: Windows developer quick checks
+pre-commit run --all-files
+pytest -q
+pytest --cov=src --cov-report=term-missing
+```
+- Linters/formatters: `ruff`, `black`, `mypy` (strict enough to catch regressions).
+- GUI tests run **headless** (xvfb in CI). Tests should poll controller state/events rather than join threads.
 
-**UTF-8 Safety**: All file I/O uses explicit `encoding='utf-8'` and `ensure_ascii=False` for international character support. Never assume system defaults.
+## 5) Definition of Done (applies to every PR)
+- ✅ CI green: ruff, black, mypy, pytest (+ headless GUI lane).
+- ✅ No Tk main‑thread blocking; cooperative cancel is honored.
+- ✅ Tests added/updated for all new behavior.
+- ✅ README/ARCHITECTURE updated; CHANGELOG entry for user‑visible changes.
+- ✅ Config backward compatible; manifests preserved.
 
-**Directory Structure**: Each run creates timestamped subdirs: `output/run_YYYYMMDD_HHMMSS/{txt2img,img2img,upscaled,video,manifests}/`
+## 6) PR Template (enforced by Copilot and humans)
+Copy lives at `.github/PULL_REQUEST_TEMPLATE.md` and is inlined here for Copilot context:
 
-**Global NSFW Prevention**: The `global_neg` system automatically appends safety prompts to all negative prompts to prevent inappropriate content.
+---
+# Summary
+Describe what this PR changes and why.
 
-**Error Handling Pattern**: Use try-catch with structured logging. Always log failures with context and continue pipeline where possible. Check `client.check_api_ready()` before any API calls.
+# Linked Issues
+- Closes # (list the issues this PR addresses)
 
-## Critical Implementation Details
+# Type of change
+- [ ] Feature
+- [ ] Bugfix
+- [ ] Refactor
+- [ ] Docs / CI
+- [ ] Tests
 
-**API Readiness**: SD WebUI API must be running on `http://127.0.0.1:7860` (configurable). Use exponential backoff in `check_api_ready()` - no hardcoded sleeps.
+# Validation
+- [ ] I ran `pre-commit run --all-files` and fixed findings.
+- [ ] I ran `pytest -q` and **0 failures** locally.
+- [ ] New/changed behavior has tests (unit and/or GUI headless where applicable).
+- [ ] No main-thread blocking (Tk); heavy work is in threads/subprocesses with queue callbacks.
+- [ ] Cooperative cancel is honored in new/changed paths.
 
-**Base64 Handling**: Images flow as base64 between API calls. Use `utils/file_io.py` helpers `save_image_from_base64()` and `load_image_to_base64()` consistently.
-
-**Prompt Pack Format**: Supports both `.txt` (line-based) and `.tsv` (tab-separated) with `neg:` prefix for negative prompts. See README example for embedding syntax.
-
-**Entry Points**: 
-- GUI: `python -m src.main` 
-- CLI: `python -m src.cli --prompt "text" --preset default`
-
-**Configuration Hierarchy**: Default config → Preset overrides → Pack-specific overrides → Runtime parameters. Always preserve this precedence order.
-
-**Windows-Specific Paths**: External dependency on `C:\Users\rober\stable-diffusion-webui\webui-user.bat`. Consider symlink from project root for portability.
-
-## GUI Design Specifications
-
-**Startup Flow**: Main entry auto-launches `webui-user.bat`, pings API at `http://127.0.0.1:7860`, then opens GUI with dark theme.
-
-**Visual Design**: Modern dark theme with rounded corners, well-labeled buttons, informative tooltips, attention-grabbing CTAs, and clear affordances for user guidance.
-
-**Layout Structure**:
-- **Live Log Panel** (bottom): Real-time status updates, API connection success/failure messages
-- **Prompt Pack Selector** (left): Multi-select window showing `.txt` files from `packs/` directory
-- **List Management Dropdown**: Load/save/edit/delete custom prompt pack lists with persistent storage
-- **Tabbed Configuration** (center): 
-  - Display mode: Shows current settings (default + pack-specific overrides)
-  - Edit mode: Allows modification of default configs and per-pack overrides
-- **Pipeline Controls** (right): Loop configuration for different execution patterns
-
-**Pipeline Execution Patterns**:
-- Single pack vs multiple packs vs custom list selection
-- Stage-specific loops: `(generate, clean, upscale) x N` 
-- Cross-stage loops: `generate x N, then upscale x N`
-- Mixed patterns: `((generate, clean, upscale) x 3)` vs individual stage repetition
-
-**Graceful Shutdown**: Close button triggers log finalization, manifest updates, and result output before exit.
-
-## Development Workflows
-
-**Running the Application**:
-```bash
-# Start SD WebUI first (required)
-C:\Users\rober\stable-diffusion-webui\webui-user.bat --api
-
-# Then launch StableNew
-python -m src.main  # GUI mode
-python -m src.cli --prompt "test" --preset default  # CLI mode
+## Test commands used
+```
+pytest -q
+pytest tests/gui -q
+pytest tests/editor -q
 ```
 
-**Testing Strategy**: Run `pytest tests/` - covers API connectivity, file integrity, manifest structure, UTF-8 handling.
+# Screenshots / GIF (if UI changes)
+(attach images)
 
-**Debugging API Issues**: Check `logs/` directory for structured JSON logs. Use `client.check_api_ready()` to diagnose SD WebUI connectivity.
+# Docs
+- [ ] README/ARCHITECTURE updated where relevant.
+- [ ] In-app Help updated (pulled from README sections).
 
-## External Dependencies
+# Risk & Rollback
+- Risk level: Low / Medium / High
+- Rollback plan: Revert this PR; archived unused files unchanged; config backward compatible.
+---
 
-**Required**: Stable Diffusion WebUI running with `--api` flag
-**Video**: FFmpeg in PATH for video creation
-**Platform**: Windows-first design but cross-platform compatible
+## 7) Repository Structure (high‑value paths for Copilot)
+- `src/api/client.py` — SD WebUI communication + readiness checks (backoff).
+- `src/pipeline/executor.py` — stage orchestration and error logging.
+- `src/pipeline/video.py` — FFmpeg assembly.
+- `utils/file_io.py` — base64 helpers and atomic writes.
+- `presets/` — hierarchical JSON configs (`txt2img/img2img/upscale/video/api`).
+- `packs/` — prompt packs (`.txt` and `.tsv`; `neg:` prefix supported).
 
-When modifying pipeline stages, always update both the metadata tracking and ensure proper error handling with structured logging.
+## 8) Path‑Specific Instructions (auto‑applied by Copilot)
+- **GUI tests** (`tests/gui/**`)
+  - Use headless harness, poll controller events (e.g., `lifecycle_event`) and widget state.
+  - No `join()` on worker threads; never block Tk.
+- **Config tests** (`tests/config/**`)
+  - Verify pass‑through of settings to API calls; cover `global_neg` safety list.
+- **Editor panel** (`src/gui/editor/**`)
+  - Preserve `status_text`, `name:` prefix handling, angle‑brackets, Global Negative, and Save‑All UX.
+
+## 9) Copilot Environment (Actions) — Setup Steps
+- We pre‑install dependencies in `copilot-setup-steps.yml` (runs before the agent session).
+- Environment secrets/variables (if needed) should be set in the `copilot` environment.
+- Larger runners may be configured later; current default is ubuntu‑latest.
+
+## 10) Working Agreements (sequence of small PRs Copilot can follow)
+1) Extract/finish panels + mediator wiring.  
+2) Stop/Cancel: controller cancel token plumbed; non‑blocking logs.  
+3) Generation params: hires steps, dimensions, face‑restore toggles.  
+4) ADetailer panel + per‑image decision loop.  
+5) Editor polish (status_text, name prefix, angle brackets, Global Negative; Save‑All UX).  
+6) Docs/CI polish.
+
+---
+**Appendix A — Quick Prompts Copilot Can Use**
+- “Update `PipelineControlsPanel` to honor CancelToken with non‑blocking UI; add tests under `tests/gui/test_cancel.py`.”
+- “Add config pass‑through tests to `tests/config/test_preset_passthrough.py` for new `hires_steps` and `face_restore` fields.”
+- “Refactor `client.check_api_ready()` to exponential backoff; add unit tests for timeout behavior.”
+
+**Appendix B — Known Non‑Goals for Copilot**
+- Cross‑repo refactors, major redesigns, or production‑critical auth/security changes in one PR.
+- Tasks lacking acceptance criteria or reproducible steps.

@@ -1,13 +1,13 @@
 """Tests for PipelineControlsPanel component."""
-import unittest
-from unittest.mock import MagicMock
+
 import os
 import sys
+import unittest
 
 # Handle headless testing
-if sys.platform.startswith('linux') and 'DISPLAY' not in os.environ:
-    os.environ['DISPLAY'] = ':99'
-    
+if sys.platform.startswith("linux") and "DISPLAY" not in os.environ:
+    os.environ["DISPLAY"] = ":99"
+
 import tkinter as tk
 
 from src.gui.pipeline_controls_panel import PipelineControlsPanel
@@ -26,7 +26,7 @@ class TestPipelineControlsPanel(unittest.TestCase):
 
     def tearDown(self):
         """Clean up after tests."""
-        if hasattr(self, 'root'):
+        if hasattr(self, "root"):
             try:
                 self.root.destroy()
             except:
@@ -34,10 +34,11 @@ class TestPipelineControlsPanel(unittest.TestCase):
 
     def test_panel_instantiation(self):
         """Test that the PipelineControlsPanel can be instantiated."""
-        panel = PipelineControlsPanel(self.root, style='Dark.TFrame')
+        panel = PipelineControlsPanel(self.root, style="Dark.TFrame")
 
         # Assert that the panel is created and is a ttk.Frame
         from tkinter import ttk
+
         self.assertIsInstance(panel, ttk.Frame)
         self.assertIsNotNone(panel)
 
@@ -47,14 +48,14 @@ class TestPipelineControlsPanel(unittest.TestCase):
         settings = panel.get_settings()
 
         # Check defaults
-        self.assertTrue(settings['txt2img_enabled'])
-        self.assertTrue(settings['img2img_enabled'])
-        self.assertTrue(settings['upscale_enabled'])
-        self.assertFalse(settings['video_enabled'])
-        self.assertEqual(settings['loop_type'], 'single')
-        self.assertEqual(settings['loop_count'], 1)
-        self.assertEqual(settings['pack_mode'], 'selected')
-        self.assertEqual(settings['images_per_prompt'], 1)
+        self.assertTrue(settings["txt2img_enabled"])
+        self.assertTrue(settings["img2img_enabled"])
+        self.assertTrue(settings["upscale_enabled"])
+        self.assertFalse(settings["video_enabled"])
+        self.assertEqual(settings["loop_type"], "single")
+        self.assertEqual(settings["loop_count"], 1)
+        self.assertEqual(settings["pack_mode"], "selected")
+        self.assertEqual(settings["images_per_prompt"], 1)
 
     def test_toggle_stages(self):
         """Test toggling stage checkboxes."""
@@ -63,19 +64,19 @@ class TestPipelineControlsPanel(unittest.TestCase):
         # Toggle txt2img off
         panel.txt2img_enabled.set(False)
         settings = panel.get_settings()
-        self.assertFalse(settings['txt2img_enabled'])
+        self.assertFalse(settings["txt2img_enabled"])
 
         # Toggle video on
         panel.video_enabled.set(True)
         settings = panel.get_settings()
-        self.assertTrue(settings['video_enabled'])
+        self.assertTrue(settings["video_enabled"])
 
         # Toggle multiple
         panel.img2img_enabled.set(False)
         panel.upscale_enabled.set(False)
         settings = panel.get_settings()
-        self.assertFalse(settings['img2img_enabled'])
-        self.assertFalse(settings['upscale_enabled'])
+        self.assertFalse(settings["img2img_enabled"])
+        self.assertFalse(settings["upscale_enabled"])
 
     def test_loop_type_selection(self):
         """Test loop type radio button selection."""
@@ -83,36 +84,36 @@ class TestPipelineControlsPanel(unittest.TestCase):
 
         # Default should be single
         settings = panel.get_settings()
-        self.assertEqual(settings['loop_type'], 'single')
+        self.assertEqual(settings["loop_type"], "single")
 
         # Change to stages
-        panel.loop_type_var.set('stages')
+        panel.loop_type_var.set("stages")
         settings = panel.get_settings()
-        self.assertEqual(settings['loop_type'], 'stages')
+        self.assertEqual(settings["loop_type"], "stages")
 
         # Change to pipeline
-        panel.loop_type_var.set('pipeline')
+        panel.loop_type_var.set("pipeline")
         settings = panel.get_settings()
-        self.assertEqual(settings['loop_type'], 'pipeline')
+        self.assertEqual(settings["loop_type"], "pipeline")
 
     def test_loop_count(self):
         """Test loop count spinbox."""
         panel = PipelineControlsPanel(self.root)
 
         # Set loop count to 5
-        panel.loop_count_var.set('5')
+        panel.loop_count_var.set("5")
         settings = panel.get_settings()
-        self.assertEqual(settings['loop_count'], 5)
+        self.assertEqual(settings["loop_count"], 5)
 
         # Set to maximum
-        panel.loop_count_var.set('100')
+        panel.loop_count_var.set("100")
         settings = panel.get_settings()
-        self.assertEqual(settings['loop_count'], 100)
+        self.assertEqual(settings["loop_count"], 100)
 
         # Invalid value should default to 1
-        panel.loop_count_var.set('invalid')
+        panel.loop_count_var.set("invalid")
         settings = panel.get_settings()
-        self.assertEqual(settings['loop_count'], 1)
+        self.assertEqual(settings["loop_count"], 1)
 
     def test_pack_mode_selection(self):
         """Test pack mode radio button selection."""
@@ -120,36 +121,36 @@ class TestPipelineControlsPanel(unittest.TestCase):
 
         # Default should be selected
         settings = panel.get_settings()
-        self.assertEqual(settings['pack_mode'], 'selected')
+        self.assertEqual(settings["pack_mode"], "selected")
 
         # Change to all
-        panel.pack_mode_var.set('all')
+        panel.pack_mode_var.set("all")
         settings = panel.get_settings()
-        self.assertEqual(settings['pack_mode'], 'all')
+        self.assertEqual(settings["pack_mode"], "all")
 
         # Change to custom
-        panel.pack_mode_var.set('custom')
+        panel.pack_mode_var.set("custom")
         settings = panel.get_settings()
-        self.assertEqual(settings['pack_mode'], 'custom')
+        self.assertEqual(settings["pack_mode"], "custom")
 
     def test_images_per_prompt(self):
         """Test images per prompt spinbox."""
         panel = PipelineControlsPanel(self.root)
 
         # Set to 3
-        panel.images_per_prompt_var.set('3')
+        panel.images_per_prompt_var.set("3")
         settings = panel.get_settings()
-        self.assertEqual(settings['images_per_prompt'], 3)
+        self.assertEqual(settings["images_per_prompt"], 3)
 
         # Set to maximum
-        panel.images_per_prompt_var.set('10')
+        panel.images_per_prompt_var.set("10")
         settings = panel.get_settings()
-        self.assertEqual(settings['images_per_prompt'], 10)
+        self.assertEqual(settings["images_per_prompt"], 10)
 
         # Invalid value should default to 1
-        panel.images_per_prompt_var.set('abc')
+        panel.images_per_prompt_var.set("abc")
         settings = panel.get_settings()
-        self.assertEqual(settings['images_per_prompt'], 1)
+        self.assertEqual(settings["images_per_prompt"], 1)
 
     def test_get_settings_returns_dict(self):
         """Test that get_settings returns a properly structured dict."""
@@ -161,8 +162,14 @@ class TestPipelineControlsPanel(unittest.TestCase):
 
         # Check all required keys are present
         required_keys = [
-            'txt2img_enabled', 'img2img_enabled', 'upscale_enabled', 'video_enabled',
-            'loop_type', 'loop_count', 'pack_mode', 'images_per_prompt'
+            "txt2img_enabled",
+            "img2img_enabled",
+            "upscale_enabled",
+            "video_enabled",
+            "loop_type",
+            "loop_count",
+            "pack_mode",
+            "images_per_prompt",
         ]
         for key in required_keys:
             self.assertIn(key, settings)
@@ -172,14 +179,14 @@ class TestPipelineControlsPanel(unittest.TestCase):
         panel = PipelineControlsPanel(self.root)
 
         new_settings = {
-            'txt2img_enabled': False,
-            'img2img_enabled': False,
-            'upscale_enabled': False,
-            'video_enabled': True,
-            'loop_type': 'pipeline',
-            'loop_count': 5,
-            'pack_mode': 'all',
-            'images_per_prompt': 3
+            "txt2img_enabled": False,
+            "img2img_enabled": False,
+            "upscale_enabled": False,
+            "video_enabled": True,
+            "loop_type": "pipeline",
+            "loop_count": 5,
+            "pack_mode": "all",
+            "images_per_prompt": 3,
         }
 
         panel.set_settings(new_settings)
@@ -194,21 +201,18 @@ class TestPipelineControlsPanel(unittest.TestCase):
         panel = PipelineControlsPanel(self.root)
 
         # Set only a few settings
-        partial_settings = {
-            'loop_type': 'stages',
-            'loop_count': 10
-        }
+        partial_settings = {"loop_type": "stages", "loop_count": 10}
 
         panel.set_settings(partial_settings)
         settings = panel.get_settings()
 
         # Check that partial settings were applied
-        self.assertEqual(settings['loop_type'], 'stages')
-        self.assertEqual(settings['loop_count'], 10)
+        self.assertEqual(settings["loop_type"], "stages")
+        self.assertEqual(settings["loop_count"], 10)
 
         # Check that other settings remain at defaults
-        self.assertTrue(settings['txt2img_enabled'])
-        self.assertEqual(settings['pack_mode'], 'selected')
+        self.assertTrue(settings["txt2img_enabled"])
+        self.assertEqual(settings["pack_mode"], "selected")
 
     def test_complex_scenario(self):
         """Test a complex scenario with multiple setting changes."""
@@ -219,23 +223,23 @@ class TestPipelineControlsPanel(unittest.TestCase):
         panel.img2img_enabled.set(False)  # Skip img2img
         panel.upscale_enabled.set(True)
         panel.video_enabled.set(True)
-        panel.loop_type_var.set('pipeline')
-        panel.loop_count_var.set('3')
-        panel.pack_mode_var.set('all')
-        panel.images_per_prompt_var.set('2')
+        panel.loop_type_var.set("pipeline")
+        panel.loop_count_var.set("3")
+        panel.pack_mode_var.set("all")
+        panel.images_per_prompt_var.set("2")
 
         settings = panel.get_settings()
 
         # Verify the complex configuration
-        self.assertTrue(settings['txt2img_enabled'])
-        self.assertFalse(settings['img2img_enabled'])
-        self.assertTrue(settings['upscale_enabled'])
-        self.assertTrue(settings['video_enabled'])
-        self.assertEqual(settings['loop_type'], 'pipeline')
-        self.assertEqual(settings['loop_count'], 3)
-        self.assertEqual(settings['pack_mode'], 'all')
-        self.assertEqual(settings['images_per_prompt'], 2)
+        self.assertTrue(settings["txt2img_enabled"])
+        self.assertFalse(settings["img2img_enabled"])
+        self.assertTrue(settings["upscale_enabled"])
+        self.assertTrue(settings["video_enabled"])
+        self.assertEqual(settings["loop_type"], "pipeline")
+        self.assertEqual(settings["loop_count"], 3)
+        self.assertEqual(settings["pack_mode"], "all")
+        self.assertEqual(settings["images_per_prompt"], 2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

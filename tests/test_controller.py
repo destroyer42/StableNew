@@ -1,10 +1,11 @@
 """Tests for pipeline controller."""
 
-import pytest
 import time
-import threading
-from src.gui.controller import PipelineController, LogMessage
-from src.gui.state import StateManager, GUIState, CancellationError
+
+import pytest
+
+from src.gui.controller import LogMessage, PipelineController
+from src.gui.state import GUIState, StateManager
 
 
 class TestLogMessage:
@@ -28,15 +29,27 @@ class TestPipelineController:
 
     @pytest.fixture
     def controller(self):
-        """Create controller instance."""
+        """Create controller instance with synchronous cleanup for tests."""
         state_manager = StateManager()
-        return PipelineController(state_manager)
+        controller = PipelineController(state_manager)
+        controller._sync_cleanup = (
+            True  # TEST HOOK: force synchronous cleanup for deterministic tests
+        )
+        return controller
 
     def test_initial_state(self, controller):
         """Test initial controller state."""
         assert not controller.is_running()
         assert not controller.is_stopping()
         assert controller.state_manager.current == GUIState.IDLE
+
+    def wait_until(self, predicate, timeout=5.0, interval=0.01):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return True
+            time.sleep(interval)
+        return False
 
     def test_start_pipeline_success(self, controller):
         """Test successful pipeline start."""
@@ -56,8 +69,9 @@ class TestPipelineController:
         time.sleep(0.01)
         assert controller.is_running()
 
-        # Wait for completion
-        controller.worker_thread.join(timeout=1.0)
+        # Wait for completion (poll state)
+        ok = self.wait_until(lambda: controller.is_terminal, timeout=2.0)
+        assert ok, "Controller did not reach terminal state in time"
 
         assert len(completed) == 1
         assert completed[0]["status"] == "success"
@@ -79,8 +93,8 @@ class TestPipelineController:
 
         # Cleanup
         controller.stop_pipeline()
-        if controller.worker_thread:
-            controller.worker_thread.join(timeout=1.0)
+        ok = self.wait_until(lambda: controller.is_terminal, timeout=2.0)
+        assert ok, "Controller did not reach terminal state in time"
 
     def test_pipeline_error_handling(self, controller):
         """Test pipeline error handling."""
@@ -94,7 +108,8 @@ class TestPipelineController:
 
         controller.start_pipeline(failing_pipeline, on_error=on_error)
         time.sleep(0.1)
-        controller.worker_thread.join(timeout=1.0)
+        ok = self.wait_until(lambda: controller.is_terminal, timeout=2.0)
+        assert ok, "Controller did not reach terminal state in time"
 
         assert len(errors) == 1
         assert isinstance(errors[0], ValueError)
@@ -125,7 +140,8 @@ class TestPipelineController:
         assert controller.is_stopping() or controller.state_manager.current == GUIState.IDLE
 
         # Wait for cleanup
-        time.sleep(0.2)
+        ok = self.wait_until(lambda: controller.is_terminal, timeout=2.0)
+        assert ok, "Controller did not reach terminal state in time"
 
         # Should not have completed
         assert len(completed) == 0
@@ -160,8 +176,8 @@ class TestPipelineController:
         # First run
         controller.start_pipeline(quick_pipeline)
         time.sleep(0.1)
-        if controller.worker_thread:
-            controller.worker_thread.join(timeout=1.0)
+        ok = self.wait_until(lambda: controller.is_terminal, timeout=2.0)
+        assert ok, "Controller did not reach terminal state in time (first run)"
 
         # Cancel
         controller.cancel_token.cancel()
@@ -173,16 +189,17 @@ class TestPipelineController:
         assert not controller.cancel_token.is_cancelled()
 
         # Cleanup
-        time.sleep(0.1)
-        if controller.worker_thread:
-            controller.worker_thread.join(timeout=1.0)
+        ok = self.wait_until(lambda: controller.is_terminal, timeout=2.0)
+        assert ok, "Controller did not reach terminal state in time (second run)"
 
     def test_subprocess_registration(self, controller):
         """Test subprocess registration for cancellation."""
         import subprocess
 
         # Create dummy subprocess
-        proc = subprocess.Popen(["ping", "-n", "10", "127.0.0.1"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(
+            ["ping", "-n", "10", "127.0.0.1"], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
 
         try:
             controller.register_subprocess(proc)
