@@ -46,7 +46,7 @@ def test_update_progress_updates_ui(gui_app):
     assert gui_app.eta_var.get() == "ETA: 00:30"
 
 
-def test_idle_transition_resets_progress(gui_app):
+def test_idle_transition_resets_progress(gui_app, tk_pump):
     gui_app._update_progress("img2img", 80, "01:15")
     gui_app.root.update()
 
@@ -55,7 +55,8 @@ def test_idle_transition_resets_progress(gui_app):
 
     gui_app.state_manager.transition_to(GUIState.RUNNING)
     gui_app.state_manager.transition_to(GUIState.IDLE)
-    gui_app.root.update()
+    # Use bounded wait pattern to process scheduled UI updates
+    tk_pump(gui_app.root, duration=0.2)
 
     assert gui_app.progress_bar["value"] == pytest.approx(0)
     assert gui_app.eta_var.get() == gui_app._progress_eta_default
