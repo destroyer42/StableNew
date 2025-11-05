@@ -424,7 +424,7 @@ class StableNewGUI:
         if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
             self.pipeline_controls_panel.destroy()
         # Determine initial state for the new panel
-        initial_state = prev_state or self.preferences.get("pipeline_controls")
+        initial_state = prev_state if prev_state is not None else self.preferences.get("pipeline_controls")
 
         # Create the PipelineControlsPanel component
         self.pipeline_controls_panel = PipelineControlsPanel(
