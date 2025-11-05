@@ -86,7 +86,7 @@ def test_self_test_runner_shows_failure_dialog(tk_root, monkeypatch):
     monkeypatch.setattr(
         runner_module.messagebox,
         "showinfo",
-        lambda *args, **kwargs: events.append(("info", args[0], args[1])),
+        lambda title, message: events.append(("info", title, message)),
     )
     monkeypatch.setattr(
         runner_module.messagebox,
