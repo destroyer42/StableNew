@@ -8,7 +8,7 @@ getting/setting configuration and validation.
 import logging
 import tkinter as tk
 from tkinter import ttk
-from typing import Any
+from typing import Any, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class ConfigPanel(ttk.Frame):
         self.upscale_vars: dict[str, tk.Variable] = {}
         self.api_vars: dict[str, tk.Variable] = {}
 
-        # Widget dictionaries for enabling/disabling
+        # Widget dictionaries for enabling/disabling and list updates
         self.txt2img_widgets: dict[str, tk.Widget] = {}
         self.img2img_widgets: dict[str, tk.Widget] = {}
         self.upscale_widgets: dict[str, tk.Widget] = {}
@@ -235,6 +235,30 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_widgets["scheduler"] = scheduler_combo
         row += 1
 
+        ttk.Label(sampler_frame, text="Model:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        model_combo = ttk.Combobox(
+            sampler_frame,
+            textvariable=self.txt2img_vars["model"],
+            values=[],
+            state="readonly",
+            width=25,
+        )
+        model_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["model"] = model_combo
+        row += 1
+
+        ttk.Label(sampler_frame, text="VAE:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        vae_combo = ttk.Combobox(
+            sampler_frame,
+            textvariable=self.txt2img_vars["vae"],
+            values=[],
+            state="readonly",
+            width=25,
+        )
+        vae_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["vae"] = vae_combo
+        row += 1
+
         # Hires fix section
         hires_frame = ttk.LabelFrame(scrollable_frame, text="Hires Fix", padding=10)
         hires_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -365,6 +389,8 @@ class ConfigPanel(ttk.Frame):
         self.img2img_vars["scheduler"] = tk.StringVar(value="normal")
         self.img2img_vars["seed"] = tk.IntVar(value=-1)
         self.img2img_vars["clip_skip"] = tk.IntVar(value=2)
+        self.img2img_vars["model"] = tk.StringVar(value="")
+        self.img2img_vars["vae"] = tk.StringVar(value="")
 
         # Basic settings
         basic_frame = ttk.LabelFrame(tab, text="img2img Settings", padding=10)
@@ -402,6 +428,55 @@ class ConfigPanel(ttk.Frame):
             width=15,
         )
         cfg_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.img2img_widgets["cfg_scale"] = cfg_spin
+        row += 1
+
+        ttk.Label(basic_frame, text="Sampler:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        img_sampler_combo = ttk.Combobox(
+            basic_frame,
+            textvariable=self.img2img_vars["sampler_name"],
+            values=["Euler a", "Euler", "DPM++ 2M", "DPM++ SDE", "LMS", "Heun"],
+            state="readonly",
+            width=15,
+        )
+        img_sampler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.img2img_widgets["sampler_name"] = img_sampler_combo
+        row += 1
+
+        ttk.Label(basic_frame, text="Scheduler:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        img_scheduler_combo = ttk.Combobox(
+            basic_frame,
+            textvariable=self.img2img_vars["scheduler"],
+            values=["normal", "karras", "exponential", "sgm_uniform"],
+            state="readonly",
+            width=15,
+        )
+        img_scheduler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.img2img_widgets["scheduler"] = img_scheduler_combo
+        row += 1
+
+        ttk.Label(basic_frame, text="Model:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        img_model_combo = ttk.Combobox(
+            basic_frame,
+            textvariable=self.img2img_vars["model"],
+            values=[],
+            state="readonly",
+            width=25,
+        )
+        img_model_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.img2img_widgets["model"] = img_model_combo
+        row += 1
+
+        ttk.Label(basic_frame, text="VAE:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        img_vae_combo = ttk.Combobox(
+            basic_frame,
+            textvariable=self.img2img_vars["vae"],
+            values=[],
+            state="readonly",
+            width=25,
+        )
+        img_vae_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.img2img_widgets["vae"] = img_vae_combo
         row += 1
 
     def _build_upscale_tab(self):
@@ -411,7 +486,11 @@ class ConfigPanel(ttk.Frame):
 
         # Initialize variables
         self.upscale_vars["upscaler"] = tk.StringVar(value="R-ESRGAN 4x+")
-        self.upscale_vars["scale"] = tk.IntVar(value=2)
+        self.upscale_vars["upscaling_resize"] = tk.DoubleVar(value=2.0)
+        self.upscale_vars["denoising_strength"] = tk.DoubleVar(value=0.2)
+        self.upscale_vars["gfpgan_visibility"] = tk.DoubleVar(value=0.0)
+        self.upscale_vars["codeformer_visibility"] = tk.DoubleVar(value=0.0)
+        self.upscale_vars["codeformer_weight"] = tk.DoubleVar(value=0.5)
 
         # Settings
         settings_frame = ttk.LabelFrame(tab, text="Upscale Settings", padding=10)
@@ -430,11 +509,69 @@ class ConfigPanel(ttk.Frame):
         self.upscale_widgets["upscaler"] = upscaler_combo
         row += 1
 
-        ttk.Label(settings_frame, text="Scale:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        scale_spin = ttk.Spinbox(
-            settings_frame, from_=1, to=4, textvariable=self.upscale_vars["scale"], width=15
+        ttk.Label(settings_frame, text="Resize:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        resize_spin = ttk.Spinbox(
+            settings_frame,
+            from_=1.0,
+            to=4.0,
+            increment=0.1,
+            textvariable=self.upscale_vars["upscaling_resize"],
+            width=15,
         )
-        scale_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
+        resize_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.upscale_widgets["upscaling_resize"] = resize_spin
+        row += 1
+
+        ttk.Label(settings_frame, text="Denoise:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        upscale_denoise = ttk.Spinbox(
+            settings_frame,
+            from_=0.0,
+            to=1.0,
+            increment=0.05,
+            textvariable=self.upscale_vars["denoising_strength"],
+            width=15,
+        )
+        upscale_denoise.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.upscale_widgets["denoising_strength"] = upscale_denoise
+        row += 1
+
+        ttk.Label(settings_frame, text="GFPGAN:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        gfpgan_spin = ttk.Spinbox(
+            settings_frame,
+            from_=0.0,
+            to=1.0,
+            increment=0.05,
+            textvariable=self.upscale_vars["gfpgan_visibility"],
+            width=15,
+        )
+        gfpgan_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.upscale_widgets["gfpgan_visibility"] = gfpgan_spin
+        row += 1
+
+        ttk.Label(settings_frame, text="CodeFormer Vis:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        codeformer_vis = ttk.Spinbox(
+            settings_frame,
+            from_=0.0,
+            to=1.0,
+            increment=0.05,
+            textvariable=self.upscale_vars["codeformer_visibility"],
+            width=15,
+        )
+        codeformer_vis.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.upscale_widgets["codeformer_visibility"] = codeformer_vis
+        row += 1
+
+        ttk.Label(settings_frame, text="CodeFormer Weight:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        codeformer_weight = ttk.Spinbox(
+            settings_frame,
+            from_=0.0,
+            to=1.0,
+            increment=0.05,
+            textvariable=self.upscale_vars["codeformer_weight"],
+            width=15,
+        )
+        codeformer_weight.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.upscale_widgets["codeformer_weight"] = codeformer_weight
         row += 1
 
     def _build_api_tab(self):
@@ -443,7 +580,7 @@ class ConfigPanel(ttk.Frame):
         self.notebook.add(tab, text="🔌 API")
 
         # Initialize variables
-        self.api_vars["api_url"] = tk.StringVar(value="http://127.0.0.1:7860")
+        self.api_vars["base_url"] = tk.StringVar(value="http://127.0.0.1:7860")
         self.api_vars["timeout"] = tk.IntVar(value=30)
 
         # Settings
@@ -452,7 +589,7 @@ class ConfigPanel(ttk.Frame):
 
         row = 0
         ttk.Label(settings_frame, text="API URL:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        api_entry = ttk.Entry(settings_frame, textvariable=self.api_vars["api_url"], width=30)
+        api_entry = ttk.Entry(settings_frame, textvariable=self.api_vars["base_url"], width=30)
         api_entry.grid(row=row, column=1, sticky=tk.W, pady=2)
         row += 1
 
@@ -524,13 +661,19 @@ class ConfigPanel(ttk.Frame):
                 "scheduler": "normal",
                 "seed": -1,
                 "clip_skip": 2,
+                "model": "",
+                "vae": "",
             },
             "upscale": {
                 "upscaler": "R-ESRGAN 4x+",
-                "scale": 2,
+                "upscaling_resize": 2.0,
+                "denoising_strength": 0.2,
+                "gfpgan_visibility": 0.0,
+                "codeformer_visibility": 0.0,
+                "codeformer_weight": 0.5,
             },
             "api": {
-                "api_url": "http://127.0.0.1:7860",
+                "base_url": "http://127.0.0.1:7860",
                 "timeout": 30,
             },
         }
@@ -678,3 +821,34 @@ class ConfigPanel(ttk.Frame):
         """
         if hasattr(self, "config_status_label"):
             self.config_status_label.configure(text=message)
+
+    # ------------------------------------------------------------------
+    # Option update helpers for integration with main window
+    # ------------------------------------------------------------------
+
+    def _set_combobox_values(self, widget: tk.Widget | None, values: Iterable[str]) -> None:
+        if widget is None:
+            return
+        try:
+            widget["values"] = tuple(values)
+        except Exception:
+            pass
+
+    def set_model_options(self, models: Iterable[str]) -> None:
+        """Update base model selections for txt2img/img2img."""
+        self._set_combobox_values(self.txt2img_widgets.get("model"), models)
+        self._set_combobox_values(self.img2img_widgets.get("model"), models)
+
+    def set_vae_options(self, vae_models: Iterable[str]) -> None:
+        """Update VAE selections for txt2img/img2img."""
+        self._set_combobox_values(self.txt2img_widgets.get("vae"), vae_models)
+        self._set_combobox_values(self.img2img_widgets.get("vae"), vae_models)
+
+    def set_upscaler_options(self, upscalers: Iterable[str]) -> None:
+        """Update upscaler list."""
+        self._set_combobox_values(self.upscale_widgets.get("upscaler"), upscalers)
+
+    def set_scheduler_options(self, schedulers: Iterable[str]) -> None:
+        """Update scheduler dropdowns."""
+        self._set_combobox_values(self.txt2img_widgets.get("scheduler"), schedulers)
+        self._set_combobox_values(self.img2img_widgets.get("scheduler"), schedulers)
