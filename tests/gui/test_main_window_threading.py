@@ -1,8 +1,7 @@
 """Test thread-safe model refresh methods in main_window.py"""
 
 import threading
-import time
-import tkinter as tk
+from tkinter import ttk
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,8 +26,8 @@ def test_refresh_models_async_thread_safe(tk_root, tk_pump):
         gui.client = mock_client
 
         # Create mock comboboxes
-        gui.model_combo = tk.ttk.Combobox(tk_root)
-        gui.img2img_model_combo = tk.ttk.Combobox(tk_root)
+        gui.model_combo = ttk.Combobox(tk_root)
+        gui.img2img_model_combo = ttk.Combobox(tk_root)
 
         # Mock the log method
         gui._add_log_message = MagicMock()
@@ -89,8 +88,8 @@ def test_refresh_vae_models_async_thread_safe(tk_root, tk_pump):
         gui.client = mock_client
 
         # Create mock comboboxes
-        gui.vae_combo = tk.ttk.Combobox(tk_root)
-        gui.img2img_vae_combo = tk.ttk.Combobox(tk_root)
+        gui.vae_combo = ttk.Combobox(tk_root)
+        gui.img2img_vae_combo = ttk.Combobox(tk_root)
 
         # Mock the log method
         gui._add_log_message = MagicMock()
@@ -136,7 +135,7 @@ def test_refresh_upscalers_async_thread_safe(tk_root, tk_pump):
         gui.client = mock_client
 
         # Create mock combobox
-        gui.upscaler_combo = tk.ttk.Combobox(tk_root)
+        gui.upscaler_combo = ttk.Combobox(tk_root)
 
         # Mock the log method
         gui._add_log_message = MagicMock()
@@ -177,8 +176,8 @@ def test_refresh_schedulers_async_thread_safe(tk_root, tk_pump):
         gui.client = mock_client
 
         # Create mock comboboxes
-        gui.scheduler_combo = tk.ttk.Combobox(tk_root)
-        gui.img2img_scheduler_combo = tk.ttk.Combobox(tk_root)
+        gui.scheduler_combo = ttk.Combobox(tk_root)
+        gui.img2img_scheduler_combo = ttk.Combobox(tk_root)
 
         # Mock the log method
         gui._add_log_message = MagicMock()
