@@ -13,6 +13,9 @@ from tkinter import ttk
 
 from src.gui.log_panel import LogPanel, TkinterLogHandler
 
+# Test constants
+SCROLL_POSITION_TOLERANCE = 0.1  # Tolerance for scroll position comparisons
+
 
 class TestLogPanel:
     """Test LogPanel component."""
@@ -29,7 +32,7 @@ class TestLogPanel:
         """Clean up after tests."""
         try:
             self.root.destroy()
-        except:
+        except tk.TclError:  # More specific than generic Exception
             pass
 
     def test_panel_creation(self):
@@ -59,6 +62,158 @@ class TestLogPanel:
 
         assert True
 
+    def test_scroll_lock_toggle(self):
+        """Test that scroll lock can be toggled."""
+        panel = LogPanel(self.root)
+
+        # Initial state should be scroll lock disabled (auto-scroll enabled)
+        assert panel.get_scroll_lock() is False
+
+        # Toggle scroll lock on
+        panel.set_scroll_lock(True)
+        assert panel.get_scroll_lock() is True
+
+        # Toggle scroll lock off
+        panel.set_scroll_lock(False)
+        assert panel.get_scroll_lock() is False
+
+    def test_scroll_lock_preserves_position(self):
+        """Test that scroll lock preserves scroll position."""
+        panel = LogPanel(self.root)
+
+        # Add many messages to fill the view
+        for i in range(50):
+            panel.log(f"Message {i}", "INFO")
+
+        # Flush the queue to process all messages
+        panel._flush_queue_sync()
+        self.root.update()
+
+        # Scroll to top
+        panel.log_text.yview_moveto(0.0)
+        self.root.update()
+
+        # Get current scroll position
+        top_before, _ = panel.log_text.yview()
+
+        # Enable scroll lock
+        panel.set_scroll_lock(True)
+
+        # Add more messages
+        for i in range(10):
+            panel.log(f"New message {i}", "INFO")
+
+        # Flush the queue
+        panel._flush_queue_sync()
+        self.root.update()
+
+        # Position should be preserved (approximately, due to widget updates)
+        top_after, _ = panel.log_text.yview()
+        assert abs(top_before - top_after) < SCROLL_POSITION_TOLERANCE
+
+    def test_auto_scroll_when_unlocked(self):
+        """Test that auto-scroll works when scroll lock is disabled."""
+        panel = LogPanel(self.root)
+
+        # Ensure scroll lock is off
+        panel.set_scroll_lock(False)
+
+        # Add messages
+        for i in range(20):
+            panel.log(f"Message {i}", "INFO")
+
+        # Flush the queue to process all messages
+        panel._flush_queue_sync()
+        self.root.update()
+
+        # Should be scrolled to bottom (allow small margin for rounding)
+        _, bottom = panel.log_text.yview()
+        assert bottom >= 0.95  # Should be at or very near bottom
+
+    def test_overflow_handling_efficiency(self):
+        """Test that overflow handling doesn't redraw everything."""
+        panel = LogPanel(self.root)
+
+        # Add messages up to the limit (1000 lines)
+        for i in range(1005):
+            panel.log(f"Message {i}", "INFO")
+
+        # Flush the queue
+        panel._flush_queue_sync()
+        self.root.update()
+
+        # Check internal line count (should be at max)
+        assert panel._line_count == 1000
+
+        # Count lines in the widget (includes implicit empty line at end)
+        widget_line_count = int(panel.log_text.index("end-1c").split(".")[0])
+        assert widget_line_count == 1001  # 1000 lines + 1 implicit empty line
+
+        # Add more messages - should handle efficiently
+        for i in range(100):
+            panel.log(f"Extra message {i}", "INFO")
+
+        # Flush the queue
+        panel._flush_queue_sync()
+        self.root.update()
+
+        # Still should be at limit
+        assert panel._line_count == 1000
+        widget_line_count = int(panel.log_text.index("end-1c").split(".")[0])
+        assert widget_line_count == 1001
+
+    def test_overflow_with_scroll_lock(self):
+        """Test that overflow works correctly with scroll lock enabled."""
+        panel = LogPanel(self.root)
+
+        # Add messages to fill buffer
+        for i in range(1005):
+            panel.log(f"Message {i}", "INFO")
+
+        # Flush the queue
+        panel._flush_queue_sync()
+        self.root.update()
+
+        # Scroll to middle
+        panel.log_text.yview_moveto(0.5)
+        self.root.update()
+
+        # Get position
+        top_before, _ = panel.log_text.yview()
+
+        # Enable scroll lock
+        panel.set_scroll_lock(True)
+
+        # Add more messages
+        for i in range(50):
+            panel.log(f"Overflow message {i}", "INFO")
+
+        # Flush the queue
+        panel._flush_queue_sync()
+        self.root.update()
+
+        # Position should be preserved
+        top_after, _ = panel.log_text.yview()
+        assert abs(top_before - top_after) < SCROLL_POSITION_TOLERANCE
+
+    def test_line_count_tracking(self):
+        """Test that internal line count tracking is accurate."""
+        panel = LogPanel(self.root)
+
+        # Add known number of messages
+        for i in range(50):
+            panel.log(f"Message {i}", "INFO")
+
+        # Flush the queue to process all messages
+        panel._flush_queue_sync()
+        self.root.update()
+
+        # Verify internal line count
+        assert panel._line_count == 50
+
+        # Widget line count includes implicit empty line at end
+        widget_lines = int(panel.log_text.index("end-1c").split(".")[0])
+        assert widget_lines == 51  # 50 lines + 1 implicit empty line
     def test_log_level_tags_are_created(self):
         """Log messages should be tagged for colorization by level."""
         panel = LogPanel(self.root)
@@ -127,7 +282,7 @@ class TestTkinterLogHandler:
         """Clean up after tests."""
         try:
             self.root.destroy()
-        except:
+        except tk.TclError:  # More specific than generic Exception
             pass
 
     def test_handler_creation(self):

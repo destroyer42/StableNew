@@ -219,6 +219,7 @@ class LogPanel(ttk.Frame):
         self.log_records.clear()
         self.log_text.configure(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
+        self._line_count = 0
         self.log_text.configure(state=tk.DISABLED)
 
 
