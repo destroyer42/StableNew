@@ -1,25 +1,12 @@
 """Tests for the smoke self-test runner integration."""
 
-import time
-
 import pytest
 
 pytest.importorskip("tkinter")
 
 from src.gui.self_test_runner import SelfTestRunner, TestSummary, parse_pytest_summary
 from src.gui import self_test_runner as runner_module
-
-
-def wait_until(predicate, tk_root, timeout=1.0, interval=0.01):
-    """Pump Tk events until predicate returns True or timeout expires."""
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        tk_root.update()
-        if predicate():
-            return True
-        time.sleep(interval)
-    return False
+from tests.gui.conftest import wait_until
 
 
 class DummyResult:
