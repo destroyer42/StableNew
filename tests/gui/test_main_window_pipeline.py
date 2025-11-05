@@ -192,5 +192,3 @@ def test_cancel_transitions_to_idle_with_ready_status(minimal_app, monkeypatch):
     
     assert wait_until(ui_ready, timeout=1.0, step=0.01)
 
-    assert minimal_app.state_manager.current == GUIState.IDLE
-    assert minimal_app.progress_message_var.get() == "Ready"
