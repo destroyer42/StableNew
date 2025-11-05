@@ -2816,12 +2816,6 @@ class StableNewGUI:
             self.root.after(0, lambda: self.log_message(f"Output directory: {output_dir}", "INFO"))
             self.root.after(
                 0,
-                lambda: self.controller.report_progress(
-                    f"Completed: {num_images} images", 100.0, "ETA: 00:00"
-                ),
-            )
-            self.root.after(
-                0,
                 lambda: messagebox.showinfo(
                     "Success",
                     f"Pipeline completed!\n{num_images} images generated\nOutput: {output_dir}",
