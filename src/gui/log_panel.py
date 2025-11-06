@@ -193,9 +193,7 @@ class LogPanel(ttk.Frame):
 
     def _insert_message(self, message: str, level: str) -> None:
         preserve_pos = bool(self.scroll_lock_var.get())
-        top_before = getattr(self, "_locked_view_top", None)
-        if top_before is None and preserve_pos:
-            top_before = self.log_text.yview()[0]
+        top_before = self.log_text.yview()[0] if preserve_pos else None
         self.log_text.configure(state=tk.NORMAL)
         self.log_text.insert(tk.END, f"{message}\n", level)
         if not self.scroll_lock_var.get():
@@ -218,9 +216,7 @@ class LogPanel(ttk.Frame):
         self.log_text.configure(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
         preserve_pos = bool(self.scroll_lock_var.get())
-        top_before = getattr(self, "_locked_view_top", None)
-        if top_before is None and preserve_pos:
-            top_before = self.log_text.yview()[0]
+        top_before = self.log_text.yview()[0] if preserve_pos else None
         visible_count = 0
         for message, level in self.log_records:
             if self._should_display(level):

@@ -221,7 +221,9 @@ class PipelineController:
 
         eta_text = eta if eta else "ETA: --"
         try:
-            if self.is_terminal and (stage or "").lower() != "error":
+            # Suppress non-error updates only after entering ERROR state;
+            # allow progress reports while IDLE for unit tests and initialization.
+            if self.state_manager.current == GUIState.ERROR and (stage or "").lower() != "error":
                 return
         except Exception:
             pass

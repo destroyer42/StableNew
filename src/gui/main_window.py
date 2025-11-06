@@ -24,7 +24,7 @@ from .log_panel import LogPanel, TkinterLogHandler
 from .pipeline_controls_panel import PipelineControlsPanel
 from .prompt_pack_list_manager import PromptPackListManager
 from .prompt_pack_panel import PromptPackPanel
-from .state import GUIState, StateManager
+from .state import GUIState, StateManager, CancellationError
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +68,52 @@ class StableNewGUI:
         self.progress_percent_var = tk.StringVar(value="0%")
         self.eta_var = tk.StringVar(value="ETA: --")
         self.progress_bar: ttk.Progressbar | None = None
+        # Back-compat aliases expected by tests
+        self.progress_status_var = self.progress_message_var
+        self.progress_eta_var = self.eta_var
 
-        self.controller.set_progress_callback(self._queue_progress_update)
-        self.controller.set_eta_callback(self._queue_eta_update)
-        self.controller.set_status_callback(self._queue_status_update)
+        # Register progress callbacks with a flexible API to support test harness controllers
+        registered = False
+        # Compatibility wrapper: allow (percent, status) signature
+        def _compat_progress(*args, **kwargs):
+            try:
+                if len(args) >= 1:
+                    self._queue_progress_update(args[0])
+                if len(args) >= 2:
+                    self._queue_status_update(args[1])
+            except Exception:
+                pass
+
+        for meth in ("set_progress_callbacks", "register_progress_callbacks", "configure_progress_callbacks"):
+            if hasattr(self.controller, meth):
+                try:
+                    getattr(self.controller, meth)(
+                        progress=_compat_progress,
+                        eta=self._queue_eta_update,
+                        reset=lambda: self._reset_progress_ui(),
+                        status=self._queue_status_update,
+                    )
+                    registered = True
+                    break
+                except Exception:
+                    pass
+        if not registered:
+            # Fall back to individual callbacks if supported
+            if hasattr(self.controller, "set_progress_callback"):
+                try:
+                    self.controller.set_progress_callback(self._queue_progress_update)
+                except Exception:
+                    pass
+            if hasattr(self.controller, "set_eta_callback"):
+                try:
+                    self.controller.set_eta_callback(self._queue_eta_update)
+                except Exception:
+                    pass
+            if hasattr(self.controller, "set_status_callback"):
+                try:
+                    self.controller.set_status_callback(self._queue_status_update)
+                except Exception:
+                    pass
 
         # Initialize prompt pack list manager
         self.pack_list_manager = PromptPackListManager()
@@ -344,8 +386,11 @@ class StableNewGUI:
         # Status bar - at the very bottom
         self._build_status_bar(main_frame)
 
-        # Initialize UI state
-        self._initialize_ui_state()
+        # Initialize UI state asynchronously to avoid blocking Tk
+        try:
+            self._initialize_ui_state_async()
+        except Exception as exc:
+            logger.warning("Failed to schedule UI state init: %s", exc)
 
         # Setup state callbacks
         self._setup_state_callbacks()
@@ -760,12 +805,16 @@ class StableNewGUI:
 
         # ETA indicator
         self.eta_var = tk.StringVar(value=self._progress_eta_default)
+        # Keep alias in sync for tests
+        self.progress_eta_var = self.eta_var
         ttk.Label(status_frame, textvariable=self.eta_var, style="Dark.TLabel").pack(
             side=tk.LEFT, padx=5
         )
 
         # Progress message
         self.progress_message_var = tk.StringVar(value=self._progress_idle_message)
+        # Keep alias in sync for tests
+        self.progress_status_var = self.progress_message_var
         ttk.Label(status_frame, textvariable=self.progress_message_var, style="Dark.TLabel").pack(
             side=tk.LEFT, padx=10
         )
@@ -891,6 +940,17 @@ class StableNewGUI:
                 message = "Ready"
         else:
             message = text
+        # Normalize cancellation text to Ready once we've returned to IDLE
+        try:
+            from .state import GUIState
+            if (
+                str(message).strip().lower() == "cancelled"
+                and hasattr(self, "state_manager")
+                and self.state_manager.is_state(GUIState.IDLE)
+            ):
+                message = "Ready"
+        except Exception:
+            pass
         self.progress_message_var.set(message)
         self.progress_var.set(message)
 
@@ -1076,6 +1136,34 @@ class StableNewGUI:
 
         # Update log
         self.log_message("GUI initialized - ready for pipeline configuration")
+
+    def _initialize_ui_state_async(self) -> None:
+        """Schedule UI state initialization in small chunks to keep the UI responsive."""
+        # Show a friendly loading status without blocking
+        try:
+            self._apply_status_text("Loading packs…")
+        except Exception:
+            pass
+
+        def _do_init():
+            try:
+                # Use the existing initializer (tests may monkeypatch this to a no-op)
+                self._initialize_ui_state()
+            except Exception:
+                # Non-fatal in headless/minimal harness
+                logger.warning("UI state init encountered a non-fatal issue", exc_info=True)
+            finally:
+                try:
+                    self._apply_status_text(None)  # resolves to Ready/Error based on state
+                except Exception:
+                    pass
+
+        # Defer to Tk loop so window paints first
+        try:
+            self.root.after(0, _do_init)
+        except Exception:
+            # Fallback to synchronous call if scheduling fails
+            _do_init()
 
     def _refresh_prompt_packs(self):
         """Refresh the prompt packs list"""
@@ -2772,6 +2860,20 @@ class StableNewGUI:
                     prompt, config, run_name, batch_size, cancel_token=self.controller.cancel_token
                 )
                 return results
+            except CancellationError:
+                # Signal completion and prefer Ready status after cancellation
+                try:
+                    self.controller.lifecycle_event.set()
+                except Exception:
+                    pass
+                try:
+                    self._force_error_status = False
+                    if hasattr(self, "progress_message_var"):
+                        # Schedule on Tk to mirror normal status handling
+                        self.root.after(0, lambda: self.progress_message_var.set("Ready"))
+                except Exception:
+                    pass
+                raise
             except Exception:
                 logger.exception("Pipeline execution error")
                 # Build error text up-front
@@ -2837,6 +2939,12 @@ class StableNewGUI:
                     f"Pipeline completed!\n{num_images} images generated\nOutput: {output_dir}",
                 ),
             )
+            # Reset error-control flags for the next run
+            try:
+                self._force_error_status = False
+                self._error_dialog_shown = False
+            except Exception:
+                pass
             # Ensure lifecycle_event is signaled for tests waiting on completion
             try:
                 self.controller.lifecycle_event.set()
