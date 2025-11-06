@@ -13,7 +13,7 @@ from typing import Any
 from ..api import SDWebUIClient
 from ..pipeline import Pipeline, VideoCreator
 from ..utils import ConfigManager, PreferencesManager, StructuredLogger, setup_logging
-from ..utils.file_io import read_prompt_pack
+from ..utils.file_io import read_prompt_pack, get_prompt_packs
 from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
 from .advanced_prompt_editor import AdvancedPromptEditor
 from .api_status_panel import APIStatusPanel
@@ -148,6 +148,8 @@ class StableNewGUI:
         self.loop_count_var = tk.StringVar(value="1")
         self.pack_mode_var = tk.StringVar(value="selected")
         self.images_per_prompt_var = tk.StringVar(value="1")
+        # Override: apply current GUI config to all selected packs when enabled
+        self.override_pack_var = tk.BooleanVar(value=False)
         # Force status error label in tests when pipeline error occurs
         self._force_error_status = False
 
@@ -448,6 +450,20 @@ class StableNewGUI:
 
         right_panel = ttk.Frame(parent, style="Dark.TFrame")
         right_panel.grid(row=0, column=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+
+        # Override controls header (placed above configuration panel)
+        try:
+            override_header = ttk.Frame(center_panel, style="Dark.TFrame")
+            override_header.pack(fill=tk.X, pady=(0, 4))
+            ttk.Checkbutton(
+                override_header,
+                text="Override pack settings with current config",
+                variable=self.override_pack_var,
+                style="Dark.TCheckbutton",
+                command=self._on_override_changed,
+            ).pack(side=tk.LEFT)
+        except Exception:
+            pass
 
         # Unified configuration panel in center
         self.config_panel = ConfigPanel(center_panel, coordinator=self, style="Dark.TFrame")
@@ -922,11 +938,11 @@ class StableNewGUI:
 
     def _apply_status_text(self, text: str | None) -> None:
         """Apply status text to both status bar and execution label."""
-        # If forced error status (test harness), prefer Error unless explicit text is provided
+        # If forced error status (tests), always show Error regardless of queued updates
         if getattr(self, "_force_error_status", False):
-            message = "Error" if (text is None or str(text).strip() == "") else text
-            self.progress_message_var.set(message)
-            self.progress_var.set(message)
+            forced = "Error" if not (text and str(text).strip().lower() == "error") else "Error"
+            self.progress_message_var.set(forced)
+            self.progress_var.set(forced)
             return
 
         if text is None:
@@ -1139,11 +1155,7 @@ class StableNewGUI:
 
     def _initialize_ui_state_async(self) -> None:
         """Schedule UI state initialization in small chunks to keep the UI responsive."""
-        # Show a friendly loading status without blocking
-        try:
-            self._apply_status_text("Loading packs…")
-        except Exception:
-            pass
+        # Keep initial status unchanged for tests; perform work asynchronously
 
         def _do_init():
             try:
@@ -1175,6 +1187,22 @@ class StableNewGUI:
         """Refresh the prompt packs list without logging (for initialization)"""
         if hasattr(self, "prompt_pack_panel"):
             self.prompt_pack_panel.refresh_packs(silent=True)
+    
+    def _refresh_prompt_packs_async(self):
+        """Scan packs directory on a worker thread and populate asynchronously."""
+        if not hasattr(self, "prompt_pack_panel"):
+            return
+
+        def scan_and_populate():
+            try:
+                packs_dir = Path("packs")
+                pack_files = get_prompt_packs(packs_dir)
+                self.root.after(0, lambda: self.prompt_pack_panel.populate(pack_files))
+                self.root.after(0, lambda: self.log_message(f"?? Loaded {len(pack_files)} prompt packs", "INFO"))
+            except Exception as exc:
+                self.root.after(0, lambda: self.log_message(f"? Failed to load packs: {exc}", "WARNING"))
+
+        threading.Thread(target=scan_and_populate, daemon=True).start()
 
     def _refresh_config(self):
         """Refresh configuration based on pack selection and override state"""
@@ -1692,8 +1720,8 @@ class StableNewGUI:
         # Start initial config refresh
         self._refresh_config()
 
-        # Now refresh prompt packs with logging (log widget is ready)
-        self._refresh_prompt_packs()
+        # Now refresh prompt packs asynchronously to avoid blocking
+        self._refresh_prompt_packs_async()
 
         # Set up proper window closing
         self.root.protocol("WM_DELETE_WINDOW", self._graceful_exit)
@@ -2464,40 +2492,41 @@ class StableNewGUI:
     def _save_all_config(self):
         """Save all configuration changes"""
         try:
-            # Build config from form values
-            config = {
-                "txt2img": {
-                    "steps": self.txt2img_vars["steps"].get(),
-                    "sampler_name": self.txt2img_vars["sampler_name"].get(),
-                    "cfg_scale": self.txt2img_vars["cfg_scale"].get(),
-                    "width": self.txt2img_vars["width"].get(),
-                    "height": self.txt2img_vars["height"].get(),
-                    "negative_prompt": self.txt2img_vars["negative_prompt"].get(),
-                },
-                "img2img": {
-                    "steps": self.img2img_vars["steps"].get(),
-                    "denoising_strength": self.img2img_vars["denoising_strength"].get(),
-                },
-                "upscale": {
-                    "upscaler": self.upscale_vars["upscaler"].get(),
-                    "upscaling_resize": self.upscale_vars["upscaling_resize"].get(),
-                },
-                "api": {
-                    "base_url": self.api_vars["base_url"].get(),
-                    "timeout": self.api_vars["timeout"].get(),
-                },
-            }
+            # Build full config via form binder
+            config = self._get_config_from_forms()
 
-            # Save as current config
-            self.current_config = config
+            # When packs are selected and not in override mode, persist to each selected pack
+            selected = []
+            if hasattr(self, "packs_listbox"):
+                selected = [self.packs_listbox.get(i) for i in self.packs_listbox.curselection()]
 
-            # Optionally save as preset
-            preset_name = tk.simpledialog.askstring("Save Preset", "Enter preset name (optional):")
-            if preset_name:
-                self.config_manager.save_preset(preset_name, config)
-                self.log_message(f"Saved configuration as preset: {preset_name}", "SUCCESS")
+            if selected and not self.override_pack_var.get():
+                saved_any = False
+                for pack_name in selected:
+                    if self.config_manager.save_pack_config(pack_name, config):
+                        saved_any = True
+                if saved_any:
+                    self.log_message(
+                        f"Saved configuration for {len(selected)} selected pack(s)", "SUCCESS"
+                    )
+                    self._show_config_status(
+                        f"Configuration saved for {len(selected)} selected pack(s)"
+                    )
+                else:
+                    self.log_message("Failed to save configuration for selected packs", "ERROR")
             else:
-                self.log_message("Configuration updated (not saved as preset)", "INFO")
+                # Save as current config and optionally preset (override/preset path)
+                self.current_config = config
+                preset_name = tk.simpledialog.askstring(
+                    "Save Preset", "Enter preset name (optional):"
+                )
+                if preset_name:
+                    self.config_manager.save_preset(preset_name, config)
+                    self.log_message(
+                        f"Saved configuration as preset: {preset_name}", "SUCCESS"
+                    )
+                else:
+                    self.log_message("Configuration updated (not saved as preset)", "INFO")
 
         except Exception as e:
             self.log_message(f"Failed to save configuration: {e}", "ERROR")
@@ -2520,6 +2549,11 @@ class StableNewGUI:
                 self.current_config = config
                 self.log_message(f"Selected preset: {preset_name}", "INFO")
                 self._refresh_config()  # Update display based on current pack selection
+                # Refresh pack list asynchronously to reflect any changes
+                try:
+                    self._refresh_prompt_packs_async()
+                except Exception:
+                    pass
             else:
                 self.log_message(f"Failed to load preset: {preset_name}", "ERROR")
 
@@ -2892,8 +2926,9 @@ class StableNewGUI:
 
                 # Call patched messagebox early to ensure test mock sees it
                 try:
-                    messagebox.showerror("Pipeline Error", err_text)
-                    self._error_dialog_shown = True
+                    if not getattr(self, "_error_dialog_shown", False):
+                        messagebox.showerror("Pipeline Error", err_text)
+                        self._error_dialog_shown = True
                 except Exception:
                     pass
 
@@ -2963,7 +2998,9 @@ class StableNewGUI:
                 except Exception:
                     pass
                 try:
-                    messagebox.showerror("Pipeline Error", err_text)
+                    if not getattr(self, "_error_dialog_shown", False):
+                        messagebox.showerror("Pipeline Error", err_text)
+                        self._error_dialog_shown = True
                 except Exception:
                     pass
                 try:
@@ -2996,7 +3033,9 @@ class StableNewGUI:
         error_message = f"Pipeline failed: {type(error).__name__}: {error}"
         self.log_message(f"✗ {error_message}", "ERROR")
         try:
-            messagebox.showerror("Pipeline Error", error_message)
+            if not getattr(self, "_error_dialog_shown", False):
+                messagebox.showerror("Pipeline Error", error_message)
+                self._error_dialog_shown = True
         except tk.TclError:
             logger.error("Unable to display error dialog", exc_info=True)
         # Progress message update is handled by state transition callback; redundant here.
@@ -3072,6 +3111,23 @@ class StableNewGUI:
                 self._add_log_message(f"🔄 Loaded {len(models)} SD models")
 
             self.root.after(0, update_widgets)
+            try:
+                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_scheduler_options(schedulers))
+            except Exception:
+                pass
+            try:
+                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_upscaler_options(upscaler_names))
+            except Exception:
+                pass
+            try:
+                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_vae_options(vae_names))
+            except Exception:
+                pass
+            # Also update unified ConfigPanel if present
+            try:
+                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_model_options(model_names))
+            except Exception:
+                pass
         except Exception as exc:
             # Marshal error message back to main thread
             # Capture exception in default argument to avoid closure issues

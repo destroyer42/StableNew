@@ -213,10 +213,10 @@ class LogPanel(ttk.Frame):
         return True if var is None else bool(var.get())
 
     def _refresh_display(self) -> None:
-        self.log_text.configure(state=tk.NORMAL)
-        self.log_text.delete("1.0", tk.END)
         preserve_pos = bool(self.scroll_lock_var.get())
         top_before = self.log_text.yview()[0] if preserve_pos else None
+        self.log_text.configure(state=tk.NORMAL)
+        self.log_text.delete("1.0", tk.END)
         visible_count = 0
         for message, level in self.log_records:
             if self._should_display(level):

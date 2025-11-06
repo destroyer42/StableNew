@@ -128,8 +128,13 @@ class PipelineController:
             else:
                 threading.Thread(target=cleanup, daemon=True).start()
 
-        self._worker = threading.Thread(target=worker, daemon=True)
-        self._worker.start()
+        if self._sync_cleanup:
+            # For deterministic cleanup only; still start a worker thread so is_running reflects RUNNING
+            self._worker = threading.Thread(target=worker, daemon=True)
+            self._worker.start()
+        else:
+            self._worker = threading.Thread(target=worker, daemon=True)
+            self._worker.start()
         return True
 
     def stop_pipeline(self) -> bool:
