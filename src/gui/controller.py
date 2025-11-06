@@ -227,12 +227,21 @@ class PipelineController:
                 "eta": eta_text,
             }
 
-            if self._status_callback:
-                self._status_callback(stage)
-            if self._progress_callback:
-                self._progress_callback(float(percent))
-            if self._eta_callback:
-                self._eta_callback(eta_text)
+            try:
+                if self._status_callback:
+                    self._status_callback(stage)
+            except Exception:
+                logger.debug("status_callback raised; ignoring in report_progress", exc_info=True)
+            try:
+                if self._progress_callback:
+                    self._progress_callback(float(percent))
+            except Exception:
+                logger.debug("progress_callback raised; ignoring in report_progress", exc_info=True)
+            try:
+                if self._eta_callback:
+                    self._eta_callback(eta_text)
+            except Exception:
+                logger.debug("eta_callback raised; ignoring in report_progress", exc_info=True)
 
     def _terminate_subprocess(self) -> None:
         """Terminate any running subprocess (e.g., FFmpeg)."""
