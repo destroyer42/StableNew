@@ -35,6 +35,48 @@ class Pipeline:
 
         self.progress_controller = controller
 
+    def run_upscale(
+        self,
+        input_image_path: Path,
+        config: dict[str, Any],
+        run_dir: Path,
+        cancel_token=None,
+    ) -> dict[str, Any] | None:
+        """
+        Batch-friendly wrapper for upscaling an image, used in pipeline orchestration.
+
+        Args:
+            input_image_path: Path to input image
+            config: Upscale configuration
+            run_dir: Run directory for this pipeline run
+            cancel_token: Optional cancellation token
+
+        Returns:
+            Metadata for upscaled image or None if failed/cancelled
+        """
+        upscale_dir = run_dir / "upscaled"
+        upscale_dir.mkdir(parents=True, exist_ok=True)
+        image_name = Path(input_image_path).stem
+
+        # Early cancel
+        if cancel_token and getattr(cancel_token, "is_cancelled", None) and cancel_token.is_cancelled():
+            logger.info("upscale cancelled before start")
+            return None
+
+        result = self.run_upscale_stage(
+            input_image_path,
+            config,
+            upscale_dir,
+            image_name,
+        )
+
+        # Post cancel
+        if cancel_token and getattr(cancel_token, "is_cancelled", None) and cancel_token.is_cancelled():
+            logger.info("upscale cancelled after upscaling")
+            return None
+
+        return result
+
     def _parse_sampler_config(self, config: dict[str, Any]) -> dict[str, str]:
         """
         Parse sampler configuration and extract scheduler if present.
@@ -1251,7 +1293,7 @@ class Pipeline:
                     "codeformer_weight": config.get("codeformer_weight", 0.5),
                 }
 
-                response = self.client.upscale(payload)
+                response = self.client.upscale_image(payload)
                 response_key = "image"
                 image_key = None
 

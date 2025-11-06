@@ -8,14 +8,20 @@ import pytest
 
 @pytest.fixture
 def tk_root():
-    """Provide a Tk root window for GUI tests."""
-    root = tk.Tk()
-    root.withdraw()  # headless
-    yield root
+    """Provide a Tk root window for GUI tests, skip if Tk/Tcl unavailable."""
     try:
-        root.destroy()
-    except Exception:
-        pass
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("No display available for Tkinter tests")
+        return
+    root.withdraw()  # headless
+    try:
+        yield root
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
 
 
 @pytest.fixture

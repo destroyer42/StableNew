@@ -15,18 +15,23 @@ def _skip_if_no_tk():
 
 
 @pytest.fixture
-def gui_app(monkeypatch):
-    _skip_if_no_tk()
-
+def gui_app(monkeypatch, tk_root):
+    """Headless-safe GUI app fixture using shared Tk root to skip when Tk is unavailable."""
+    # Avoid heavy initialization that relies on full panel state; we only test status bar progress
+    monkeypatch.setattr(StableNewGUI, "_initialize_ui_state", lambda self: None)
     monkeypatch.setattr(StableNewGUI, "_launch_webui", lambda self: None)
     monkeypatch.setattr("src.gui.main_window.messagebox.showinfo", lambda *args, **kwargs: None)
+    # Force StableNewGUI to reuse the shared Tk root instead of creating a new one
+    monkeypatch.setattr("src.gui.main_window.tk.Tk", lambda: tk_root)
 
     app = StableNewGUI()
     try:
         yield app
     finally:
-        # Ensure we don't leave Tk windows dangling between tests
-        app.root.destroy()
+        try:
+            app.root.destroy()
+        except Exception:
+            pass
 
 
 def test_status_bar_initializes_progress_and_eta(gui_app):

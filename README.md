@@ -347,6 +347,8 @@ This project unifies them into a single controllable workflow — a framework fo
 Each run can be replicated, audited, and extended by humans **or** automated scripts without losing context or data integrity.
 
 ---
+### UI Themes & Settings
+We use `ttkbootstrap` for a modern Tk look (light/dark). Runtime theme switching is under **View → Theme**, and spacing density is under **View → Density**. Window size/position and UI preferences persist to `./settings/settings.json`.
 
 ### Future Extensions
 

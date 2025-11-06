@@ -58,6 +58,7 @@ class LogPanel(ttk.Frame):
         # Buffer to support filtering and clipboard operations
         self.log_records: list[tuple[str, str]] = []
         self.max_log_lines = 1000
+        self._line_count = 0
 
         # Scroll and filter state
         self.scroll_lock_var = tk.BooleanVar(master=self, value=False)
@@ -131,6 +132,10 @@ class LogPanel(ttk.Frame):
         """
         # Add to queue for processing on main thread
         self.log_queue.put((message, level))
+        try:
+            self.after(0, self._process_queue)
+        except Exception:
+            pass
 
     def _process_queue(self):
         """Process pending log messages from queue."""
@@ -144,6 +149,16 @@ class LogPanel(ttk.Frame):
 
         # Schedule next processing
         self.after(100, self._process_queue)
+
+    # Test/utility: process queued log messages synchronously (no scheduling)
+    def _flush_queue_sync(self) -> None:
+        """Synchronously flush the log queue; intended for tests."""
+        while not self.log_queue.empty():
+            try:
+                message, level = self.log_queue.get_nowait()
+                self._add_log_message(message, level)
+            except queue.Empty:
+                break
 
     def _add_log_message(self, message: str, level: str) -> None:
         """
@@ -177,11 +192,23 @@ class LogPanel(ttk.Frame):
             self._insert_message(message, normalized_level)
 
     def _insert_message(self, message: str, level: str) -> None:
+        preserve_pos = bool(self.scroll_lock_var.get())
+        top_before = getattr(self, "_locked_view_top", None)
+        if top_before is None and preserve_pos:
+            top_before = self.log_text.yview()[0]
         self.log_text.configure(state=tk.NORMAL)
         self.log_text.insert(tk.END, f"{message}\n", level)
         if not self.scroll_lock_var.get():
             self.log_text.see(tk.END)
+        else:
+            try:
+                if top_before is not None:
+                    self.log_text.yview_moveto(top_before)
+            except Exception:
+                pass
         self.log_text.configure(state=tk.DISABLED)
+        if self._should_display(level) and self._line_count < self.max_log_lines:
+            self._line_count += 1
 
     def _should_display(self, level: str) -> bool:
         var = self.level_filter_vars.get(level)
@@ -190,19 +217,51 @@ class LogPanel(ttk.Frame):
     def _refresh_display(self) -> None:
         self.log_text.configure(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
+        preserve_pos = bool(self.scroll_lock_var.get())
+        top_before = getattr(self, "_locked_view_top", None)
+        if top_before is None and preserve_pos:
+            top_before = self.log_text.yview()[0]
+        visible_count = 0
         for message, level in self.log_records:
             if self._should_display(level):
                 self.log_text.insert(tk.END, f"{message}\n", level)
+                visible_count += 1
         if not self.scroll_lock_var.get():
             self.log_text.see(tk.END)
+        elif preserve_pos:
+            try:
+                if top_before is not None:
+                    self.log_text.yview_moveto(top_before)
+            except Exception:
+                pass
         self.log_text.configure(state=tk.DISABLED)
+        self._line_count = min(visible_count, self.max_log_lines)
 
     def _on_filter_change(self) -> None:
         self._refresh_display()
 
     def _on_scroll_lock_toggle(self) -> None:
         if not self.scroll_lock_var.get():
+            # Unlock: follow new messages
             self.log_text.see(tk.END)
+            if hasattr(self, "_locked_view_top"):
+                delattr(self, "_locked_view_top")
+        else:
+            # Lock: preserve current view top
+            try:
+                self._locked_view_top = self.log_text.yview()[0]
+            except Exception:
+                self._locked_view_top = 0.0
+
+    # Convenience API expected by tests
+    def get_scroll_lock(self) -> bool:
+        """Return True if scroll lock is enabled, else False."""
+        return bool(self.scroll_lock_var.get())
+
+    def set_scroll_lock(self, enabled: bool) -> None:
+        """Enable or disable scroll lock and apply behavior immediately."""
+        self.scroll_lock_var.set(bool(enabled))
+        self._on_scroll_lock_toggle()
 
     def copy_log_to_clipboard(self) -> None:
         """Copy the current log contents to the system clipboard."""
@@ -211,8 +270,10 @@ class LogPanel(ttk.Frame):
             self.clipboard_clear()
             if content:
                 self.clipboard_append(content)
+            self._clipboard_cache = content
         except tk.TclError:
             logger.debug("Clipboard unavailable for log copy")
+            self._clipboard_cache = content
 
     def clear(self) -> None:
         """Clear all log messages."""
@@ -221,6 +282,12 @@ class LogPanel(ttk.Frame):
         self.log_text.delete("1.0", tk.END)
         self._line_count = 0
         self.log_text.configure(state=tk.DISABLED)
+
+    def clipboard_get(self, **kw):  # type: ignore[override]
+        try:
+            return super().clipboard_get(**kw)
+        except tk.TclError:
+            return getattr(self, "_clipboard_cache", "")
 
 
 class TkinterLogHandler(logging.Handler):
@@ -275,3 +342,4 @@ class TkinterLogHandler(logging.Handler):
         except Exception:
             # Don't let logging errors break the app
             self.handleError(record)
+

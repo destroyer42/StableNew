@@ -2821,7 +2821,7 @@ class StableNewGUI:
 
     def _refresh_models(self):
         """Refresh the list of available SD models (main thread version)"""
-        if not self.client:
+        if self.client is None:
             messagebox.showerror("Error", "API client not connected")
             return
 
@@ -2840,7 +2840,7 @@ class StableNewGUI:
 
     def _refresh_models_async(self):
         """Refresh the list of available SD models (thread-safe version)"""
-        if not self.client:
+        if self.client is None:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
             return
@@ -2855,9 +2855,9 @@ class StableNewGUI:
             # Marshal widget updates back to main thread
             def update_widgets():
                 if hasattr(self, "model_combo"):
-                    self.model_combo["values"] = model_names
+                    self.model_combo["values"] = tuple(model_names)
                 if hasattr(self, "img2img_model_combo"):
-                    self.img2img_model_combo["values"] = model_names
+                    self.img2img_model_combo["values"] = tuple(model_names)
                 self._add_log_message(f"🔄 Loaded {len(models)} SD models")
 
             self.root.after(0, update_widgets)
@@ -2871,7 +2871,7 @@ class StableNewGUI:
 
     def _refresh_vae_models(self):
         """Refresh the list of available VAE models (main thread version)"""
-        if not self.client:
+        if self.client is None:
             messagebox.showerror("Error", "API client not connected")
             return
 
@@ -2888,7 +2888,7 @@ class StableNewGUI:
 
     def _refresh_vae_models_async(self):
         """Refresh the list of available VAE models (thread-safe version)"""
-        if not self.client:
+        if self.client is None:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
             return
@@ -2901,9 +2901,9 @@ class StableNewGUI:
             # Marshal widget updates back to main thread
             def update_widgets():
                 if hasattr(self, "vae_combo"):
-                    self.vae_combo["values"] = vae_names
+                    self.vae_combo["values"] = tuple(vae_names)
                 if hasattr(self, "img2img_vae_combo"):
-                    self.img2img_vae_combo["values"] = vae_names
+                    self.img2img_vae_combo["values"] = tuple(vae_names)
                 self._add_log_message(f"🔄 Loaded {len(vae_models)} VAE models")
 
             self.root.after(0, update_widgets)
@@ -2919,7 +2919,7 @@ class StableNewGUI:
 
     def _refresh_upscalers(self):
         """Refresh the list of available upscalers (main thread version)"""
-        if not self.client:
+        if self.client is None:
             messagebox.showerror("Error", "API client not connected")
             return
 
@@ -2938,7 +2938,7 @@ class StableNewGUI:
 
     def _refresh_upscalers_async(self):
         """Refresh the list of available upscalers (thread-safe version)"""
-        if not self.client:
+        if self.client is None:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
             return
@@ -2953,7 +2953,7 @@ class StableNewGUI:
             # Marshal widget updates back to main thread
             def update_widgets():
                 if hasattr(self, "upscaler_combo"):
-                    self.upscaler_combo["values"] = upscaler_names
+                    self.upscaler_combo["values"] = tuple(upscaler_names)
                 self._add_log_message(f"🔄 Loaded {len(upscalers)} upscalers")
 
             self.root.after(0, update_widgets)
@@ -2997,9 +2997,9 @@ class StableNewGUI:
             # Marshal widget updates back to main thread
             def update_widgets():
                 if hasattr(self, "scheduler_combo"):
-                    self.scheduler_combo["values"] = schedulers
+                    self.scheduler_combo["values"] = tuple(schedulers)
                 if hasattr(self, "img2img_scheduler_combo"):
-                    self.img2img_scheduler_combo["values"] = schedulers
+                    self.img2img_scheduler_combo["values"] = tuple(schedulers)
                 self._add_log_message(f"🔄 Loaded {len(schedulers)} schedulers")
 
             self.root.after(0, update_widgets)

@@ -1,0 +1,1 @@
+- UI polish efforts are tracked in `.github/agents/ui_polish_agent_*.md`. Use those instructions for themed Tk, spacing tokens, and headless-safe GUI tests.
