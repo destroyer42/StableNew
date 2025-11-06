@@ -3,21 +3,7 @@ name: UI Polish Agent
 description: Python GURU
 ---
 
-# My Agent
 
----
-# Fill in the fields below to create a basic custom agent for your repository.
-# The Copilot CLI can be used for local testing: https://gh.io/customagents/cli
-# To make this agent available, merge this file into the default repository branch.
-# For format details, see: https://gh.io/customagents/config
-
-name:UI Polish
-description: Modernize the Tkinter GUI’s look & feel (rounded corners, consistent spacing, dark/light themes, better resizing), with minimal disruption to existing logic.
----
-
-# My Agent
-
-# Agent: UI Polish (Tk Facelift with Theming & Layout)
 **Owner:** Codex / Copilot Agent  
 **Base Branch:** `origin/postGemini`  
 **Feature Branch:** `ui/ttkbootstrap-facelift`  
