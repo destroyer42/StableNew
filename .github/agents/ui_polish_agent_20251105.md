@@ -1,153 +1,169 @@
 
----
-name: ui_polish_agent_20251105.md
-description: see below
----
+Agent: UI Polish – Tk Facelift & Theming
+Purpose
 
-# Agent: UI Polish (Tk Facelift with Theming & Layout)
-**Owner:** Codex / Copilot Agent  
-**Base Branch:** `origin/postGemini`  
-**Feature Branch:** `ui/ttkbootstrap-facelift`  
-**PR Target:** `postGemini`  
-**Goal:** Modernize the Tkinter GUI’s look & feel (rounded corners, consistent spacing, dark/light themes, better resizing), with minimal disruption to existing logic.
+Modernize the Tkinter UI (rounded, consistent spacing, dark/light themes, better resizing) using ttkbootstrap, without altering business logic or pipelines.
 
----
+Scope / Files
 
-## Scope (what to change)
-1) **Theme & Tokens**
-   - Add `ttkbootstrap` as the primary theme layer.
-   - Create `src/gui/theme.py` exporting **design tokens**:
-     - spacing: `XS=4, S=8, M=12, L=16, XL=24`
-     - radius: `S=6, M=10`
-     - fonts: base = 11–12pt, mono for logs
-     - density presets: `compact`, `comfortable`
-   - Add a simple **theme manager** with a default theme (e.g., dark “cyborg” and light “flatly”), switchable at runtime.
+Add:
 
-2) **Window Resizing & Layout**
-   - Ensure main window has sensible `minsize`, correct `grid` weights.
-   - Panels (LogPanel, Config, Prompt Packs, API Status) should expand/contract cleanly.
-   - Normalize paddings: prefer `padx=theme.S`, `pady=theme.S` and inner frames with `pad=theme.M`.
+src/gui/theme.py (design tokens + theme manager)
 
-3) **Widget Modernization**
-   - Replace raw `tk.*` with `ttk.*` where feasible; apply `ttkbootstrap` styles.
-   - Rounded corners where available via themed widgets / style maps.
-   - Replace ad-hoc separators with themed `ttk.Separator` and unified spacing.
+src/gui/dialogs.py (messagebox/file dialog wrappers; headless-safe)
 
-4) **Top-Level Menu Enhancements**
-   - Add `View → Theme` submenu (dark/light choices).
-   - Add `View → Density` toggle (`compact|comfortable`) that updates spacing tokens at runtime and triggers a lightweight relayout.
+src/utils/settings.py (JSON load/save for theme/density/window)
 
-5) **LogPanel Quality-of-Life**
-   - Add **level filters** (INFO/WARN/ERROR).
-   - Add **Export** action to save current log content to a timestamped file under `./logs/`.
-   - (Optional) Add search box (case-insensitive substring match), not required for this PR if time-boxed.
+tests/gui/conftest.py (shared tk_root, tk_pump, dialog stubs)
 
-6) **Settings Persistence**
-   - Add `settings.json` in `./settings/` (create on first run) for:
-     - `theme.name`, `ui.density`, `window.size`, `window.position`.
-   - Provide `src/utils/settings.py` with `load_settings() / save_settings()`.
+Modify (visual only, no behavior changes):
 
-7) **Headless-Safe Dialog Helpers**
-   - Create `src/gui/dialogs.py` with wrappers for messageboxes/file dialogs.
-   - Wrappers must be easily monkeypatchable in tests and **no-op** in CI if `DISPLAY` is unavailable.
+src/gui/main_window.py (apply theme; menu: View→Theme/Density; minsize/grid weights; persist geometry)
 
----
+src/gui/log_panel.py (INFO/WARN/ERROR filters; export; spacing)
 
-## Out of Scope (this PR)
-- Rewriting core business logic or pipelines.
-- Migrating to Qt/PySide6.
-- Deep refactors of Prompt Editor behaviors (visual restyle only).
-- Changing default pipeline parameters.
+src/gui/prompt_pack_list_manager.py (ttk widgets; spacing)
 
----
+src/gui/enhanced_slider.py (ttk styling/padding)
 
-## File/Table of Work
-**Add:**
-- `src/gui/theme.py` (design tokens + theme manager)
-- `src/gui/dialogs.py` (wrappers: messagebox/filedialog)
-- `src/utils/settings.py` (JSON persistence)
-- `tests/gui/conftest.py` (`tk_root`, `tk_pump`, monkeypatch of dialogs)
+requirements.txt (+ ttkbootstrap>=1.10)
 
-**Modify (non-breaking restyle):**
-- `src/gui/main_window.py` (apply theme, menu, resizing, persist window geometry)
-- `src/gui/log_panel.py` (filters, export, spacing)
-- `src/gui/prompt_pack_list_manager.py` (spacing, ttk widgets)
-- `src/gui/enhanced_slider.py` (consistent ttk styling/padding)
-- `requirements.txt` (+ `ttkbootstrap>=1.10`)
+Guardrails
 
-> Ensure all imports use package paths (e.g., `from src.gui.theme import theme`)—no `sys.path` hacks.
+Tk main thread non-blocking (no join() in GUI/tests).
 
----
+Headless-safe tests (skip gracefully if Tcl/Tk/display missing).
 
-## Implementation Notes
-- Use `ttkbootstrap.Style()` to set the theme (`style = Style("cyborg")`, etc.).
-- Centralize paddings via helper (e.g., `pad(theme.S)` returns `{'padx': theme.S, 'pady': theme.S}`).
-- Use layout weights: for each container, call `grid_columnconfigure` / `grid_rowconfigure` with weight=1 where expansion is expected.
-- For LogPanel, filter logic should hide/show entries by level **without losing** the raw buffer:
-  - Keep a “raw text buffer” + “current view text”.
-- Export logs via `asksaveasfilename` wrapper; fallback path `./logs/session_<ts>.log` when headless.
-- Persist window size/pos on close; load on start (guard missing/corrupt settings).
+Keep changes visual; no pipeline/default-params changes.
 
----
+Use package imports (e.g., from src.gui.theme import theme), no sys.path hacks.
 
-## Tests (must pass in CI headless)
-- `pytest -q` (GUI tests marked `@pytest.mark.gui`)
-- New tests:
-  - `tests/gui/test_theme_applies.py`:
-    - Assert theme loads (no exception), density toggle updates paddings.
-  - `tests/gui/test_logpanel_filters.py`:
-    - Feed INFO/WARN/ERROR; toggle filters; assert visible text changes.
-  - `tests/gui/test_settings_persist.py`:
-    - With `tmp_path`, simulate window size/pos save+load.
-  - `tests/gui/test_dialog_wrappers.py`:
-    - Monkeypatch dialogs to no-op; verify call sites don’t block or error.
-- Add `tests/gui/conftest.py`:
-  - `tk_root` fixture (single root, yields, then destroy)
-  - `tk_pump` helper to process event queue
-  - `monkeypatch` defaults to stub dialog wrappers
+Test & Validate (must pass in CI)
 
----
+Commands:
 
-## CI & Pre-commit Gates
-- Update `requirements.txt` to include `ttkbootstrap`.
-- Run:
-  - `pre-commit run --all-files`
-  - `pytest --cov=src --cov-report=term-missing -q`
+pre-commit run --all-files
 
----
+pytest --cov=src --cov-report=term-missing -q
 
-## Branching, Commits, and PR
-- Branch: `ui/ttkbootstrap-facelift`
-- Commit messages (conventional):
-  - `feat(gui): add ttkbootstrap theme manager and design tokens`
-  - `feat(gui): resizable layouts with normalized spacing`
-  - `feat(logpanel): level filters and export`
-  - `feat(settings): persist theme/density/window geometry`
-  - `test(gui): headless fixtures and GUI assertions`
-  - `chore(deps): add ttkbootstrap`
-- PR title:
-  - **“UI Polish: ttkbootstrap facelift, modern spacing, resizable layout, log filters/export”**
-- PR checklist:
-  - [ ] Screenshots (dark + light)
-  - [ ] Headless tests passing
-  - [ ] No regressions in pipeline launch
-  - [ ] Settings persist across restarts
-  - [ ] Docs updated (README: “Theme & Settings”)
+Focused:
 
----
+pytest tests\gui\test_theme_applies.py -q
 
-## Acceptance Criteria (Definition of Done)
-- App launches with modern theme (rounded/sleek); panels resize gracefully.
-- Theme and density can be switched at runtime and persist.
-- LogPanel can filter by level and export current view.
-- GUI tests run **headless** in CI with real assertions.
-- No blocking dialogs during tests; dialog wrappers are patchable.
-- `pre-commit` and coverage gates pass.
+pytest tests\gui\test_logpanel_filters.py -q
 
----
+pytest tests\gui\test_settings_persist.py -q
 
-## Rollback Plan
-- Revert `ui/ttkbootstrap-facelift` PR.
-- Remove new deps and files.
-- Keep test fixtures; they are safe to retain.
+pytest tests\gui\test_dialog_wrappers.py -q
 
+New tests to add:
+
+tests/gui/test_theme_applies.py – theme loads; density toggle updates padding.
+
+tests/gui/test_logpanel_filters.py – feed INFO/WARN/ERROR; toggle filters; assert visible text.
+
+tests/gui/test_settings_persist.py – save/load window size/pos (use tmp_path).
+
+tests/gui/test_dialog_wrappers.py – dialog wrappers are patchable/no-op in headless.
+
+tests/gui/conftest.py – tk_root (yield root/destroy), tk_pump, dialog stubs.
+
+Implementation Checklist
+
+Theme & tokens (src/gui/theme.py):
+
+ttkbootstrap.Style() with default dark “cyborg” + light “flatly”
+
+Tokens: spacing (XS=4, S=8, M=12, L=16, XL=24), radius (S=6, M=10), fonts (base 11–12pt, mono for logs)
+
+Density presets: compact / comfortable
+
+Helper: pad(s) → {'padx': s, 'pady': s}
+
+Resizing & layout:
+
+Sensible minsize, grid_*configure(..., weight=1) where panels must grow
+
+Normalize paddings to tokens
+
+Widgets:
+
+Prefer ttk.*; use themed ttk.Separator; rounded corners where available
+
+Menu:
+
+View → Theme (dark/light)
+
+View → Density (compact|comfortable) → re-layout
+
+LogPanel:
+
+Level filters (INFO/WARN/ERROR) without losing raw buffer (keep raw + view)
+
+Export current view to ./logs/session_<ts>.log (or asksaveasfilename via wrapper)
+
+Settings:
+
+settings.json under ./settings/ (create on first run)
+
+Keys: theme.name, ui.density, window.size, window.position
+
+src/utils/settings.py with load_settings()/save_settings()
+
+Dialog helpers (src/gui/dialogs.py):
+
+Thin wrappers around messagebox/file dialogs; no-op in headless; easily monkeypatched
+
+PR Rules
+
+Base: origin/postGemini → Feature: ui/ttkbootstrap-facelift → PR target: postGemini
+
+Use repo PR template; attach dark/light screenshots
+
+Conventional commits:
+
+feat(gui): add ttkbootstrap theme manager and design tokens
+
+feat(gui): resizable layouts with normalized spacing
+
+feat(logpanel): level filters and export
+
+feat(settings): persist theme/density/window geometry
+
+test(gui): headless fixtures and GUI assertions
+
+chore(deps): add ttkbootstrap
+
+Out of Scope
+
+Pipeline/business-logic changes
+
+Qt/PySide migration
+
+Deep prompt-editor behavioral changes (visual restyle only)
+
+Default parameter changes
+
+Definition of Done
+
+Modern theme applied; panels resize smoothly
+
+Theme & density switchable at runtime and persist across restarts
+
+LogPanel filters by level; export works headless
+
+GUI tests run headless in CI with real assertions
+
+pre-commit + coverage gates pass
+
+Rollback
+
+Revert PR ui/ttkbootstrap-facelift; remove new deps/files
+
+Keep test fixtures (safe)
+
+(Optional) One-time dependency note
+
+Add ttkbootstrap>=1.10 to requirements.txt
+
+If CI needs a display for legacy tests, ensure your workflow starts Xvfb before pytest
