@@ -1,43 +1,120 @@
-# StableNew — GitHub Copilot Instructions (merged 2025-11-04)
+# StableNew — AI Coding Agent Instructions
 
-> **Context:** Stable Diffusion WebUI automation (txt2img → img2img → upscale → video) with Python 3.11, Tk/Ttk GUI, FFmpeg, pytest, ruff, black, mypy, and pre-commit. This file guides GitHub Copilot coding agent, Copilot Chat, and human contributors for **StableNew**.
+> **Context:** Stable Diffusion WebUI automation pipeline (txt2img → img2img/ADetailer → upscale → video) with Python 3.11, Tkinter GUI, FFmpeg, pytest. Strict TDD workflow with pre-commit hooks (ruff, black, mypy).
 
-## 1) Branching & Release Flow
-- **main**: release-only (protected). No direct pushes.
-- **postGemini**: integration branch for GUI + controller work.
-- **Feature branches**: create per task, e.g. `feature/gui-stop-cancel`, `fix/editor-status-text`.
-- **PR route**: `feature` → `postGemini` (manual journey tests) → `main` (RC/tag).
+## 1) Project Architecture
 
-## 2) Architecture Guardrails (GUI + Controller)
-- GUI is componentized; `main_window.py` is the **mediator**.
-  - Panels: `PromptPackPanel`, `PipelineControlsPanel`, `ConfigPanel`, `APIStatusPanel`, `LogPanel`.
-  - Panels own their `tk.*Var` state and expose `get_state()/set_state()` or `get_settings()`.
-  - Events bubble **up** to mediator; mediator pushes updates **down**.
-- Controller is authoritative for lifecycle and the **only** place that joins workers.
-  - GUI/tests **must not** join worker threads.
-  - Use cooperative cancellation; Tk main thread must remain non‑blocking.
-- Pipeline (high level): `txt2img` → (optional) `img2img` → `upscale` → `video`.
-  - SD WebUI API readiness is checked before calls; use exponential backoff.
-  - Base64 image handling goes through `utils/file_io.py` helpers.
-  - Each run writes manifests (JSON) + CSV rollups into time‑stamped `output/run_YYYYMMDD_HHMMSS/...`
+**Pipeline Flow:** `txt2img` → **stage chooser** → (img2img | ADetailer) → upscale → video
+- Each stage optional via config flags (`img2img_enabled`, `upscale_enabled`) or per-image modal selection
+- Output to timestamped dirs: `output/run_YYYYMMDD_HHMMSS/{txt2img,img2img,upscaled,video,manifests}/`
+- All metadata tracked in JSON manifests + CSV rollups for reproducibility
 
-## 3) How to Work (Copilot + Humans)
-**We use strict TDD and small PRs.**
-1. Write/extend tests under `tests/` first (`tests/gui` for panels).
-2. Run: `pre-commit run --all-files` then `pytest --cov=src --cov-report=term-missing`.
-3. Implement the minimal change to make tests pass.
-4. Refactor with tests green. Update docs and changelog.
+**GUI Architecture (MVC + Mediator Pattern):**
+- `src/gui/main_window.py` is the **mediator** - coordinates all panels
+- Panels (`PromptPackPanel`, `PipelineControlsPanel`, `ConfigPanel`, `APIStatusPanel`, `LogPanel`) own their `tk.*Var` state
+- Data flows: Events bubble **up** to mediator → mediator pushes state **down** to panels
+- Each panel exposes `get_state()/set_state()` or `get_settings()` - never access vars directly from other components
 
-**Task sizing for Copilot**
-- Prefer focused tasks: bug fixes, UI polish, test coverage, docs, config validation, technical debt.
-- Avoid broad refactors, cross-repo changes, or domain‑heavy business logic in a single task.
-- If a task is ambiguous, add acceptance criteria **before** starting.
+**Critical Threading Rules:**
+- `PipelineController` (`src/gui/controller.py`) is the **only** place that joins worker threads
+- GUI and tests **must never** call `.join()` on threads - use event polling instead
+- All heavy work (API calls, FFmpeg) runs in threads/subprocesses with queue-based callbacks
+- Tk main loop must **never** block - use `root.after()` for periodic checks
 
-**How to assign tasks/prompts**
-- Issues double as prompts. Include:
-  - What to change (files/paths), acceptance tests, success criteria.
-  - Any GUI behaviors (non‑blocking, cancel, log, status text) and validation points.
-- In PRs, mention **@copilot** with batched review comments (use “Start a review”), not single comments.
+## 2) Cooperative Cancellation Pattern
+
+**Cancel Token Usage** (`src/gui/state.py::CancelToken`):
+```python
+# In pipeline stages, check at safe points:
+if cancel_token and cancel_token.is_cancelled():
+    logger.info("Operation cancelled")
+    return None
+
+# Controller resets token before each run:
+self.cancel_token.reset()
+```
+- Cancellation is **cooperative** - check between stages, after API calls, not during tight loops
+- Never abruptly kill threads - allow cleanup (close connections, delete temp files, terminate FFmpeg)
+
+## 3) Configuration Integrity (CRITICAL)
+
+**When adding/modifying config parameters:**
+1. Update `src/utils/config.py::get_default_config()` with new field
+2. Add GUI controls in relevant panel (`src/gui/config_panel.py` or component)
+3. Update `src/pipeline/executor.py` to use the parameter in API payloads
+4. **MUST** update `tests/test_config_passthrough.py`:
+   - Add parameter to `EXPECTED_TXT2IMG_PARAMS`, `EXPECTED_IMG2IMG_PARAMS`, or `EXPECTED_UPSCALE_PARAMS`
+5. Run validation: `pytest tests/test_config_passthrough.py`
+6. Ensure 90-100% pass-through accuracy before merging
+
+**Why:** Silent config drift causes unexpected generation results. This test is mandatory.
+
+## 4) API Client Patterns
+
+**Retry/Backoff** (`src/api/client.py::SDWebUIClient`):
+- Uses exponential backoff with jitter for resilience
+- Configurable via `max_retries`, `backoff_factor`, `max_backoff`, `jitter`
+- Example: `backoff_factor=1.0` → delays of 1s, 2s, 4s, 8s (capped at `max_backoff`)
+- Jitter prevents thundering herd: adds random 0-`jitter` seconds to each delay
+
+**Readiness Checks:**
+- Before pipeline execution, check `/sdapi/v1/sd-models` endpoint
+- Fail fast if WebUI not responding - don't waste time on doomed runs
+- Discovery: `src/utils/webui_discovery.py::find_webui_api_port()` scans common ports (7860, 7861, 7862)
+
+## 5) File I/O Conventions
+
+**UTF-8 Discipline:**
+- All file reads/writes use `encoding="utf-8"` - supports international prompts
+- Prompt packs (`.txt`, `.tsv`) can include any Unicode characters
+- `name:` prefix in prompts allows custom filenames (also UTF-8 safe)
+
+**Base64 Image Handling** (`src/utils/file_io.py`):
+- `load_image_to_base64(path)` - read image → base64 string for API
+- `save_image_from_base64(b64_str, path)` - decode API response → PNG/JPG
+- Never write raw bytes directly - use these helpers for consistency
+
+**Prompt Pack Parsing:**
+- Blank lines separate prompts in `.txt` format
+- `neg:` prefix marks negative prompt lines (joined with spaces)
+- Embeddings: `<embedding:name>` or `<embedding:name-neg>`
+- LoRAs: `<lora:model:0.7>` with float weights
+
+## 6) Testing Strategy (TDD Required)
+
+**Workflow:**
+1. Write test **first** under `tests/` (or `tests/gui/` for panels)
+2. Run `pre-commit run --all-files` to check style
+3. Run `pytest --cov=src --cov-report=term-missing` - aim for 80%+ coverage
+4. Implement minimal code to pass test
+5. Refactor with tests green
+
+**GUI Test Patterns** (see `.github/instructions/gui-tests.instructions.md`):
+- Use `tests/conftest.py::tk_root` fixture (headless-safe)
+- Use `tk_pump(duration=0.2)` to process Tk events without blocking
+- Poll controller state via `state_manager.current` - **never** join worker threads
+- Example: Wait for state transition by checking `state_manager.is_state(GUIState.IDLE)` in loop
+
+**Markers:**
+- `@pytest.mark.gui` - requires Tk display (skipped in headless CI)
+- `@pytest.mark.integration` - needs external services (SD WebUI API)
+- `@pytest.mark.slow` - takes >5s (skip with `-m "not slow"`)
+
+## 7) Development Workflow
+
+**Local Quick Checks:**
+```bash
+pre-commit run --all-files   # ruff, black, mypy
+pytest -q                     # fast run, no coverage
+pytest --cov=src --cov-report=term-missing  # full validation
+```
+
+**Branching:**
+- `main` - release-only (protected)
+- `postGemini` - integration branch for GUI/controller work
+- Feature branches: `feature/gui-stop-cancel`, `fix/config-passthrough`
+
+**PR Route:** `feature` → `postGemini` (manual journey tests) → `main` (tagged release)
 
 ## 4) Build, Test, Lint (local + CI)
 ```cmd
