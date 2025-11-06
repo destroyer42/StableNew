@@ -107,8 +107,6 @@ class Pipeline:
                 name = re.sub(r'[^\w_-]', '_', name)
                 return name if name else None
         return None
-<<<<<<< HEAD
-
     def run_txt2img(
         self,
         prompt: str,
@@ -235,8 +233,6 @@ class Pipeline:
 
         logger.info(f"txt2img completed: {len(results)} images generated")
         return results
-=======
->>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
         """
         Run txt2img generation.
 
