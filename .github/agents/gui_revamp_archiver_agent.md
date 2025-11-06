@@ -1,69 +1,70 @@
 ---
 name: gui_revamp_archiver_agent
-description: sprint v1.4 code manager
+description: Fixing issues with GUI
 ---
 
 # My Agent
 
-Copilot Agent — GUI Revamp & Repo Hygiene (Sprint v1.4)
+Copilot Agent — 
 
 Role: Senior Python engineer + UX-minded Tk/ttk designer
-Repo goals (this sprint):
+Repo goals:
 
-Real Stop / cancellation with Idle/Running/Stopping/Error state machine
+## Purpose
+Eliminate GUI crashes from early logging and missing config metadata. Replace fragile `self.log_text` usage with a stable LogPanel API and fix NameErrors/late-binding in config-panel callbacks. Keep changes minimal and visual-logic neutral.
 
-Wire the Advanced Prompt Editor to main GUI (open, validate, save, reflect in list)
+## Scope / Files
+- `src/gui/log_panel.py` — expose `append(msg, level="INFO")` API; keep internal `Text` disabled; `see("end")`.
+- `src/gui/main_window.py` (or `StableNewGUI`):
+  - Create `self.log_panel` early.
+  - Add proxy `self.add_log = self.log_panel.append`.
+  - Add legacy alias `self.log_text = getattr(self.log_panel, "text", None)`.
+  - Replace `_add_log_message` to use `self.add_log` with a safe fallback (`print`).
+  - Initialize metadata attrs: `self.schedulers`, `self.upscaler_names`, `self.vae_names` as empty lists.
+  - Replace lambdas with `functools.partial` (or capture defaults) when scheduling UI updates.
+- `src/gui/config_panel.py` (or equivalent):
+  - Combos disabled until data arrives.
+  - `set_schedulers(names)`, `set_upscalers(names)`, `set_vaes(names)` enable `readonly` when non-empty.
+- **Tests (new)**
+  - `tests/gui/test_logpanel_binding.py`
+  - `tests/gui/test_config_meta_updates.py`
 
-Dead-code archiver polish (--dry-run, --undo, --since) with tests
+## Guardrails
+- Tk main thread **non-blocking** (no `join()` from GUI/tests).
+- Headless-safe: GUI tests must skip gracefully if Tcl/Tk/display missing.
+- No business-logic/pipeline changes; strictly stability & wiring.
+- Use package imports (e.g., `from src.gui.theme import theme`); no `sys.path` hacks.
 
-Docs/CI updates pulled into Help dialog
+## Implementation Checklist
+- [ ] **LogPanel**: implement `append(msg, level="INFO")` that enables → inserts → disables; preserves scroll; keeps raw buffer intact.
+- [ ] **GUI init**: instantiate `self.log_panel` before any log call; add `self.add_log` proxy and `self.log_text` alias.
+- [ ] **_add_log_message**: route to `self.add_log(msg, level)`; on error, `print` as a last resort.
+- [ ] **Metadata attrs**: initialize `self.schedulers`, `self.upscaler_names`, `self.vae_names` to empty lists.
+- [ ] **Apply metadata**: after fetch, set attrs, then `root.after(0, partial(config_panel.set_*, list(...)))`.
+- [ ] **Combos**: start disabled; become `readonly` once values arrive.
+- [ ] **Defensive**: if metadata missing, warn once and keep controls disabled.
 
-Stack: Python 3.11, Tkinter/ttk or ttkbootstrap, queue.Queue, threads/subprocess, FFmpeg (CLI), pytest, ruff, black, mypy, pre-commit.
+## Minimal reference snippets
+```python
+# main_window.py (early init)
+self.log_panel = LogPanel(self, ...)
+self.add_log = self.log_panel.append
+self.log_text = getattr(self.log_panel, "text", None)  # legacy compat
 
-Working agreements
+def _add_log_message(self, msg, level="INFO"):
+    try:
+        self.add_log(msg, level)
+    except Exception:
+        print(f"[{level}] {msg}")
 
-Keep PRs small and stacked: (A) state/cancel → (B) editor hook → (C) archiver polish → (D) docs/CI.
+# metadata wiring
+from functools import partial
+self.schedulers, self.upscaler_names, self.vae_names = [], [], []
 
-Main thread never blocks; background workers do all I/O and API calls; propagate logs via a queue.
-
-Use type hints, docstrings, structured logging; no magic strings in UI code; centralize constants.
-
-Must-deliver (per PR)
-
-A: State/Cancel
-
-Introduce CancelToken; thread it through pipeline calls; early-out at stage boundaries.
-
-Stop button: cooperative cancel + gentle terminate of subprocess; cleanup; return to Idle.
-
-Status bar bound to state; run button disable/enable lifecycle; GUI responsive under load.
-
-Tests: token flow + early-out + GUI re-enable.
-
-B: Prompt Editor hook
-
-Launch editor from main menu; save pack → refresh pack list + “Current Pack” label.
-
-Surface editor validations to main log; normalize UTF-8/newlines.
-
-C: Archiver polish
-
---dry-run, --undo <manifest> happy-path tests; timestamped ARCHIVE/_YYYYMMDD_HHMMSS_v{SEMVER}/.
-
-Optional: --since <git tag/sha> (best-effort via git diff --name-only).
-
-D: Docs/CI
-
-README/ARCHITECTURE sections for state machine + cancellation; Help dialog pulls those sections.
-
-Ensure pre-commit and pytest pick up new tests; keep CI green.
-
-Definition of Done (sprint)
-
-Stop works reliably across all stages without UI freeze.
-
-Editor round-trips packs and validations show up in the main log.
-
-Archiver dry-run/archive/undo flows tested and documented.
-
-Docs/CI updated; no new ruff/mypy failures.
+def on_metadata_ready(self, meta):
+    self.schedulers = meta.get("schedulers", [])
+    self.upscaler_names = meta.get("upscalers", [])
+    self.vae_names = meta.get("vaes", [])
+    self.root.after(0, partial(self.config_panel.set_schedulers, list(self.schedulers)))
+    self.root.after(0, partial(self.config_panel.set_upscalers, list(self.upscaler_names)))
+    self.root.after(0, partial(self.config_panel.set_vaes, list(self.vae_names)))
