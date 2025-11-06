@@ -37,31 +37,33 @@ However, during the investigation, **2 simple bugs** were discovered in existing
 **Status:** ⚠️ **MOSTLY FIXED - Has duplicate message bug**
 
 **Analysis:**
-The issue complained about full O(n) redraw on every message after hitting the 1000-line limit. The current implementation (lines 192-203 in `src/gui/log_panel.py`) addresses this by:
+The issue complained about full O(n) redraw on every message after hitting the 1000-line limit. The current implementation in `src/gui/log_panel.py` addresses this by using an efficient pop(0) approach.
 
 ✅ **What's fixed:**
 - Only does full refresh ONCE when first exceeding limit
 - Subsequent messages use efficient `pop(0)` approach
 - Scroll position is preserved
 
-❌ **Bug found:**
+❌ **Bug found at line 200:**
+The `_add_log_message` method has a logic error:
+
 ```python
-# Line 190: Append message
+# Line 190: Append message FIRST
 self.log_records.append((message, normalized_level))
 
-# Line 192-196: If > limit, trim and refresh
+# Lines 192-196: If > limit, trim and refresh
 if len(self.log_records) > self.max_log_lines:
     self.log_records = self.log_records[-self.max_log_lines :]
     self._refresh_display()
     return
 
-# Line 197-203: If == limit, pop and append
+# Lines 197-203: If == limit, pop and append
 elif len(self.log_records) == self.max_log_lines:
     self.log_records.pop(0)
-    self.log_records.append((message, normalized_level))  # ⚠️ DUPLICATE!
+    self.log_records.append((message, normalized_level))  # ⚠️ LINE 200: DUPLICATE!
 ```
 
-The message is appended at line 190, then appended AGAIN at line 200, creating a duplicate.
+The message is appended at line 190, then appended AGAIN at line 200, creating a duplicate entry in the log buffer.
 
 **Fix:**
 Remove line 200, OR restructure to check before appending:
@@ -92,7 +94,7 @@ if self._should_display(normalized_level):
 **Status:** ⚠️ **NEEDS 1-LINE FIX**
 
 **Analysis:**
-In `src/gui/main_window.py` lines 1002-1010:
+In `src/gui/main_window.py`, the `_poll_controller_logs` method (starting at line 1002) contains the bug:
 
 ```python
 def _poll_controller_logs(self):
