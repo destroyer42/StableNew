@@ -24,7 +24,6 @@ from .log_panel import LogPanel, TkinterLogHandler
 from .pipeline_controls_panel import PipelineControlsPanel
 from .prompt_pack_list_manager import PromptPackListManager
 from .prompt_pack_panel import PromptPackPanel
-from .self_test_runner import SelfTestRunner
 from .state import GUIState, StateManager
 
 logger = logging.getLogger(__name__)
@@ -96,6 +95,7 @@ class StableNewGUI:
         self.preset_var = tk.StringVar(value=self.current_preset)
 
         # Initialize other GUI variables that are used before UI building
+<<<<<<< HEAD
         self.txt2img_enabled = tk.BooleanVar(
             value=pipeline_preferences.get("txt2img_enabled", True)
         )
@@ -121,6 +121,16 @@ class StableNewGUI:
         # Connection tuning (configurable)
         self.api_discovery_max_retries = 3
         self.api_discovery_retry_delay = 0.3  # seconds
+=======
+        self.txt2img_enabled = tk.BooleanVar(value=True)
+        self.img2img_enabled = tk.BooleanVar(value=True)
+        self.upscale_enabled = tk.BooleanVar(value=True)
+        self.video_enabled = tk.BooleanVar(value=False)
+        self.loop_type_var = tk.StringVar(value="single")
+        self.loop_count_var = tk.StringVar(value="1")
+        self.pack_mode_var = tk.StringVar(value="selected")
+        self.images_per_prompt_var = tk.StringVar(value="1")
+>>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
 
         # Status bar defaults
         self._progress_eta_default = "ETA: --"
@@ -143,13 +153,6 @@ class StableNewGUI:
 
         # Setup logging redirect
         setup_logging("INFO")
-
-        # Initialize self-test runner after UI widgets are ready
-        self.self_test_runner = SelfTestRunner(
-            self.root,
-            on_log=lambda message: self.log_message(message, "INFO"),
-            on_state_change=self._on_self_test_state_change,
-        )
 
     def _setup_dark_theme(self):
         """Setup dark theme for the application"""
@@ -737,14 +740,6 @@ class StableNewGUI:
         util_buttons = ttk.Frame(actions_frame, style="Dark.TFrame")
         util_buttons.pack(side=tk.RIGHT)
 
-        self.smoke_tests_btn = ttk.Button(
-            util_buttons,
-            text="🧪 Smoke Tests",
-            command=self._run_smoke_tests,
-            style="Dark.TButton",
-        )
-        self.smoke_tests_btn.pack(side=tk.LEFT, padx=(0, 10))
-
         ttk.Button(
             util_buttons,
             text="📁 Open Output",
@@ -914,11 +909,12 @@ class StableNewGUI:
         self.root.after(100, self._poll_controller_logs)
 
     def _check_api_connection(self):
-        """Check API connection status with improved diagnostics (non-blocking)."""
+        """Check API connection status with improved diagnostics"""
 
-        # Snapshot Tk variable on the main thread to avoid cross-thread access
-        api_url_snapshot = self.api_url_var.get()
+        def check_in_thread():
+            api_url = self.api_url_var.get()
 
+<<<<<<< HEAD
         # Indicate connecting state immediately
         if hasattr(self, "api_status_panel"):
             self.api_status_panel.set_status("Connecting...", "yellow")
@@ -927,8 +923,10 @@ class StableNewGUI:
         self._api_spinner_running = False
 
         def check_in_thread(api_url: str):
+=======
+>>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
             # Try the specified URL first
-            self.root.after(0, lambda: self.log_message("🔍 Checking API connection...", "INFO"))
+            self.log_message("🔍 Checking API connection...", "INFO")
 
             # First try direct connection
             client = SDWebUIClient(api_url)
@@ -944,6 +942,7 @@ class StableNewGUI:
                 self.root.after(0, lambda: self._update_api_status(True, api_url))
 
                 if health["models_loaded"]:
+<<<<<<< HEAD
                     self.root.after(
                         0,
                         lambda: self.log_message(
@@ -971,6 +970,18 @@ class StableNewGUI:
                     time.sleep(getattr(self, "api_discovery_retry_delay", 0.3))
             except Exception:
                 discovered_url = None
+=======
+                    self.log_message(
+                        f"✅ API connected! Found {health.get('model_count', 0)} models", "SUCCESS"
+                    )
+                else:
+                    self.log_message("⚠️ API connected but no models loaded", "WARNING")
+                return
+
+            # If direct connection failed, try port discovery
+            self.log_message("🔍 Trying port discovery...", "INFO")
+            discovered_url = find_webui_api_port()
+>>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
 
             if discovered_url:
                 # Test the discovered URL
@@ -988,6 +999,7 @@ class StableNewGUI:
                     self.root.after(0, lambda: self._update_api_status(True, discovered_url))
 
                     if health["models_loaded"]:
+<<<<<<< HEAD
                         self.root.after(
                             0,
                             lambda: self.log_message(
@@ -1000,11 +1012,20 @@ class StableNewGUI:
                             0,
                             lambda: self.log_message("⚠️ API found but no models loaded", "WARNING"),
                         )
+=======
+                        self.log_message(
+                            f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models",
+                            "SUCCESS",
+                        )
+                    else:
+                        self.log_message("⚠️ API found but no models loaded", "WARNING")
+>>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
                     return
 
             # Connection failed
             self.api_connected = False
             self.root.after(0, lambda: self._update_api_status(False))
+<<<<<<< HEAD
             self.root.after(
                 0,
                 lambda: self.log_message(
@@ -1017,8 +1038,14 @@ class StableNewGUI:
                     "💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO"
                 ),
             )
+=======
+            self.log_message(
+                "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
+            )
+            self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
+>>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
 
-        threading.Thread(target=lambda: check_in_thread(api_url_snapshot), daemon=True).start()
+        threading.Thread(target=check_in_thread, daemon=True).start()
 
     def _update_api_status(self, connected: bool, url: str = None):
         """Update API status indicator"""
@@ -1291,24 +1318,6 @@ class StableNewGUI:
             logger.warning(message)
         else:
             logger.info(message)
-
-    def _on_self_test_state_change(self, is_running: bool) -> None:
-        """Update UI controls when smoke tests start or complete."""
-
-        if hasattr(self, "smoke_tests_btn"):
-            new_state = tk.DISABLED if is_running else tk.NORMAL
-            self.smoke_tests_btn.config(state=new_state)
-
-    def _run_smoke_tests(self) -> None:
-        """Trigger the background smoke test run."""
-
-        if not getattr(self, "self_test_runner", None):
-            messagebox.showerror("Smoke Tests", "Self-test runner not initialized")
-            return
-
-        started = self.self_test_runner.run_smoke_tests()
-        if not started:
-            messagebox.showinfo("Smoke Tests", "Smoke tests are already running.")
 
     def _run_full_pipeline(self):
         """Run the complete pipeline"""
@@ -3151,7 +3160,10 @@ class StableNewGUI:
         self.root.after(5000, check_window_visibility)  # First check after 5 seconds
 
         self.root.mainloop()
+<<<<<<< HEAD
 
 
 # Backwards compatibility for tests expecting MainWindow
 MainWindow = StableNewGUI
+=======
+>>>>>>> b61eb89eee85375efbff034c51ee4437992c141e

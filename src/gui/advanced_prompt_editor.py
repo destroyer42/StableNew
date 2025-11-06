@@ -20,15 +20,6 @@ class AdvancedPromptEditor:
         self.current_pack_path = None
         self.is_modified = False
 
-        # Expose a status label at init so tests can reference it immediately
-        try:
-            # Create but don't pack; full status bar is built in _build_status_bar
-            self.status_text = ttk.Label(self.parent, text="Ready")
-        except Exception:
-            # If parent is not a valid Tk widget in some contexts, still define the attribute
-            # to satisfy attribute existence checks in tests.
-            self.status_text = None
-
         # Model caches
         self.embeddings_cache = set()
         def _save_to_path(self, path: Path):

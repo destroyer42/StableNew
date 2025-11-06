@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from src.gui.log_panel import LogPanel, TkinterLogHandler
+from tests.gui.conftest import wait_until
 
 # Test constants
 SCROLL_POSITION_TOLERANCE = 0.1  # Tolerance for scroll position comparisons
@@ -247,9 +248,13 @@ class TestLogPanel:
         panel.log("Info toggle", "INFO")
         panel.log("Error toggle", "ERROR")
 
-        for _ in range(2):
+        # Wait for messages to be processed and displayed
+        def messages_displayed():
             self.root.update()
-            time.sleep(0.01)
+            content = panel.log_text.get("1.0", "end-1c")
+            return "Info toggle" in content and "Error toggle" in content
+
+        assert wait_until(messages_displayed, timeout=2.0), "Messages should be displayed"
 
         panel.level_filter_vars["INFO"].set(False)
         panel._on_filter_change()

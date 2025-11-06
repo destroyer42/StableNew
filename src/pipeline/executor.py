@@ -1,4 +1,3 @@
-
 """Pipeline execution module"""
 
 import json
@@ -35,48 +34,6 @@ class Pipeline:
         """Attach a progress reporting controller."""
 
         self.progress_controller = controller
-
-    def run_upscale(
-        self,
-        input_image_path: Path,
-        config: dict[str, Any],
-        run_dir: Path,
-        cancel_token=None,
-    ) -> dict[str, Any] | None:
-        """
-        Batch-friendly wrapper for upscaling an image, used in pipeline orchestration.
-
-        Args:
-            input_image_path: Path to input image
-            config: Upscale configuration
-            run_dir: Run directory
-            cancel_token: Optional cancellation token
-
-        Returns:
-            Metadata for upscaled image or None if failed/cancelled
-        """
-        upscale_dir = run_dir / "upscaled"
-        upscale_dir.mkdir(parents=True, exist_ok=True)
-
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("upscale cancelled before start")
-            return None
-
-        image_name = Path(input_image_path).stem
-
-        result = self.run_upscale_stage(
-            input_image_path,
-            config,
-            upscale_dir,
-            image_name,
-            cancel_token=cancel_token,
-        )
-
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("upscale cancelled after upscaling")
-            return None
-
-        return result
 
     def _parse_sampler_config(self, config: dict[str, Any]) -> dict[str, str]:
         """
@@ -150,6 +107,7 @@ class Pipeline:
                 name = re.sub(r'[^\w_-]', '_', name)
                 return name if name else None
         return None
+<<<<<<< HEAD
 
     def run_txt2img(
         self,
@@ -277,6 +235,8 @@ class Pipeline:
 
         logger.info(f"txt2img completed: {len(results)} images generated")
         return results
+=======
+>>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
         """
         Run txt2img generation.
 
@@ -1219,7 +1179,7 @@ class Pipeline:
             return None
 
     def run_upscale_stage(
-        self, input_image_path: Path, config: dict[str, Any], output_dir: Path, image_name: str | None = None, cancel_token=None
+        self, input_image_path: Path, config: dict[str, Any], output_dir: Path, image_name: str
     ) -> dict[str, Any] | None:
         """
         Run upscale stage for image enhancement.
@@ -1229,7 +1189,6 @@ class Pipeline:
             config: Upscale configuration
             output_dir: Output directory
             image_name: Base name for output image
-            cancel_token: Optional cancellation token
 
         Returns:
             Generated image metadata or None if failed
@@ -1242,15 +1201,6 @@ class Pipeline:
             input_image_b64 = load_image_to_base64(input_image_path)
             if not input_image_b64:
                 logger.error(f"Failed to load input image: {input_image_path}")
-                return None
-
-            # Resolve default image name if not provided
-            if not image_name:
-                image_name = Path(input_image_path).stem
-
-            # Check for cancellation before starting
-            if cancel_token and cancel_token.is_cancelled():
-                logger.info("upscale stage cancelled before start")
                 return None
 
             upscale_mode = config.get("upscale_mode", "single")
@@ -1305,22 +1255,12 @@ class Pipeline:
                     "codeformer_weight": config.get("codeformer_weight", 0.5),
                 }
 
-                response = self.client.upscale_image(payload)
+                response = self.client.upscale(payload)
                 response_key = "image"
                 image_key = None
 
-            # Check for cancellation after API call
-            if cancel_token and cancel_token.is_cancelled():
-                logger.info("upscale stage cancelled after API call")
-                return None
-
             if not response or response_key not in response:
                 logger.error("Upscale request failed or returned no image")
-                return None
-
-            # Save image (early cancel check before I/O)
-            if cancel_token and cancel_token.is_cancelled():
-                logger.info("upscale stage cancelled before saving image")
                 return None
 
             # Save image

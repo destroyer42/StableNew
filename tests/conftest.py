@@ -1,5 +1,5 @@
+import time
 import tkinter as tk
-import tracemalloc  # Pre-initialize to avoid partial import in pytest unraisable hook
 
 import pytest
 
@@ -14,6 +14,20 @@ def tk_root():
         root.destroy()
     except tk.TclError:
         pytest.skip("No display available for Tkinter tests")
+
+
+@pytest.fixture
+def tk_pump(tk_root):
+    """Pump Tk events without blocking the main thread."""
+    def pump(duration=0.2, step=0.01):
+        end = time.monotonic() + duration
+        while time.monotonic() < end:
+            try:
+                tk_root.update()
+            except Exception:
+                break
+            time.sleep(step)
+    return pump
 
 
 """Test configuration"""
