@@ -886,17 +886,6 @@ class StableNewGUI:
         def check_in_thread():
             api_url = self.api_url_var.get()
 
-<<<<<<< HEAD
-        # Indicate connecting state immediately
-        if hasattr(self, "api_status_panel"):
-            self.api_status_panel.set_status("Connecting...", "yellow")
-
-        # Start spinner animation (on main thread)
-        self._api_spinner_running = False
-
-        def check_in_thread(api_url: str):
-=======
->>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
             # Try the specified URL first
             self.log_message("🔍 Checking API connection...", "INFO")
 
@@ -914,35 +903,6 @@ class StableNewGUI:
                 self.root.after(0, lambda: self._update_api_status(True, api_url))
 
                 if health["models_loaded"]:
-<<<<<<< HEAD
-                    self.root.after(
-                        0,
-                        lambda: self.log_message(
-                            f"✅ API connected! Found {health.get('model_count', 0)} models",
-                            "SUCCESS",
-                        ),
-                    )
-                else:
-                    self.root.after(
-                        0,
-                        lambda: self.log_message("⚠️ API connected but no models loaded", "WARNING"),
-                    )
-                return
-
-            # If direct connection failed, try port discovery
-            self.root.after(0, lambda: self.log_message("🔍 Trying port discovery...", "INFO"))
-            discovered_url = None
-            try:
-                import time
-
-                for _ in range(getattr(self, "api_discovery_max_retries", 3)):
-                    discovered_url = find_webui_api_port()
-                    if discovered_url:
-                        break
-                    time.sleep(getattr(self, "api_discovery_retry_delay", 0.3))
-            except Exception:
-                discovered_url = None
-=======
                     self.log_message(
                         f"✅ API connected! Found {health.get('model_count', 0)} models", "SUCCESS"
                     )
@@ -953,7 +913,6 @@ class StableNewGUI:
             # If direct connection failed, try port discovery
             self.log_message("🔍 Trying port discovery...", "INFO")
             discovered_url = find_webui_api_port()
->>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
 
             if discovered_url:
                 # Test the discovered URL
@@ -971,51 +930,21 @@ class StableNewGUI:
                     self.root.after(0, lambda: self._update_api_status(True, discovered_url))
 
                     if health["models_loaded"]:
-<<<<<<< HEAD
-                        self.root.after(
-                            0,
-                            lambda: self.log_message(
-                                f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models",
-                                "SUCCESS",
-                            ),
-                        )
-                    else:
-                        self.root.after(
-                            0,
-                            lambda: self.log_message("⚠️ API found but no models loaded", "WARNING"),
-                        )
-=======
                         self.log_message(
                             f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models",
                             "SUCCESS",
                         )
                     else:
                         self.log_message("⚠️ API found but no models loaded", "WARNING")
->>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
                     return
 
             # Connection failed
             self.api_connected = False
             self.root.after(0, lambda: self._update_api_status(False))
-<<<<<<< HEAD
-            self.root.after(
-                0,
-                lambda: self.log_message(
-                    "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
-                ),
-            )
-            self.root.after(
-                0,
-                lambda: self.log_message(
-                    "💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO"
-                ),
-            )
-=======
             self.log_message(
                 "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
             )
             self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
->>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
 
         threading.Thread(target=check_in_thread, daemon=True).start()
 
@@ -3132,10 +3061,3 @@ class StableNewGUI:
         self.root.after(5000, check_window_visibility)  # First check after 5 seconds
 
         self.root.mainloop()
-<<<<<<< HEAD
-
-
-# Backwards compatibility for tests expecting MainWindow
-MainWindow = StableNewGUI
-=======
->>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
