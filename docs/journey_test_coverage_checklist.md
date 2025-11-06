@@ -3,12 +3,12 @@
 
 ## Tasks
 
-- [ ] Extend stage matrix to cover `video` stages, `upscale-only` flows, and midstream entry points using stubbed FFmpeg/subprocess interactions.
-- [ ] Add regression checks for manifests and CSV rollups: validate per-stage JSON contents, rollup headers, and timestamp ordering via `tmp_path`.
+- [ ] Extend stage matrix to cover `video` stages, `upscale only` flows, and midstream entry points using stubbed FFmpeg/subprocess interactions.
+- [ ] Add regression checks for manifests and CSV rollups: validate per-stage JSON structure, required fields, and data types; check rollup headers and timestamp ordering via `tmp_path`.
 - [ ] Cover cooperative cancel and resume scenarios: simulate cancel tokens mid-run and verify clean stops plus resumptions without duplicate manifests.
-- [ ] Validate retry/backoff behavior by injecting transient txt2img/img2img failures and asserting exponential timing alongside manifest outcomes.
+- [ ] Validate retry/backoff behavior by injecting transient txt2img/img2img failures and asserting exponential backoff intervals are respected alongside manifest outcomes.
 - [ ] Exercise prompt pack permutations with multi-batch runs to confirm metadata capture and persistent negative prompt safety lists.
-- [ ] Verify thread-safe progress reporting: enforce ordered stage transitions, single completion events, and stable ETA smoothing.
+- [ ] Verify thread-safe progress reporting: enforce ordered stage transitions, single completion events, and consistent ETA calculations without erratic fluctuations.
 - [ ] Ensure video artifacts are produced: mock video assembly output and confirm summaries/manifests reference the final video path and stage completion status.
 
 
