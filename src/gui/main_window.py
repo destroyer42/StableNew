@@ -2342,6 +2342,10 @@ class StableNewGUI:
             state="readonly",
         )
         method_combo.pack(side=tk.LEFT, padx=(5, 5))
+        try:
+            method_combo.bind("<<ComboboxSelected>>", lambda e: self._apply_upscale_method_state())
+        except Exception:
+            pass
         self.upscale_widgets["upscale_mode"] = method_combo
         ttk.Label(method_row, text="ℹ️ img2img allows denoising", style="Dark.TLabel").pack(
             side=tk.LEFT, padx=(10, 0)
@@ -2382,6 +2386,26 @@ class StableNewGUI:
         )
         scale_spin.pack(side=tk.LEFT, padx=(5, 0))
         self.upscale_widgets["upscaling_resize"] = scale_spin
+
+        # Steps for img2img mode
+        steps_row = ttk.Frame(basic_frame, style="Dark.TFrame")
+        steps_row.pack(fill=tk.X, pady=2)
+        ttk.Label(steps_row, text="Steps (img2img):", style="Dark.TLabel", width=15).pack(
+            side=tk.LEFT
+        )
+        try:
+            self.upscale_vars["steps"]
+        except Exception:
+            self.upscale_vars["steps"] = tk.IntVar(value=20)
+        steps_spin = ttk.Spinbox(
+            steps_row,
+            from_=1,
+            to=150,
+            textvariable=self.upscale_vars["steps"],
+            width=8,
+        )
+        steps_spin.pack(side=tk.LEFT, padx=(5, 0))
+        self.upscale_widgets["steps"] = steps_spin
 
         # Denoising (for img2img mode)
         denoise_row = ttk.Frame(basic_frame, style="Dark.TFrame")
@@ -2458,6 +2482,34 @@ class StableNewGUI:
         self.upscale_widgets["codeformer_weight"] = cf_weight_slider
 
         canvas.pack(fill="both", expand=True)
+
+        # Apply initial enabled/disabled state for img2img-only controls
+        try:
+            self._apply_upscale_method_state()
+        except Exception:
+            pass
+
+    def _apply_upscale_method_state(self) -> None:
+        """Enable/disable Upscale img2img-only controls based on selected method."""
+        try:
+            mode = str(self.upscale_vars.get("upscale_mode").get()).lower()
+        except Exception:
+            mode = "single"
+        use_img2img = mode == "img2img"
+        # Steps (standard widget)
+        steps_widget = self.upscale_widgets.get("steps")
+        if steps_widget is not None:
+            try:
+                steps_widget.configure(state=("normal" if use_img2img else "disabled"))
+            except Exception:
+                pass
+        # Denoising (EnhancedSlider supports .configure(state=...))
+        denoise_widget = self.upscale_widgets.get("denoising_strength")
+        if denoise_widget is not None:
+            try:
+                denoise_widget.configure(state=("normal" if use_img2img else "disabled"))
+            except Exception:
+                pass
 
     def _build_api_config_tab(self, notebook):
         """Build API configuration form"""
