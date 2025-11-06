@@ -1,7 +1,7 @@
-
-Agent: UI Polish – Tk Facelift & Theming
-Purpose
-
+---
+Name: UI Polish – Tk Facelift & Theming
+Description: Gui enhancements/modernization
+---
 Modernize the Tkinter UI (rounded, consistent spacing, dark/light themes, better resizing) using ttkbootstrap, without altering business logic or pipelines.
 
 Scope / Files
