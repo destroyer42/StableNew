@@ -317,7 +317,8 @@ class ConfigPanel(ttk.Frame):
         row += 1
 
         # Face restoration controls (initially hidden)
-        ttk.Label(face_frame, text="Model:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        face_model_label = ttk.Label(face_frame, text="Model:")
+        face_model_label.grid(row=row, column=0, sticky=tk.W, pady=2)
         face_model_combo = ttk.Combobox(
             face_frame,
             textvariable=self.txt2img_vars["face_restoration_model"],
@@ -326,11 +327,13 @@ class ConfigPanel(ttk.Frame):
             width=13,
         )
         face_model_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
-        self.face_restoration_widgets.append(face_model_combo)
+        self.face_restoration_widgets.extend([face_model_label, face_model_combo])
+        face_model_label.grid_remove()
         face_model_combo.grid_remove()  # Hide initially
         row += 1
 
-        ttk.Label(face_frame, text="Weight:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        face_weight_label = ttk.Label(face_frame, text="Weight:")
+        face_weight_label.grid(row=row, column=0, sticky=tk.W, pady=2)
         face_weight_spin = ttk.Spinbox(
             face_frame,
             from_=0.0,
@@ -340,14 +343,10 @@ class ConfigPanel(ttk.Frame):
             width=15,
         )
         face_weight_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
-        self.face_restoration_widgets.append(face_weight_spin)
+        self.face_restoration_widgets.extend([face_weight_label, face_weight_spin])
+        face_weight_label.grid_remove()
         face_weight_spin.grid_remove()  # Hide initially
         row += 1
-
-        # Store label widgets too for show/hide
-        face_model_label = ttk.Label(face_frame, text="Model:")
-        face_weight_label = ttk.Label(face_frame, text="Weight:")
-        self.face_restoration_widgets.extend([face_model_label, face_weight_label])
 
         # Seed and advanced
         advanced_frame = ttk.LabelFrame(scrollable_frame, text="Advanced", padding=10)
@@ -487,6 +486,8 @@ class ConfigPanel(ttk.Frame):
         # Initialize variables
         self.upscale_vars["upscaler"] = tk.StringVar(value="R-ESRGAN 4x+")
         self.upscale_vars["upscaling_resize"] = tk.DoubleVar(value=2.0)
+        self.upscale_vars["upscale_mode"] = tk.StringVar(value="single")
+        self.upscale_vars["steps"] = tk.IntVar(value=20)  # Used when Upscale runs via img2img
         self.upscale_vars["denoising_strength"] = tk.DoubleVar(value=0.2)
         self.upscale_vars["gfpgan_visibility"] = tk.DoubleVar(value=0.0)
         self.upscale_vars["codeformer_visibility"] = tk.DoubleVar(value=0.0)
@@ -497,6 +498,18 @@ class ConfigPanel(ttk.Frame):
         settings_frame.pack(fill=tk.X, padx=10, pady=10)
 
         row = 0
+        ttk.Label(settings_frame, text="Method:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        method_combo = ttk.Combobox(
+            settings_frame,
+            textvariable=self.upscale_vars["upscale_mode"],
+            values=["single", "img2img"],
+            state="readonly",
+            width=13,
+        )
+        method_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        method_combo.bind("<<ComboboxSelected>>", lambda e: self._apply_upscale_mode_state())
+        self.upscale_widgets["upscale_mode"] = method_combo
+        row += 1
         ttk.Label(settings_frame, text="Upscaler:").grid(row=row, column=0, sticky=tk.W, pady=2)
         upscaler_combo = ttk.Combobox(
             settings_frame,
@@ -520,6 +533,18 @@ class ConfigPanel(ttk.Frame):
         )
         resize_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.upscale_widgets["upscaling_resize"] = resize_spin
+        row += 1
+
+        ttk.Label(settings_frame, text="Steps (img2img):").grid(row=row, column=0, sticky=tk.W, pady=2)
+        upscale_steps = ttk.Spinbox(
+            settings_frame,
+            from_=1,
+            to=150,
+            textvariable=self.upscale_vars["steps"],
+            width=15,
+        )
+        upscale_steps.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.upscale_widgets["steps"] = upscale_steps
         row += 1
 
         ttk.Label(settings_frame, text="Denoise:").grid(row=row, column=0, sticky=tk.W, pady=2)
@@ -573,6 +598,25 @@ class ConfigPanel(ttk.Frame):
         codeformer_weight.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.upscale_widgets["codeformer_weight"] = codeformer_weight
         row += 1
+
+        # Initial enable/disable for img2img-specific controls
+        self._apply_upscale_mode_state()
+
+    def _apply_upscale_mode_state(self) -> None:
+        """Enable/disable img2img-specific controls based on selected method."""
+        try:
+            mode = str(self.upscale_vars.get("upscale_mode").get()).lower()
+        except Exception:
+            mode = "single"
+        use_img2img = mode == "img2img"
+        for key in ("steps", "denoising_strength"):
+            widget = self.upscale_widgets.get(key)
+            if widget is None:
+                continue
+            try:
+                widget.configure(state=("normal" if use_img2img else "disabled"))
+            except Exception:
+                pass
 
     def _build_api_tab(self):
         """Build API configuration tab."""

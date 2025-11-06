@@ -35,6 +35,48 @@ class Pipeline:
 
         self.progress_controller = controller
 
+    def run_upscale(
+        self,
+        input_image_path: Path,
+        config: dict[str, Any],
+        run_dir: Path,
+        cancel_token=None,
+    ) -> dict[str, Any] | None:
+        """
+        Batch-friendly wrapper for upscaling an image, used in pipeline orchestration.
+
+        Args:
+            input_image_path: Path to input image
+            config: Upscale configuration
+            run_dir: Run directory for this pipeline run
+            cancel_token: Optional cancellation token
+
+        Returns:
+            Metadata for upscaled image or None if failed/cancelled
+        """
+        upscale_dir = run_dir / "upscaled"
+        upscale_dir.mkdir(parents=True, exist_ok=True)
+        image_name = Path(input_image_path).stem
+
+        # Early cancel
+        if cancel_token and getattr(cancel_token, "is_cancelled", None) and cancel_token.is_cancelled():
+            logger.info("upscale cancelled before start")
+            return None
+
+        result = self.run_upscale_stage(
+            input_image_path,
+            config,
+            upscale_dir,
+            image_name,
+        )
+
+        # Post cancel
+        if cancel_token and getattr(cancel_token, "is_cancelled", None) and cancel_token.is_cancelled():
+            logger.info("upscale cancelled after upscaling")
+            return None
+
+        return result
+
     def _parse_sampler_config(self, config: dict[str, Any]) -> dict[str, str]:
         """
         Parse sampler configuration and extract scheduler if present.
@@ -107,8 +149,6 @@ class Pipeline:
                 name = re.sub(r'[^\w_-]', '_', name)
                 return name if name else None
         return None
-<<<<<<< HEAD
-
     def run_txt2img(
         self,
         prompt: str,
@@ -235,8 +275,6 @@ class Pipeline:
 
         logger.info(f"txt2img completed: {len(results)} images generated")
         return results
-=======
->>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
         """
         Run txt2img generation.
 
@@ -1243,19 +1281,35 @@ class Pipeline:
                 response_key = "images"
                 image_key = 0
             else:
-                # Use traditional upscaling
+                # Use extra-single-image upscaling via client API
+                upscaler = config.get("upscaler", "R-ESRGAN 4x+")
+                upscaling_resize = config.get("upscaling_resize", 2.0)
+                gfpgan_vis = config.get("gfpgan_visibility", 0.0)
+                codeformer_vis = config.get("codeformer_visibility", 0.0)
+                codeformer_weight = config.get("codeformer_weight", 0.5)
+
+                # Prepare payload for metadata regardless of call method
                 payload = {
                     "image": input_image_b64,
-                    "upscaling_resize": config.get("upscaling_resize", 2.0),
-                    "upscaler_1": config.get("upscaler", "R-ESRGAN 4x+"),
-                    "upscaler_2": config.get("upscaler_2", "None"),
-                    "extras_upscaler_2_visibility": config.get("extras_upscaler_2_visibility", 0),
-                    "gfpgan_visibility": config.get("gfpgan_visibility", 0.0),
-                    "codeformer_visibility": config.get("codeformer_visibility", 0.0),
-                    "codeformer_weight": config.get("codeformer_weight", 0.5),
+                    "upscaling_resize": upscaling_resize,
+                    "upscaler_1": upscaler,
+                    "gfpgan_visibility": gfpgan_vis,
+                    "codeformer_visibility": codeformer_vis,
+                    "codeformer_weight": codeformer_weight,
                 }
-
-                response = self.client.upscale(payload)
+                try:
+                    # Preferred: typed helper with explicit parameters
+                    response = self.client.upscale_image(
+                        input_image_b64,
+                        upscaler,
+                        upscaling_resize,
+                        gfpgan_vis,
+                        codeformer_vis,
+                        codeformer_weight,
+                    )
+                except TypeError:
+                    # Fallback: older dict-based helper
+                    response = getattr(self.client, "upscale", lambda p: None)(payload)
                 response_key = "image"
                 image_key = None
 

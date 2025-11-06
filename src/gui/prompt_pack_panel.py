@@ -221,6 +221,32 @@ class PromptPackPanel(ttk.Frame):
         if not silent:
             logger.info(f"PromptPackPanel: Refreshed, found {len(pack_files)} prompt packs.")
 
+    def populate(self, packs: list[Path] | list[str]) -> None:
+        """Populate the listbox with provided pack entries on the Tk thread.
+
+        Args:
+            packs: List of Path or str representing pack files
+        """
+        # Normalize to names
+        names: list[str] = []
+        for p in packs:
+            try:
+                names.append(p.name if isinstance(p, Path) else str(p))
+            except Exception:
+                continue
+
+        # Preserve selection
+        current_selection = self.get_selected_packs()
+        self.packs_listbox.delete(0, tk.END)
+        for name in names:
+            self.packs_listbox.insert(tk.END, name)
+        if current_selection:
+            for i in range(self.packs_listbox.size()):
+                pack_name = self.packs_listbox.get(i)
+                if pack_name in current_selection:
+                    self.packs_listbox.selection_set(i)
+        logger.info(f"PromptPackPanel: Populated {len(names)} packs (async)")
+
     def get_selected_packs(self) -> list[str]:
         """
         Get list of currently selected pack names.

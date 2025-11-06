@@ -183,6 +183,7 @@ mypy src/
 See [Configuration Testing Guide](docs/CONFIGURATION_TESTING_GUIDE.md) for details.
 
 ## Testing Guidelines
+- GUI tests must be headless-safe. Use `tests/gui/conftest.py` fixtures; do not create additional Tk roots or call blocking dialogs directly.
 
 ### Running Tests
 

@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 import pytest
 
-from src.gui.main_window import MainWindow
+from src.gui.main_window import StableNewGUI
  
 @pytest.mark.gui
 def test_progress_eta_display(monkeypatch):
@@ -16,7 +16,7 @@ def test_progress_eta_display(monkeypatch):
         pytest.skip("Tk/Tcl unavailable in this environment")
 
     # Avoid side-effects during window construction
-    monkeypatch.setattr(MainWindow, "_launch_webui", lambda self: None)
+    monkeypatch.setattr(StableNewGUI, "_launch_webui", lambda self: None)
     monkeypatch.setattr("src.gui.main_window.messagebox.showinfo", lambda *a, **k: None)
     monkeypatch.setattr("src.gui.main_window.messagebox.showerror", lambda *a, **k: None)
 
@@ -63,7 +63,7 @@ def test_progress_eta_display(monkeypatch):
 
     win = None
     try:
-        win = MainWindow()
+        win = StableNewGUI()
         win.root.withdraw()
 
         progress_bar = getattr(win, "progress_bar", None)

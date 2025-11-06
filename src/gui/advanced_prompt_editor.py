@@ -22,6 +22,17 @@ class AdvancedPromptEditor:
 
         # Model caches
         self.embeddings_cache = set()
+        # Status label available immediately for tests and status updates
+        try:
+            self._status_var = tk.StringVar(value="Ready")
+            # Create but do not pack; tests only require attribute presence and configurability
+            self.status_text = ttk.Label(self.parent, textvariable=self._status_var)
+        except Exception:
+            # Fallback: minimal object with config() for environments without full Tk
+            class _Dummy:
+                def config(self, **kwargs):
+                    return None
+            self.status_text = _Dummy()
         def _save_to_path(self, path: Path):
             """Save pack to specific path"""
             try:

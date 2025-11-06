@@ -19,6 +19,13 @@ from tkinter import ttk
 
 from src.gui.config_panel import ConfigPanel
 
+# Guard: skip cleanly if Tcl/Tk is not available (headless CI)
+try:
+    _tmp_root = tk.Tk()
+    _tmp_root.destroy()
+except tk.TclError:
+    pytest.skip("Tk/Tcl unavailable in this environment", allow_module_level=True)
+
 
 class TestConfigPanelBasics:
     """Test basic ConfigPanel functionality."""

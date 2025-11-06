@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-"""Fixtures for GUI tests"""
-=======
 """Test fixtures for GUI tests."""
->>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
 
 import time
 import tkinter as tk
@@ -10,30 +6,56 @@ import tkinter as tk
 import pytest
 
 
-@pytest.fixture
-def tk_root():
-<<<<<<< HEAD
-    """Fixture to provide a Tk root window for GUI tests."""
-    try:
-        root = tk.Tk()
-        root.withdraw()  # headless
-        yield root
+_shared_root: tk.Tk | None = None
+
+
+@pytest.fixture(scope="session")
+def tk_root_session():
+    """Create a shared Tk root for GUI tests; skip cleanly when unavailable."""
+    global _shared_root
+    if _shared_root is None:
         try:
-            root.destroy()
+            _shared_root = tk.Tk()
+        except tk.TclError:
+            pytest.skip("No display available for Tkinter tests")
+        else:
+            _shared_root.withdraw()
+
+    assert _shared_root is not None  # for type checkers
+    try:
+        yield _shared_root
+    finally:
+        # Session-scope root is destroyed in fixture finalizer below
+        pass
+
+
+@pytest.fixture
+def tk_root(tk_root_session):
+    """Provide a clean Tk root for each test using the shared session instance."""
+    # Clear out any remaining widgets from previous tests
+    for child in list(tk_root_session.winfo_children()):
+        try:
+            child.destroy()
         except Exception:
             pass
-    except tk.TclError:
-        pytest.skip("No display available for Tkinter tests")
-=======
-    """Provide a Tk root window for GUI tests."""
-    root = tk.Tk()
-    root.withdraw()  # headless
-    yield root
-    try:
-        root.destroy()
-    except Exception:
-        pass
->>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
+    yield tk_root_session
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _destroy_shared_root(request, tk_root_session):
+    """Ensure the shared Tk root is destroyed when the test session ends."""
+
+    def _finalize():
+        global _shared_root
+        if _shared_root is not None:
+            try:
+                _shared_root.destroy()
+            except Exception:
+                pass
+            finally:
+                _shared_root = None
+
+    request.addfinalizer(_finalize)
 
 
 @pytest.fixture
@@ -50,8 +72,6 @@ def tk_pump(tk_root):
             time.sleep(step)
 
     return pump
-<<<<<<< HEAD
-=======
 
 
 def wait_until(pred, timeout=5.0, step=0.02):
@@ -71,4 +91,3 @@ def wait_until(pred, timeout=5.0, step=0.02):
             return True
         time.sleep(step)
     return False
->>>>>>> b61eb89eee85375efbff034c51ee4437992c141e

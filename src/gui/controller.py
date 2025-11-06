@@ -128,8 +128,13 @@ class PipelineController:
             else:
                 threading.Thread(target=cleanup, daemon=True).start()
 
-        self._worker = threading.Thread(target=worker, daemon=True)
-        self._worker.start()
+        if self._sync_cleanup:
+            # For deterministic cleanup only; still start a worker thread so is_running reflects RUNNING
+            self._worker = threading.Thread(target=worker, daemon=True)
+            self._worker.start()
+        else:
+            self._worker = threading.Thread(target=worker, daemon=True)
+            self._worker.start()
         return True
 
     def stop_pipeline(self) -> bool:
@@ -220,6 +225,13 @@ class PipelineController:
         """Report progress to registered callbacks in a thread-safe manner."""
 
         eta_text = eta if eta else "ETA: --"
+        try:
+            # Suppress non-error updates only after entering ERROR state;
+            # allow progress reports while IDLE for unit tests and initialization.
+            if self.state_manager.current == GUIState.ERROR and (stage or "").lower() != "error":
+                return
+        except Exception:
+            pass
         with self._progress_lock:
             self._last_progress = {
                 "stage": stage,
@@ -227,12 +239,21 @@ class PipelineController:
                 "eta": eta_text,
             }
 
-            if self._status_callback:
-                self._status_callback(stage)
-            if self._progress_callback:
-                self._progress_callback(float(percent))
-            if self._eta_callback:
-                self._eta_callback(eta_text)
+            try:
+                if self._status_callback:
+                    self._status_callback(stage)
+            except Exception:
+                logger.debug("status_callback raised; ignoring in report_progress", exc_info=True)
+            try:
+                if self._progress_callback:
+                    self._progress_callback(float(percent))
+            except Exception:
+                logger.debug("progress_callback raised; ignoring in report_progress", exc_info=True)
+            try:
+                if self._eta_callback:
+                    self._eta_callback(eta_text)
+            except Exception:
+                logger.debug("eta_callback raised; ignoring in report_progress", exc_info=True)
 
     def _terminate_subprocess(self) -> None:
         """Terminate any running subprocess (e.g., FFmpeg)."""
