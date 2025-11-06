@@ -95,33 +95,6 @@ class StableNewGUI:
         self.preset_var = tk.StringVar(value=self.current_preset)
 
         # Initialize other GUI variables that are used before UI building
-<<<<<<< HEAD
-        self.txt2img_enabled = tk.BooleanVar(
-            value=pipeline_preferences.get("txt2img_enabled", True)
-        )
-        self.img2img_enabled = tk.BooleanVar(
-            value=pipeline_preferences.get("img2img_enabled", True)
-        )
-        self.upscale_enabled = tk.BooleanVar(
-            value=pipeline_preferences.get("upscale_enabled", True)
-        )
-        self.video_enabled = tk.BooleanVar(
-            value=pipeline_preferences.get("video_enabled", False)
-        )
-        self.loop_type_var = tk.StringVar(value=pipeline_preferences.get("loop_type", "single"))
-        self.loop_count_var = tk.StringVar(
-            value=str(pipeline_preferences.get("loop_count", 1))
-        )
-        self.pack_mode_var = tk.StringVar(
-            value=pipeline_preferences.get("pack_mode", "selected")
-        )
-        self.images_per_prompt_var = tk.StringVar(
-            value=str(pipeline_preferences.get("images_per_prompt", 1))
-        )
-        # Connection tuning (configurable)
-        self.api_discovery_max_retries = 3
-        self.api_discovery_retry_delay = 0.3  # seconds
-=======
         self.txt2img_enabled = tk.BooleanVar(value=True)
         self.img2img_enabled = tk.BooleanVar(value=True)
         self.upscale_enabled = tk.BooleanVar(value=True)
@@ -130,7 +103,6 @@ class StableNewGUI:
         self.loop_count_var = tk.StringVar(value="1")
         self.pack_mode_var = tk.StringVar(value="selected")
         self.images_per_prompt_var = tk.StringVar(value="1")
->>>>>>> b61eb89eee85375efbff034c51ee4437992c141e
 
         # Status bar defaults
         self._progress_eta_default = "ETA: --"
