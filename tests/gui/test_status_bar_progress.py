@@ -1,17 +1,9 @@
-import pytest
-import tkinter as tk
 from tkinter import ttk
+
+import pytest
 
 from src.gui.main_window import StableNewGUI
 from src.gui.state import GUIState
-
-
-def _skip_if_no_tk():
-    try:
-        root = tk.Tk()
-        root.destroy()
-    except tk.TclError:
-        pytest.skip("No display available for Tkinter tests")
 
 
 @pytest.fixture
@@ -28,10 +20,16 @@ def gui_app(monkeypatch, tk_root):
     try:
         yield app
     finally:
-        try:
-            app.root.destroy()
-        except Exception:
-            pass
+        if app.root is not tk_root:
+            try:
+                app.root.destroy()
+            except Exception:
+                pass
+        for child in list(tk_root.winfo_children()):
+            try:
+                child.destroy()
+            except Exception:
+                pass
 
 
 def test_status_bar_initializes_progress_and_eta(gui_app):
