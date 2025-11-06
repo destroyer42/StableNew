@@ -13,7 +13,7 @@ from typing import Any
 from ..api import SDWebUIClient
 from ..pipeline import Pipeline, VideoCreator
 from ..utils import ConfigManager, PreferencesManager, StructuredLogger, setup_logging
-from ..utils.file_io import read_prompt_pack, get_prompt_packs
+from ..utils.file_io import get_prompt_packs, read_prompt_pack
 from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
 from .advanced_prompt_editor import AdvancedPromptEditor
 from .api_status_panel import APIStatusPanel
@@ -24,7 +24,7 @@ from .log_panel import LogPanel, TkinterLogHandler
 from .pipeline_controls_panel import PipelineControlsPanel
 from .prompt_pack_list_manager import PromptPackListManager
 from .prompt_pack_panel import PromptPackPanel
-from .state import GUIState, StateManager, CancellationError
+from .state import CancellationError, GUIState, StateManager
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +74,7 @@ class StableNewGUI:
 
         # Register progress callbacks with a flexible API to support test harness controllers
         registered = False
+
         # Compatibility wrapper: allow (percent, status) signature
         def _compat_progress(*args, **kwargs):
             try:
@@ -84,7 +85,11 @@ class StableNewGUI:
             except Exception:
                 pass
 
-        for meth in ("set_progress_callbacks", "register_progress_callbacks", "configure_progress_callbacks"):
+        for meth in (
+            "set_progress_callbacks",
+            "register_progress_callbacks",
+            "configure_progress_callbacks",
+        ):
             if hasattr(self.controller, meth):
                 try:
                     getattr(self.controller, meth)(
@@ -121,7 +126,6 @@ class StableNewGUI:
         # GUI state
         config_preferences = self.preferences.get("config", {})
         api_preferences = config_preferences.get("api", {})
-        pipeline_preferences = self.preferences.get("pipeline_controls", {})
 
         self.selected_packs = list(self.preferences.get("selected_packs", []))
         self.current_config = None
@@ -157,6 +161,22 @@ class StableNewGUI:
         self._progress_eta_default = "ETA: --"
         self._progress_idle_message = "Ready for next run"
 
+        # Initialize metadata attributes early to avoid NameErrors
+        self.schedulers = []
+        self.upscaler_names = []
+        self.vae_names = []
+
+        # Initialize log panel early (before any log calls) to avoid AttributeError
+        # Create a minimal frame to host log panel before full UI is built
+        self._early_log_frame = ttk.Frame(self.root, style="Dark.TFrame")
+        self.log_panel = LogPanel(
+            self._early_log_frame, coordinator=self, height=6, style="Dark.TFrame"
+        )
+        # Add proxy methods for consistent API
+        self.add_log = self.log_panel.append
+        # Legacy compatibility: expose log_text attribute
+        self.log_text = getattr(self.log_panel, "text", None)
+
         # Apply dark theme
         self._setup_dark_theme()
 
@@ -182,8 +202,6 @@ class StableNewGUI:
         # Configure dark theme colors
         bg_color = "#2b2b2b"
         fg_color = "#ffffff"
-        select_bg = "#404040"
-        select_fg = "#ffffff"
         button_bg = "#404040"
         button_active = "#505050"
         entry_bg = "#3d3d3d"
@@ -492,7 +510,9 @@ class StableNewGUI:
         if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
             self.pipeline_controls_panel.destroy()
         # Determine initial state for the new panel
-        initial_state = prev_state if prev_state is not None else self.preferences.get("pipeline_controls")
+        initial_state = (
+            prev_state if prev_state is not None else self.preferences.get("pipeline_controls")
+        )
 
         # Create the PipelineControlsPanel component
         self.pipeline_controls_panel = PipelineControlsPanel(
@@ -795,13 +815,22 @@ class StableNewGUI:
             side=tk.LEFT
         )  # Red accent for exit
 
-        # Live log panel using LogPanel component
-        self.log_panel = LogPanel(bottom_frame, coordinator=self, height=6, style="Dark.TFrame")
+        # Reparent early log panel to bottom_frame
+        # (log_panel was created early in __init__ to avoid AttributeError)
+        if hasattr(self, "_early_log_frame") and self._early_log_frame:
+            try:
+                self._early_log_frame.destroy()
+            except Exception:
+                pass
+        if self.log_panel.master != bottom_frame:
+            self.log_panel.pack_forget()
+            self.log_panel.master = bottom_frame
         self.log_panel.pack(fill=tk.BOTH, expand=True)
 
         # Attach logging handler to redirect standard logging to GUI
-        self.gui_log_handler = TkinterLogHandler(self.log_panel)
-        logging.getLogger().addHandler(self.gui_log_handler)
+        if not hasattr(self, "gui_log_handler"):
+            self.gui_log_handler = TkinterLogHandler(self.log_panel)
+            logging.getLogger().addHandler(self.gui_log_handler)
 
     def _build_status_bar(self, parent):
         """Build status bar showing current state"""
@@ -866,9 +895,7 @@ class StableNewGUI:
             self.progress_message_var.set(f"{stage_text} ({clamped_percent:.0f}%)")
 
         if hasattr(self, "eta_var"):
-            self.eta_var.set(
-                f"ETA: {eta}" if eta else self._progress_eta_default
-            )
+            self.eta_var.set(f"ETA: {eta}" if eta else self._progress_eta_default)
 
     def _update_progress(self, stage: str, percent: float, eta: str | None = None) -> None:
         """Schedule a progress UI update from worker threads."""
@@ -948,6 +975,7 @@ class StableNewGUI:
         if text is None:
             try:
                 from .state import GUIState
+
                 if hasattr(self, "state_manager") and self.state_manager.is_state(GUIState.ERROR):
                     message = "Error"
                 else:
@@ -959,6 +987,7 @@ class StableNewGUI:
         # Normalize cancellation text to Ready once we've returned to IDLE
         try:
             from .state import GUIState
+
             if (
                 str(message).strip().lower() == "cancelled"
                 and hasattr(self, "state_manager")
@@ -1187,7 +1216,7 @@ class StableNewGUI:
         """Refresh the prompt packs list without logging (for initialization)"""
         if hasattr(self, "prompt_pack_panel"):
             self.prompt_pack_panel.refresh_packs(silent=True)
-    
+
     def _refresh_prompt_packs_async(self):
         """Scan packs directory on a worker thread and populate asynchronously."""
         if not hasattr(self, "prompt_pack_panel"):
@@ -1198,9 +1227,13 @@ class StableNewGUI:
                 packs_dir = Path("packs")
                 pack_files = get_prompt_packs(packs_dir)
                 self.root.after(0, lambda: self.prompt_pack_panel.populate(pack_files))
-                self.root.after(0, lambda: self.log_message(f"?? Loaded {len(pack_files)} prompt packs", "INFO"))
+                self.root.after(
+                    0, lambda: self.log_message(f"?? Loaded {len(pack_files)} prompt packs", "INFO")
+                )
             except Exception as exc:
-                self.root.after(0, lambda: self.log_message(f"? Failed to load packs: {exc}", "WARNING"))
+                self.root.after(
+                    0, lambda err=exc: self.log_message(f"? Failed to load packs: {err}", "WARNING")
+                )
 
         threading.Thread(target=scan_and_populate, daemon=True).start()
 
@@ -1239,7 +1272,6 @@ class StableNewGUI:
 
         # Update status messages
         if hasattr(self, "current_pack_label"):
-            pack_list = ", ".join(selected_packs) if selected_packs else "none"
             self.current_pack_label.configure(
                 text=f"Override mode: {len(selected_packs)} packs selected", foreground="#ffa500"
             )
@@ -1349,8 +1381,15 @@ class StableNewGUI:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         log_entry = f"[{timestamp}] {message}\n"
 
-        if hasattr(self, "log_panel"):
-            self.log_panel.log(log_entry.strip(), level)
+        # Use add_log proxy with safe fallback
+        try:
+            if hasattr(self, "add_log"):
+                self.add_log(log_entry.strip(), level)
+            elif hasattr(self, "log_panel"):
+                self.log_panel.log(log_entry.strip(), level)
+        except Exception:
+            # Fallback to print if logging subsystem is not ready
+            print(f"[{level}] {log_entry.strip()}")
 
         # Also log to Python logger
         if level == "ERROR":
@@ -1466,9 +1505,6 @@ class StableNewGUI:
 
                 # Create run directory
                 run_dir = self.structured_logger.create_run_directory("txt2img_only")
-
-                # Get configuration
-                config = self.current_config or self.config_manager.get_default_config()
 
                 # Run txt2img for selected packs
                 for pack_name in selected_packs:
@@ -1728,6 +1764,26 @@ class StableNewGUI:
 
         self.log_message("🚀 StableNew GUI started", "SUCCESS")
         self.log_message("Please connect to WebUI API to begin", "INFO")
+
+        # Ensure window is visible and focused before starting mainloop
+        self.root.deiconify()  # Make sure window is not minimized
+        self.root.lift()  # Bring to front
+        self.root.focus_force()  # Force focus
+
+        # Log window state for debugging
+        self.log_message("🖥️ GUI window should now be visible", "INFO")
+
+        # Add a periodic check to ensure window stays visible
+        def check_window_visibility():
+            if self.root.state() == "iconic":  # Window is minimized
+                self.log_message("⚠️ Window was minimized, restoring...", "WARNING")
+                self.root.deiconify()
+                self.root.lift()
+            # Schedule next check in 30 seconds
+            self.root.after(30000, check_window_visibility)
+
+        # Start the visibility checker
+        self.root.after(5000, check_window_visibility)  # First check after 5 seconds
 
         # Start the GUI main loop
         self.root.mainloop()
@@ -2574,9 +2630,7 @@ class StableNewGUI:
                 )
                 if preset_name:
                     self.config_manager.save_preset(preset_name, config)
-                    self.log_message(
-                        f"Saved configuration as preset: {preset_name}", "SUCCESS"
-                    )
+                    self.log_message(f"Saved configuration as preset: {preset_name}", "SUCCESS")
                 else:
                     self.log_message("Configuration updated (not saved as preset)", "INFO")
 
@@ -2719,9 +2773,9 @@ class StableNewGUI:
         preferences = {
             "preset": self.preset_var.get() if hasattr(self, "preset_var") else "default",
             "selected_packs": [],
-            "override_pack": bool(self.override_pack_var.get())
-            if hasattr(self, "override_pack_var")
-            else False,
+            "override_pack": (
+                bool(self.override_pack_var.get()) if hasattr(self, "override_pack_var") else False
+            ),
             "pipeline_controls": self.preferences_manager.default_pipeline_controls(),
             "config": self._get_config_from_forms(),
         }
@@ -2965,8 +3019,13 @@ class StableNewGUI:
                 # Build error text up-front
                 try:
                     import sys
+
                     ex_type, ex, _ = sys.exc_info()
-                    err_text = f"Pipeline failed: {ex_type.__name__}: {ex}" if (ex_type and ex) else "Pipeline failed"
+                    err_text = (
+                        f"Pipeline failed: {ex_type.__name__}: {ex}"
+                        if (ex_type and ex)
+                        else "Pipeline failed"
+                    )
                 except Exception:
                     err_text = "Pipeline failed"
 
@@ -2999,6 +3058,7 @@ class StableNewGUI:
                     pass
                 try:
                     from .state import GUIState
+
                     # Schedule transition on Tk thread for deterministic callback behavior
                     self.root.after(0, lambda: self.state_manager.transition_to(GUIState.ERROR))
                 except Exception:
@@ -3057,9 +3117,14 @@ class StableNewGUI:
                     pass
                 try:
                     # Also schedule to ensure it wins over any queued 'Running' updates
-                    self.root.after(0, lambda: hasattr(self, "progress_message_var") and self.progress_message_var.set("Error"))
+                    self.root.after(
+                        0,
+                        lambda: hasattr(self, "progress_message_var")
+                        and self.progress_message_var.set("Error"),
+                    )
                     # Schedule explicit ERROR transition to drive status callbacks
                     from .state import GUIState
+
                     self.root.after(0, lambda: self.state_manager.transition_to(GUIState.ERROR))
                 except Exception:
                     pass
@@ -3142,6 +3207,8 @@ class StableNewGUI:
 
     def _refresh_models_async(self):
         """Refresh the list of available SD models (thread-safe version)"""
+        from functools import partial
+
         if self.client is None:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
@@ -3163,23 +3230,11 @@ class StableNewGUI:
                 self._add_log_message(f"🔄 Loaded {len(models)} SD models")
 
             self.root.after(0, update_widgets)
-            try:
-                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_scheduler_options(schedulers))
-            except Exception:
-                pass
-            try:
-                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_upscaler_options(upscaler_names))
-            except Exception:
-                pass
-            try:
-                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_vae_options(vae_names))
-            except Exception:
-                pass
-            # Also update unified ConfigPanel if present
-            try:
-                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_model_options(model_names))
-            except Exception:
-                pass
+
+            # Also update unified ConfigPanel if present using partial to capture value
+            if hasattr(self, "config_panel"):
+                self.root.after(0, partial(self.config_panel.set_model_options, list(model_names)))
+
         except Exception as exc:
             # Marshal error message back to main thread
             # Capture exception in default argument to avoid closure issues
@@ -3207,6 +3262,8 @@ class StableNewGUI:
 
     def _refresh_vae_models_async(self):
         """Refresh the list of available VAE models (thread-safe version)"""
+        from functools import partial
+
         if self.client is None:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
@@ -3215,17 +3272,25 @@ class StableNewGUI:
         try:
             # Perform API call in worker thread
             vae_models = self.client.get_vae_models()
-            vae_names = [""] + [vae.get("model_name", "") for vae in vae_models]
+            vae_names_local = [""] + [vae.get("model_name", "") for vae in vae_models]
+
+            # Store in instance attribute
+            self.vae_names = list(vae_names_local)
 
             # Marshal widget updates back to main thread
             def update_widgets():
                 if hasattr(self, "vae_combo"):
-                    self.vae_combo["values"] = tuple(vae_names)
+                    self.vae_combo["values"] = tuple(self.vae_names)
                 if hasattr(self, "img2img_vae_combo"):
-                    self.img2img_vae_combo["values"] = tuple(vae_names)
+                    self.img2img_vae_combo["values"] = tuple(self.vae_names)
                 self._add_log_message(f"🔄 Loaded {len(vae_models)} VAE models")
 
             self.root.after(0, update_widgets)
+
+            # Also update config panel if present using partial to capture value
+            if hasattr(self, "config_panel"):
+                self.root.after(0, partial(self.config_panel.set_vae_options, list(self.vae_names)))
+
         except Exception as exc:
             # Marshal error message back to main thread
             # Capture exception in default argument to avoid closure issues
@@ -3257,6 +3322,8 @@ class StableNewGUI:
 
     def _refresh_upscalers_async(self):
         """Refresh the list of available upscalers (thread-safe version)"""
+        from functools import partial
+
         if self.client is None:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
@@ -3265,17 +3332,27 @@ class StableNewGUI:
         try:
             # Perform API call in worker thread
             upscalers = self.client.get_upscalers()
-            upscaler_names = [
+            upscaler_names_local = [
                 upscaler.get("name", "") for upscaler in upscalers if upscaler.get("name")
             ]
+
+            # Store in instance attribute
+            self.upscaler_names = list(upscaler_names_local)
 
             # Marshal widget updates back to main thread
             def update_widgets():
                 if hasattr(self, "upscaler_combo"):
-                    self.upscaler_combo["values"] = tuple(upscaler_names)
+                    self.upscaler_combo["values"] = tuple(self.upscaler_names)
                 self._add_log_message(f"🔄 Loaded {len(upscalers)} upscalers")
 
             self.root.after(0, update_widgets)
+
+            # Also update config panel if present using partial to capture value
+            if hasattr(self, "config_panel"):
+                self.root.after(
+                    0, partial(self.config_panel.set_upscaler_options, list(self.upscaler_names))
+                )
+
         except Exception as exc:
             # Marshal error message back to main thread
             # Capture exception in default argument to avoid closure issues
@@ -3304,6 +3381,8 @@ class StableNewGUI:
 
     def _refresh_schedulers_async(self):
         """Refresh the list of available schedulers (thread-safe version)"""
+        from functools import partial
+
         if not self.client:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
@@ -3313,15 +3392,25 @@ class StableNewGUI:
             # Perform API call in worker thread
             schedulers = self.client.get_schedulers()
 
-            # Marshal widget updates back to main thread
+            # Store in instance attribute
+            self.schedulers = list(schedulers)
+
+            # Marshal widget updates back to main thread using partial
             def update_widgets():
                 if hasattr(self, "scheduler_combo"):
-                    self.scheduler_combo["values"] = tuple(schedulers)
+                    self.scheduler_combo["values"] = tuple(self.schedulers)
                 if hasattr(self, "img2img_scheduler_combo"):
-                    self.img2img_scheduler_combo["values"] = tuple(schedulers)
-                self._add_log_message(f"🔄 Loaded {len(schedulers)} schedulers")
+                    self.img2img_scheduler_combo["values"] = tuple(self.schedulers)
+                self._add_log_message(f"🔄 Loaded {len(self.schedulers)} schedulers")
 
             self.root.after(0, update_widgets)
+
+            # Also update config panel if present using partial to capture value
+            if hasattr(self, "config_panel"):
+                self.root.after(
+                    0, partial(self.config_panel.set_scheduler_options, list(self.schedulers))
+                )
+
         except Exception as exc:
             # Marshal error message back to main thread
             # Capture exception in default argument to avoid closure issues
@@ -3356,27 +3445,3 @@ class StableNewGUI:
     def _randomize_img2img_seed(self):
         """Generate random seed for img2img"""
         self._randomize_seed("img2img")
-
-    def run(self):
-        """Run the GUI application"""
-        # Ensure window is visible and focused before starting mainloop
-        self.root.deiconify()  # Make sure window is not minimized
-        self.root.lift()  # Bring to front
-        self.root.focus_force()  # Force focus
-
-        # Log window state for debugging
-        self.log_message("🖥️ GUI window should now be visible", "INFO")
-
-        # Add a periodic check to ensure window stays visible
-        def check_window_visibility():
-            if self.root.state() == "iconic":  # Window is minimized
-                self.log_message("⚠️ Window was minimized, restoring...", "WARNING")
-                self.root.deiconify()
-                self.root.lift()
-            # Schedule next check in 30 seconds
-            self.root.after(30000, check_window_visibility)
-
-        # Start the visibility checker
-        self.root.after(5000, check_window_visibility)  # First check after 5 seconds
-
-        self.root.mainloop()

@@ -137,6 +137,18 @@ class LogPanel(ttk.Frame):
         except Exception:
             pass
 
+    def append(self, message: str, level: str = "INFO") -> None:
+        """
+        Append a log message to the display (alias for log()).
+
+        This method is thread-safe and can be called from any thread.
+
+        Args:
+            message: Log message text
+            level: Log level (INFO, WARNING, ERROR, SUCCESS, DEBUG)
+        """
+        self.log(message, level)
+
     def _process_queue(self):
         """Process pending log messages from queue."""
         # Process all pending messages
@@ -170,7 +182,9 @@ class LogPanel(ttk.Frame):
         """
         normalized_level = level.upper()
         if normalized_level not in LEVEL_STYLES:
-            logger.debug(f"Unknown log level '{level}' encountered; falling back to DEFAULT_LEVEL ('{DEFAULT_LEVEL}').")
+            logger.debug(
+                f"Unknown log level '{level}' encountered; falling back to DEFAULT_LEVEL ('{DEFAULT_LEVEL}')."
+            )
             normalized_level = DEFAULT_LEVEL
 
         self.log_records.append((message, normalized_level))
@@ -250,6 +264,11 @@ class LogPanel(ttk.Frame):
                 self._locked_view_top = 0.0
 
     # Convenience API expected by tests
+    @property
+    def text(self) -> scrolledtext.ScrolledText:
+        """Return the underlying text widget (for legacy compatibility)."""
+        return self.log_text
+
     def get_scroll_lock(self) -> bool:
         """Return True if scroll lock is enabled, else False."""
         return bool(self.scroll_lock_var.get())
@@ -338,4 +357,3 @@ class TkinterLogHandler(logging.Handler):
         except Exception:
             # Don't let logging errors break the app
             self.handleError(record)
-
