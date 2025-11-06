@@ -68,3 +68,57 @@ def on_metadata_ready(self, meta):
     self.root.after(0, partial(self.config_panel.set_schedulers, list(self.schedulers)))
     self.root.after(0, partial(self.config_panel.set_upscalers, list(self.upscaler_names)))
     self.root.after(0, partial(self.config_panel.set_vaes, list(self.vae_names)))
+
+Tests & Validation (must pass in CI)
+
+Commands
+
+pre-commit run --all-files
+
+pytest -q
+
+Focused:
+
+pytest tests\gui\test_logpanel_binding.py -q
+
+pytest tests\gui\test_config_meta_updates.py -q
+
+New tests
+
+tests/gui/test_logpanel_binding.py
+
+GUI creates log_panel, exposes add_log proxy and log_text alias.
+
+Calling _add_log_message("hello") updates the buffer (or stubs safely).
+
+tests/gui/test_config_meta_updates.py
+
+Combos disabled initially; after on_metadata_ready({...}), values applied and combos become readonly.
+
+PR Rules
+
+Branch from postGemini: feature/gui-log-config-stability
+
+Small, focused diffs; conventional commits:
+
+fix(gui): add early log panel + proxy to avoid AttributeError
+
+fix(gui): make config updates safe; capture values in partials
+
+test(gui): add logpanel and config meta update tests
+
+Use the repo PR template; attach short notes (no UX changes).
+
+Definition of Done
+
+No more AttributeError: 'StableNewGUI' object has no attribute 'log_text'.
+
+No more NameError for schedulers/upscalers/vaes; combos populate safely.
+
+Headless-safe tests pass; CI green.
+
+No behavioral regressions in pipeline flow.
+
+Rollback
+
+Revert PR; no schema/config changes introduced, so revert is clean.
