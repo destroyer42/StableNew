@@ -116,64 +116,131 @@ pytest --cov=src --cov-report=term-missing  # full validation
 
 **PR Route:** `feature` → `postGemini` (manual journey tests) → `main` (tagged release)
 
-## 4) Build, Test, Lint (local + CI)
-```cmd
-:: Windows developer quick checks
-pre-commit run --all-files
-pytest -q
-pytest --cov=src --cov-report=term-missing
-```
-- Linters/formatters: `ruff`, `black`, `mypy` (strict enough to catch regressions).
-- GUI tests run **headless** (xvfb in CI). Tests should poll controller state/events rather than join threads.
+## 8) Task Sizing for AI Agents
 
-## 5) Definition of Done (applies to every PR)
-- ✅ CI green: ruff, black, mypy, pytest (+ headless GUI lane).
-- ✅ No Tk main‑thread blocking; cooperative cancel is honored.
-- ✅ Tests added/updated for all new behavior.
-- ✅ README/ARCHITECTURE updated; CHANGELOG entry for user‑visible changes.
-- ✅ Config backward compatible; manifests preserved.
+**Good Copilot Tasks:**
+- Bug fixes with clear reproduction steps
+- UI polish (button states, status text, validation messages)
+- Test coverage for specific modules
+- Config validation and pass-through accuracy
+- Documentation updates (README, ARCHITECTURE, inline docs)
+- Technical debt cleanup (linting, type hints, deprecation fixes)
+
+**Avoid:**
+- Broad refactors spanning multiple subsystems
+- Cross-repo changes or external dependency upgrades
+- Domain-heavy business logic without context
+- Tasks lacking acceptance criteria or reproducible steps
+
+**How to Assign Tasks:**
+- Issues = prompts. Include: files/paths, acceptance tests, success criteria
+- For GUI changes: specify non-blocking requirements, cancel behavior, log output
+- In PR reviews: batch comments (use "Start a review"), mention **@copilot** once
+
+## 9) Definition of Done
+
+Every PR must satisfy:
+- ✅ CI green: ruff, black, mypy, pytest (headless GUI tests)
+- ✅ No Tk main-thread blocking; cooperative cancel honored
+- ✅ Tests added/updated for new behavior
+- ✅ README/ARCHITECTURE updated; CHANGELOG entry for user-visible changes
+- ✅ Config backward compatible; manifests preserved
+
+## 10) PR Template (enforced)
+
+```markdown
+# Summary
+Describe what this PR changes and why.
+
+# Linked Issues
+- Closes # (list issues)
+
+# Type of change
+- [ ] Feature / [ ] Bugfix / [ ] Refactor / [ ] Docs/CI / [ ] Tests
+
+# Validation
+- [ ] `pre-commit run --all-files` passed
+- [ ] `pytest -q` shows 0 failures
+- [ ] New behavior has tests (unit and/or GUI headless)
+- [ ] No main-thread blocking (Tk); heavy work in threads/subprocesses
+- [ ] Cooperative cancel honored in new paths
+
+## Test commands
+pytest -q
+pytest tests/gui -q
+
+# Screenshots (if UI changes)
+(attach images)
+
+# Docs
+- [ ] README/ARCHITECTURE updated
+- [ ] In-app Help updated
+
+# Risk & Rollback
+- Risk: Low/Medium/High
+- Rollback: Revert PR; config backward compatible
+```
+
+## 11) Key File Reference
+
+| Path | Purpose |
+|------|---------|
+| `src/api/client.py` | SD WebUI communication + retry/backoff logic |
+| `src/pipeline/executor.py` | Stage orchestration (txt2img/img2img/upscale) |
+| `src/pipeline/video.py` | FFmpeg video assembly |
+| `src/gui/main_window.py` | GUI mediator - coordinates all panels |
+| `src/gui/controller.py` | Pipeline lifecycle - **only** place that joins threads |
+| `src/gui/state.py` | State machine + CancelToken for cooperative cancellation |
+| `src/utils/config.py` | Config management - **update here when adding params** |
+| `src/utils/file_io.py` | Base64 helpers, UTF-8 file I/O |
+| `tests/test_config_passthrough.py` | **Mandatory** validation for config changes |
+| `tests/gui/conftest.py` | GUI test fixtures (tk_root, tk_pump) |
+| `presets/` | JSON config presets (txt2img/img2img/upscale/video/api) |
+| `packs/` | Prompt packs (.txt, .tsv with `neg:` prefix support) |
+
+## 12) Quick Copilot Prompts
+
+**Config Changes:**
+```
+Add `hires_steps` parameter to control second-pass steps independently:
+1. Update src/utils/config.py::get_default_config()
+2. Add slider to src/gui/config_panel.py
+3. Use in src/pipeline/executor.py txt2img payload
+4. Update tests/test_config_passthrough.py EXPECTED_TXT2IMG_PARAMS
+5. Run pytest tests/test_config_passthrough.py
+```
+
+**GUI Panel:**
+```
+Create ADetailerPanel in src/gui/adetailer_panel.py:
+1. Expose get_config() returning dict with adetailer_enabled, adetailer_model
+2. Wire to main_window.py mediator
+3. Add tests in tests/gui/test_adetailer_panel.py (use tk_root fixture)
+4. Ensure non-blocking - no direct thread joins
+```
+
+**API Backoff:**
+```
+Refactor client.check_api_ready() to exponential backoff:
+1. Use _calculate_backoff() helper from existing SDWebUIClient
+2. Add unit tests for timeout behavior in tests/test_api_client_backoff.py
+3. Test with max_retries=3, backoff_factor=1.0, jitter=0.5
+```
+
+---
+
+
+**Last Updated:** 2025-11-06
 
 ## 6) PR Template (enforced by Copilot and humans)
 Copy lives at `.github/PULL_REQUEST_TEMPLATE.md` and is inlined here for Copilot context:
 
 ---
-# Summary
-Describe what this PR changes and why.
-
-# Linked Issues
-- Closes # (list the issues this PR addresses)
-
-# Type of change
-- [ ] Feature
-- [ ] Bugfix
-- [ ] Refactor
-- [ ] Docs / CI
-- [ ] Tests
-
-# Validation
-- [ ] I ran `pre-commit run --all-files` and fixed findings.
-- [ ] I ran `pytest -q` and **0 failures** locally.
-- [ ] New/changed behavior has tests (unit and/or GUI headless where applicable).
-- [ ] No main-thread blocking (Tk); heavy work is in threads/subprocesses with queue callbacks.
-- [ ] Cooperative cancel is honored in new/changed paths.
-
-## Test commands used
-```
-pytest -q
-pytest tests/gui -q
-pytest tests/editor -q
 ```
 
-# Screenshots / GIF (if UI changes)
-(attach images)
+---
 
-# Docs
-- [ ] README/ARCHITECTURE updated where relevant.
-- [ ] In-app Help updated (pulled from README sections).
-
-# Risk & Rollback
-- Risk level: Low / Medium / High
-- Rollback plan: Revert this PR; archived unused files unchanged; config backward compatible.
+**Last Updated:** 2025-11-06
 ---
 
 ## 7) Repository Structure (high‑value paths for Copilot)
@@ -206,11 +273,6 @@ pytest tests/editor -q
 5) Editor polish (status_text, name prefix, angle brackets, Global Negative; Save‑All UX).  
 6) Docs/CI polish.
 
----
-**Appendix A — Quick Prompts Copilot Can Use**
-- “Update `PipelineControlsPanel` to honor CancelToken with non‑blocking UI; add tests under `tests/gui/test_cancel.py`.”
-- “Add config pass‑through tests to `tests/config/test_preset_passthrough.py` for new `hires_steps` and `face_restore` fields.”
-- “Refactor `client.check_api_ready()` to exponential backoff; add unit tests for timeout behavior.”
 
 **Appendix B — Known Non‑Goals for Copilot**
 - Cross‑repo refactors, major redesigns, or production‑critical auth/security changes in one PR.
