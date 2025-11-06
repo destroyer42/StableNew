@@ -220,6 +220,11 @@ class PipelineController:
         """Report progress to registered callbacks in a thread-safe manner."""
 
         eta_text = eta if eta else "ETA: --"
+        try:
+            if self.is_terminal and (stage or "").lower() != "error":
+                return
+        except Exception:
+            pass
         with self._progress_lock:
             self._last_progress = {
                 "stage": stage,
