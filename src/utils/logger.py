@@ -103,6 +103,29 @@ class StructuredLogger:
             self.logger.error(f"Failed to save manifest: {e}")
             return False
 
+    def save_pack_manifest(self, pack_dir: Path, image_name: str, metadata: dict[str, Any]) -> bool:
+        """Save a per-image JSON manifest inside a pack directory.
+
+        Args:
+            pack_dir: The pack directory (contains txt2img/img2img/etc.)
+            image_name: Base name of the image (without extension)
+            metadata: Metadata dictionary to persist
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        try:
+            manifest_dir = pack_dir / "manifests"
+            manifest_dir.mkdir(exist_ok=True, parents=True)
+            manifest_path = manifest_dir / f"{image_name}.json"
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            self.logger.info(f"Saved pack manifest: {manifest_path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to save pack manifest: {e}")
+            return False
+
     def create_csv_summary(self, run_dir: Path, images_data: list) -> bool:
         """
         Create CSV rollup summary of all images.

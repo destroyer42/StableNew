@@ -585,6 +585,24 @@ class StableNewGUI:
             style="Dark.TButton",
         ).pack(side=tk.LEFT, padx=(0, 5))
 
+        # Auto-apply toggle and top save indicator
+        try:
+            self.auto_apply_var = tk.BooleanVar(value=False)
+            ttk.Checkbutton(
+                config_buttons,
+                text="Auto-apply on change",
+                variable=self.auto_apply_var,
+                style="Dark.TCheckbutton",
+            ).pack(side=tk.LEFT, padx=(10, 5))
+
+            self.top_save_indicator_var = tk.StringVar(value="")
+            self.top_save_indicator = ttk.Label(
+                config_buttons, textvariable=self.top_save_indicator_var, style="Dark.TLabel"
+            )
+            self.top_save_indicator.pack(side=tk.LEFT, padx=(8, 0))
+        except Exception:
+            pass
+
         # Preset selection dropdown
         preset_frame = ttk.LabelFrame(config_buttons, text="Base Preset", padding=5)
         preset_frame.pack(side=tk.LEFT, padx=(10, 10))
@@ -1438,15 +1456,8 @@ class StableNewGUI:
                         self.log_message(f"No prompts found in {pack_file.name}", "WARNING")
                         continue
 
-                    # Get configuration - use current form values if available
-                    if hasattr(self, "txt2img_vars") and self.current_config:
-                        config = self.current_config
-                    else:
-                        # Fall back to file-based config
-                        pack_overrides = self.config_manager.get_pack_overrides(pack_file.stem)
-                        config = self.config_manager.resolve_config(
-                            preset_name="default", pack_overrides=pack_overrides
-                        )
+                    # Always read the latest form values to ensure UI changes are respected
+                    config = self._get_config_from_forms()
 
                     # Process each prompt in the pack
                     images_generated = 0
@@ -2027,7 +2038,7 @@ class StableNewGUI:
         ttk.Label(model_row, text="SD Model:", style="Dark.TLabel", width=15).pack(side=tk.LEFT)
         self.txt2img_vars["model"] = tk.StringVar(value="")
         self.model_combo = ttk.Combobox(
-            model_row, textvariable=self.txt2img_vars["model"], width=25, state="readonly"
+            model_row, textvariable=self.txt2img_vars["model"], width=40, state="readonly"
         )
         self.model_combo.pack(side=tk.LEFT, padx=(5, 5))
         self.txt2img_widgets["model"] = self.model_combo
@@ -2041,7 +2052,7 @@ class StableNewGUI:
         ttk.Label(vae_row, text="VAE Model:", style="Dark.TLabel", width=15).pack(side=tk.LEFT)
         self.txt2img_vars["vae"] = tk.StringVar(value="")
         self.vae_combo = ttk.Combobox(
-            vae_row, textvariable=self.txt2img_vars["vae"], width=25, state="readonly"
+            vae_row, textvariable=self.txt2img_vars["vae"], width=40, state="readonly"
         )
         self.vae_combo.pack(side=tk.LEFT, padx=(5, 5))
         self.txt2img_widgets["vae"] = self.vae_combo
@@ -2348,7 +2359,7 @@ class StableNewGUI:
         ttk.Label(model_row, text="SD Model:", style="Dark.TLabel", width=15).pack(side=tk.LEFT)
         self.img2img_vars["model"] = tk.StringVar(value="")
         self.img2img_model_combo = ttk.Combobox(
-            model_row, textvariable=self.img2img_vars["model"], width=25, state="readonly"
+            model_row, textvariable=self.img2img_vars["model"], width=40, state="readonly"
         )
         self.img2img_model_combo.pack(side=tk.LEFT, padx=(5, 5))
         self.img2img_widgets["model"] = self.img2img_model_combo
@@ -2362,7 +2373,7 @@ class StableNewGUI:
         ttk.Label(vae_row, text="VAE Model:", style="Dark.TLabel", width=15).pack(side=tk.LEFT)
         self.img2img_vars["vae"] = tk.StringVar(value="")
         self.img2img_vae_combo = ttk.Combobox(
-            vae_row, textvariable=self.img2img_vars["vae"], width=25, state="readonly"
+            vae_row, textvariable=self.img2img_vars["vae"], width=40, state="readonly"
         )
         self.img2img_vae_combo.pack(side=tk.LEFT, padx=(5, 5))
         self.img2img_widgets["vae"] = self.img2img_vae_combo
@@ -2430,7 +2441,7 @@ class StableNewGUI:
         ttk.Label(upscaler_row, text="Upscaler:", style="Dark.TLabel", width=15).pack(side=tk.LEFT)
         self.upscale_vars["upscaler"] = tk.StringVar(value="R-ESRGAN 4x+")
         self.upscaler_combo = ttk.Combobox(
-            upscaler_row, textvariable=self.upscale_vars["upscaler"], width=25, state="readonly"
+            upscaler_row, textvariable=self.upscale_vars["upscaler"], width=40, state="readonly"
         )
         self.upscaler_combo.pack(side=tk.LEFT, padx=(5, 5))
         self.upscale_widgets["upscaler"] = self.upscaler_combo
@@ -2631,6 +2642,22 @@ class StableNewGUI:
                     self._show_config_status(
                         f"Configuration saved for {len(selected)} selected pack(s)"
                     )
+                    try:
+                        messagebox.showinfo(
+                            "Config Saved",
+                            f"Saved configuration for {len(selected)} selected pack(s)",
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self, "config_panel"):
+                            self.config_panel.show_save_indicator("Saved")
+                    except Exception:
+                        pass
+                    try:
+                        self.show_top_save_indicator("Saved")
+                    except Exception:
+                        pass
                 else:
                     self.log_message("Failed to save configuration for selected packs", "ERROR")
             else:
@@ -2642,8 +2669,34 @@ class StableNewGUI:
                 if preset_name:
                     self.config_manager.save_preset(preset_name, config)
                     self.log_message(f"Saved configuration as preset: {preset_name}", "SUCCESS")
+                    try:
+                        messagebox.showinfo(
+                            "Preset Saved",
+                            f"Saved configuration as preset: {preset_name}",
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self, "config_panel"):
+                            self.config_panel.show_save_indicator("Saved")
+                    except Exception:
+                        pass
+                    try:
+                        self.show_top_save_indicator("Saved")
+                    except Exception:
+                        pass
                 else:
                     self.log_message("Configuration updated (not saved as preset)", "INFO")
+                    self._show_config_status("Configuration updated (not saved as preset)")
+                    try:
+                        if hasattr(self, "config_panel"):
+                            self.config_panel.show_save_indicator("Saved")
+                    except Exception:
+                        pass
+                    try:
+                        self.show_top_save_indicator("Saved")
+                    except Exception:
+                        pass
 
         except Exception as e:
             self.log_message(f"Failed to save configuration: {e}", "ERROR")
@@ -2653,6 +2706,30 @@ class StableNewGUI:
         defaults = self.config_manager.get_default_config()
         self._load_config_into_forms(defaults)
         self.log_message("Configuration reset to defaults", "INFO")
+
+    def on_config_save(self, _config: dict) -> None:
+        """Coordinator callback from ConfigPanel to save current settings."""
+        try:
+            self._save_all_config()
+            if hasattr(self, "config_panel"):
+                self.config_panel.show_save_indicator("Saved")
+            self.show_top_save_indicator("Saved")
+        except Exception:
+            pass
+
+    def show_top_save_indicator(self, text: str = "Saved", duration_ms: int = 2000) -> None:
+        """Show a colored indicator next to the top Save button."""
+        try:
+            color = "#00c853" if (text or "").lower() == "saved" else "#ffa500"
+            try:
+                self.top_save_indicator.configure(foreground=color)
+            except Exception:
+                pass
+            self.top_save_indicator_var.set(text)
+            if duration_ms and (text or "").lower() == "saved":
+                self.root.after(duration_ms, lambda: self.top_save_indicator_var.set(""))
+        except Exception:
+            pass
 
     def _on_preset_changed(self, event=None):
         """Handle preset dropdown selection changes"""

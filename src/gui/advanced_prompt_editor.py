@@ -519,7 +519,7 @@ Edit it in the "Global Negative" tab to set safety and quality terms that apply 
 ✅ VALIDATION FEATURES:
 
 - Missing embeddings/LoRAs detection
-- Invalid syntax checking  
+- Invalid syntax checking
 - Weight range validation
 - Blank prompt detection
 - Character encoding verification
@@ -528,7 +528,7 @@ Edit it in the "Global Negative" tab to set safety and quality terms that apply 
 🔧 KEYBOARD SHORTCUTS:
 
 Ctrl+Z: Undo
-Ctrl+Y: Redo  
+Ctrl+Y: Redo
 Ctrl+S: Save
 Ctrl+N: New pack
 Ctrl+O: Open pack
@@ -541,7 +541,7 @@ Errors and warnings appear in the Validation tab.
 💡 TIPS:
 
 - Use the Models tab to browse available embeddings/LoRAs
-- Double-click model names to insert them automatically  
+- Double-click model names to insert them automatically
 - Use Quick Insert buttons for common prompt templates
 - Keep prompts under 1000 characters for best performance
 - Test prompts with single generations before batch processing
@@ -549,14 +549,14 @@ Errors and warnings appear in the Validation tab.
 📁 FILE MANAGEMENT:
 
 - Clone: Create a copy of the current pack
-- Delete: Remove pack file (careful - this is permanent!)  
+- Delete: Remove pack file (careful - this is permanent!)
 - Auto-save: Changes are marked with * in title
 - UTF-8: All files saved with proper encoding for international text
 
 🎯 VALIDATION LEVELS:
 
 🔴 Errors: Must be fixed (missing models, syntax errors)
-🟡 Warnings: Should be reviewed (long prompts, unusual weights)  
+🟡 Warnings: Should be reviewed (long prompts, unusual weights)
 🟢 Success: Pack is valid and ready to use
 """
 
@@ -713,7 +713,7 @@ beautiful composition, professional quality
 neg: blurry, bad quality, distorted, ugly
 
 portrait of a character, detailed face
-expressive eyes, natural lighting  
+expressive eyes, natural lighting
 neg: malformed, bad anatomy, low quality"""
 
             self.prompts_text.insert("1.0", template)
@@ -864,7 +864,7 @@ neg: malformed, bad anatomy, low quality"""
 
         if messagebox.askyesno(
             "Confirm Delete",
-            f"This action cannot be undone.",
+            "This action cannot be undone.",
         ):
             try:
                 deleted_name = self.current_pack_path.name

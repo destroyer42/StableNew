@@ -179,9 +179,11 @@ class Pipeline:
         # Extract name prefix if present
         name_prefix = self._extract_name_prefix(prompt)
 
-        # Apply global NSFW prevention to negative prompt
+        # Apply global NSFW prevention to negative prompt (with optional adjustments)
         base_negative = config.get("negative_prompt", "")
-        enhanced_negative = self.config_manager.add_global_negative(base_negative)
+        negative_adjust = (config.get("negative_adjust") or "").strip()
+        combined_negative = base_negative if not negative_adjust else f"{base_negative} {negative_adjust}".strip()
+        enhanced_negative = self.config_manager.add_global_negative(combined_negative)
         logger.info(
             f"🛡️ Applied global NSFW prevention - Original: '{base_negative}' → Enhanced: '{enhanced_negative[:100]}...'"
         )
@@ -440,9 +442,13 @@ class Pipeline:
         if config.get("vae"):
             self.client.set_vae(config["vae"])
 
+        # Apply optional prompt adjustments from config
+        prompt_adjust = (config.get("prompt_adjust") or "").strip()
+        combined_prompt = prompt if not prompt_adjust else f"{prompt} {prompt_adjust}".strip()
+
         payload = {
             "init_images": [input_base64],
-            "prompt": prompt,
+            "prompt": combined_prompt,
             "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 15),
             "sampler_name": config.get("sampler_name", "Euler a"),
@@ -1091,20 +1097,24 @@ class Pipeline:
                     "path": str(image_path),
                 }
 
-                # Save manifest to manifests directory
-                # Get the run directory (for CLI) or pack directory (for GUI)
+                # Save manifest (pack manifests for GUI, run manifests for CLI)
                 if output_dir.name in ["txt2img", "img2img", "upscaled"]:
-                    # GUI mode: output_dir is stage dir, parent is pack dir, grandparent is run dir
                     pack_dir = output_dir.parent
-                    manifest_dir = pack_dir / "manifests"
+                    try:
+                        self.logger.save_pack_manifest(pack_dir, image_name, metadata)
+                    except Exception:
+                        manifest_dir = pack_dir / "manifests"
+                        manifest_dir.mkdir(exist_ok=True, parents=True)
+                        with open(manifest_dir / f"{image_name}.json", "w", encoding="utf-8") as f:
+                            json.dump(metadata, f, indent=2, ensure_ascii=False)
                 else:
-                    # CLI mode: output_dir is the run dir, create manifests there
-                    manifest_dir = output_dir / "manifests"
-
-                manifest_dir.mkdir(exist_ok=True)
-                manifest_path = manifest_dir / f"{image_name}.json"
-                with open(manifest_path, "w", encoding="utf-8") as f:
-                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+                    try:
+                        self.logger.save_manifest(output_dir, image_name, metadata)
+                    except Exception:
+                        manifest_dir = output_dir / "manifests"
+                        manifest_dir.mkdir(exist_ok=True, parents=True)
+                        with open(manifest_dir / f"{image_name}.json", "w", encoding="utf-8") as f:
+                            json.dump(metadata, f, indent=2, ensure_ascii=False)
 
                 return metadata
             else:
@@ -1153,10 +1163,15 @@ class Pipeline:
                 self.client.set_vae(config["vae"])
 
             # Build img2img payload
+            # Combine negative prompt with optional adjustments
+            base_negative = config.get("negative_prompt", "")
+            neg_adjust = (config.get("negative_adjust") or "").strip()
+            negative_prompt = base_negative if not neg_adjust else f"{base_negative} {neg_adjust}".strip()
+
             payload = {
                 "init_images": [input_image_b64],
                 "prompt": prompt,
-                "negative_prompt": config.get("negative_prompt", ""),
+                "negative_prompt": negative_prompt,
                 "steps": config.get("steps", 15),
                 "cfg_scale": config.get("cfg_scale", 7.0),
                 "denoising_strength": config.get("denoising_strength", 0.3),
@@ -1191,20 +1206,24 @@ class Pipeline:
                     "path": str(image_path),
                 }
 
-                # Save manifest to manifests directory
-                # Get the run directory (for CLI) or pack directory (for GUI)
+                # Save manifest (pack manifests for GUI, run manifests for CLI)
                 if output_dir.name in ["txt2img", "img2img", "upscaled"]:
-                    # GUI mode: output_dir is stage dir, parent is pack dir, grandparent is run dir
                     pack_dir = output_dir.parent
-                    manifest_dir = pack_dir / "manifests"
+                    try:
+                        self.logger.save_pack_manifest(pack_dir, image_name, metadata)
+                    except Exception:
+                        manifest_dir = pack_dir / "manifests"
+                        manifest_dir.mkdir(exist_ok=True, parents=True)
+                        with open(manifest_dir / f"{image_name}.json", "w", encoding="utf-8") as f:
+                            json.dump(metadata, f, indent=2, ensure_ascii=False)
                 else:
-                    # CLI mode: output_dir is the run dir, create manifests there
-                    manifest_dir = output_dir / "manifests"
-
-                manifest_dir.mkdir(exist_ok=True)
-                manifest_path = manifest_dir / f"{image_name}.json"
-                with open(manifest_path, "w", encoding="utf-8") as f:
-                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+                    try:
+                        self.logger.save_manifest(output_dir, image_name, metadata)
+                    except Exception:
+                        manifest_dir = output_dir / "manifests"
+                        manifest_dir.mkdir(exist_ok=True, parents=True)
+                        with open(manifest_dir / f"{image_name}.json", "w", encoding="utf-8") as f:
+                            json.dump(metadata, f, indent=2, ensure_ascii=False)
 
                 logger.info(f"✅ img2img completed: {image_path.name}")
                 return metadata

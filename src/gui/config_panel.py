@@ -91,6 +91,17 @@ class ConfigPanel(ttk.Frame):
 
         # Add buttons at bottom
         self._build_action_buttons()
+        # Create inline save/apply indicator next to Save button
+        try:
+            self._ensure_save_indicator()
+        except Exception:
+            pass
+
+        # Track changes and mark as Apply when any field changes
+        try:
+            self._attach_change_traces()
+        except Exception:
+            pass
 
     def _build_txt2img_tab(self):
         """Build txt2img configuration tab."""
@@ -390,6 +401,10 @@ class ConfigPanel(ttk.Frame):
         self.img2img_vars["clip_skip"] = tk.IntVar(value=2)
         self.img2img_vars["model"] = tk.StringVar(value="")
         self.img2img_vars["vae"] = tk.StringVar(value="")
+        # Optional prompt adjustments to append during img2img stage
+        self.img2img_vars["prompt_adjust"] = tk.StringVar(value="")
+        # Optional negative adjustments to append to negative prompt during img2img
+        self.img2img_vars["negative_adjust"] = tk.StringVar(value="")
 
         # Basic settings
         basic_frame = ttk.LabelFrame(tab, text="img2img Settings", padding=10)
@@ -478,6 +493,28 @@ class ConfigPanel(ttk.Frame):
         self.img2img_widgets["vae"] = img_vae_combo
         row += 1
 
+        # Prompt adjustments (appended to positive prompt during img2img)
+        ttk.Label(basic_frame, text="Prompt Adjust:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        img_prompt_adjust = ttk.Entry(
+            basic_frame,
+            textvariable=self.img2img_vars["prompt_adjust"],
+            width=60,
+        )
+        img_prompt_adjust.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.img2img_widgets["prompt_adjust"] = img_prompt_adjust
+        row += 1
+
+        # Negative adjustments
+        ttk.Label(basic_frame, text="Negative Adjust:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        img_neg_adjust = ttk.Entry(
+            basic_frame,
+            textvariable=self.img2img_vars["negative_adjust"],
+            width=60,
+        )
+        img_neg_adjust.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.img2img_widgets["negative_adjust"] = img_neg_adjust
+        row += 1
+
     def _build_upscale_tab(self):
         """Build upscale configuration tab."""
         tab = ttk.Frame(self.notebook, style="Dark.TFrame")
@@ -488,6 +525,8 @@ class ConfigPanel(ttk.Frame):
         self.upscale_vars["upscaling_resize"] = tk.DoubleVar(value=2.0)
         self.upscale_vars["upscale_mode"] = tk.StringVar(value="single")
         self.upscale_vars["steps"] = tk.IntVar(value=20)  # Used when Upscale runs via img2img
+        self.upscale_vars["sampler_name"] = tk.StringVar(value="Euler a")
+        self.upscale_vars["scheduler"] = tk.StringVar(value="normal")
         self.upscale_vars["denoising_strength"] = tk.DoubleVar(value=0.2)
         self.upscale_vars["gfpgan_visibility"] = tk.DoubleVar(value=0.0)
         self.upscale_vars["codeformer_visibility"] = tk.DoubleVar(value=0.0)
@@ -516,7 +555,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.upscale_vars["upscaler"],
             values=["R-ESRGAN 4x+", "ESRGAN_4x", "Latent", "None"],
             state="readonly",
-            width=13,
+            width=30,
         )
         upscaler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.upscale_widgets["upscaler"] = upscaler_combo
@@ -558,6 +597,31 @@ class ConfigPanel(ttk.Frame):
         )
         upscale_denoise.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.upscale_widgets["denoising_strength"] = upscale_denoise
+        row += 1
+
+        # Optional sampler/scheduler (used in img2img upscale mode)
+        ttk.Label(settings_frame, text="Sampler:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        up_sampler_combo = ttk.Combobox(
+            settings_frame,
+            textvariable=self.upscale_vars["sampler_name"],
+            values=["Euler a", "Euler", "DPM++ 2M", "DPM++ SDE", "LMS", "Heun"],
+            state="readonly",
+            width=15,
+        )
+        up_sampler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.upscale_widgets["sampler_name"] = up_sampler_combo
+        row += 1
+
+        ttk.Label(settings_frame, text="Scheduler:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        up_scheduler_combo = ttk.Combobox(
+            settings_frame,
+            textvariable=self.upscale_vars["scheduler"],
+            values=["normal", "karras", "exponential", "sgm_uniform"],
+            state="readonly",
+            width=15,
+        )
+        up_scheduler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.upscale_widgets["scheduler"] = up_scheduler_combo
         row += 1
 
         ttk.Label(settings_frame, text="GFPGAN:").grid(row=row, column=0, sticky=tk.W, pady=2)
@@ -609,7 +673,7 @@ class ConfigPanel(ttk.Frame):
         except Exception:
             mode = "single"
         use_img2img = mode == "img2img"
-        for key in ("steps", "denoising_strength"):
+        for key in ("steps", "denoising_strength", "sampler_name", "scheduler"):
             widget = self.upscale_widgets.get(key)
             if widget is None:
                 continue
@@ -648,6 +712,10 @@ class ConfigPanel(ttk.Frame):
         """Build action buttons at bottom of panel."""
         button_frame = ttk.Frame(self, style="Dark.TFrame")
         button_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5, 10))
+        # Keep a reference for inline indicators
+        self._button_frame = button_frame
+        # Keep a reference for later indicator placement
+        self._button_frame = button_frame
 
         ttk.Button(
             button_frame,
@@ -666,6 +734,7 @@ class ConfigPanel(ttk.Frame):
         if self.coordinator and hasattr(self.coordinator, "on_config_save"):
             config = self.get_config()
             self.coordinator.on_config_save(config)
+            self.show_save_indicator("Saved")
 
     def _on_reset_all(self):
         """Handle reset all button click."""
@@ -707,10 +776,13 @@ class ConfigPanel(ttk.Frame):
                 "clip_skip": 2,
                 "model": "",
                 "vae": "",
+                "prompt_adjust": "",
             },
             "upscale": {
                 "upscaler": "R-ESRGAN 4x+",
                 "upscaling_resize": 2.0,
+                "upscale_mode": "single",
+                "steps": 20,
                 "denoising_strength": 0.2,
                 "gfpgan_visibility": 0.0,
                 "codeformer_visibility": 0.0,
@@ -748,6 +820,66 @@ class ConfigPanel(ttk.Frame):
             config["api"][key] = var.get()
 
         return config
+
+    def _ensure_save_indicator(self) -> None:
+        """Ensure the inline Save/Apply indicator is created next to buttons."""
+        try:
+            if hasattr(self, "_save_indicator") and self._save_indicator:
+                return
+            self._save_indicator_var = tk.StringVar(value="")
+            self._save_indicator = ttk.Label(
+                self._button_frame, textvariable=self._save_indicator_var, style="Dark.TLabel"
+            )
+            self._save_indicator.pack(side=tk.LEFT, padx=(8, 0))
+        except Exception:
+            pass
+
+    def show_save_indicator(self, text: str = "Saved", duration_ms: int = 2000) -> None:
+        """Show a transient indicator next to the Save button with color coding."""
+        try:
+            self._ensure_save_indicator()
+            # Colorize: green for Saved, orange for Apply/others
+            color = "#00c853" if (text or "").lower() == "saved" else "#ffa500"
+            try:
+                self._save_indicator.configure(foreground=color)
+            except Exception:
+                pass
+            self._save_indicator_var.set(text)
+            if duration_ms and (text or "").lower() == "saved":
+                self.after(duration_ms, lambda: self._save_indicator_var.set(""))
+        except Exception:
+            pass
+
+    def _attach_change_traces(self) -> None:
+        """Attach variable traces to flag unsaved changes."""
+        def attach(d: dict[str, tk.Variable]):
+            for v in d.values():
+                try:
+                    v.trace_add("write", self._mark_unsaved)
+                except Exception:
+                    try:
+                        v.trace("w", self._mark_unsaved)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+
+        for var_dict in (self.txt2img_vars, self.img2img_vars, self.upscale_vars, self.api_vars):
+            attach(var_dict)
+
+    def _mark_unsaved(self, *args) -> None:
+        try:
+            # Show Apply (orange)
+            self.show_save_indicator("Apply", duration_ms=0)
+            # Auto-apply when the coordinator enables it
+            auto = False
+            try:
+                auto = bool(getattr(self.coordinator, "auto_apply_var").get())
+            except Exception:
+                auto = bool(getattr(self.coordinator, "auto_apply_enabled", False))
+            if auto and hasattr(self.coordinator, "on_config_save"):
+                self.coordinator.on_config_save(self.get_config())
+                self.show_save_indicator("Saved")
+        except Exception:
+            pass
 
     def set_config(self, config: dict[str, Any]) -> None:
         """

@@ -131,12 +131,17 @@ class ConfigManager:
                 "clip_skip": 2,
                 "model": "",  # SD model checkpoint (empty = use current)
                 "vae": "",  # VAE model (empty = use model default)
+                "prompt_adjust": "",
+                "negative_adjust": "",
             },
             "upscale": {
                 "upscaler": "R-ESRGAN 4x+",
                 "upscaling_resize": 2.0,
-                "mode": "extras",  # "extras" (direct) or "img2img" (more control)
+                "upscale_mode": "single",  # "single" (direct) or "img2img" (more control)
                 "denoising_strength": 0.35,  # For img2img-based upscaling
+                "steps": 20,
+                "sampler_name": "Euler a",
+                "scheduler": "normal",
                 "gfpgan_visibility": 0.0,  # Face restoration strength
                 "codeformer_visibility": 0.0,  # Face restoration alternative
                 "codeformer_weight": 0.5,  # CodeFormer fidelity

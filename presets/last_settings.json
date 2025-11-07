@@ -1,60 +1,60 @@
 {
   "preset": "default",
   "selected_packs": [
-    "SDXL_characters_10.txt"
+    "Juggernaut_SDXL_MedievalRealism_Pack_Hybrid.txt"
   ],
-  "override_pack": false,
+  "override_pack": true,
   "pipeline_controls": {
     "txt2img_enabled": true,
     "img2img_enabled": true,
     "upscale_enabled": true,
     "video_enabled": false,
     "loop_type": "single",
-    "loop_count": 1,
+    "loop_count": 2,
     "pack_mode": "selected",
     "images_per_prompt": 1
   },
   "config": {
     "txt2img": {
-      "steps": 35,
-      "cfg_scale": 6.541666666666667,
-      "width": 768,
-      "height": 768,
+      "steps": 30,
+      "cfg_scale": 7.0,
+      "width": 1024,
+      "height": 1024,
       "sampler_name": "DPM++ 2M",
-      "scheduler": "karras",
+      "scheduler": "Karras",
       "seed": -1,
-      "clip_skip": 1,
+      "clip_skip": 2,
       "model": "juggernautXL_ragnarokBy.safetensors [dd08fa32f9]",
-      "vae": "",
+      "vae": "vae-ft-mse-840000-ema-pruned.safetensors",
       "negative_prompt": "blurry, bad quality, distorted, ugly, malformed",
       "enable_hr": false,
       "hr_scale": 2.0,
       "hr_upscaler": "R-ESRGAN 4x+",
       "denoising_strength": 0.7,
-      "hires_steps": 0,
+      "hires_steps": 10,
       "face_restoration_enabled": false,
       "face_restoration_model": "GFPGAN",
       "face_restoration_weight": 0.5
     },
     "img2img": {
-      "steps": 25,
-      "denoising_strength": 0.5,
-      "cfg_scale": 6.541666666666667,
+      "steps": 24,
+      "denoising_strength": 0.31,
+      "cfg_scale": 6.8,
       "sampler_name": "DPM++ 2M",
-      "scheduler": "karras",
+      "scheduler": "Karras",
       "seed": -1,
       "clip_skip": 2,
-      "model": "",
+      "model": "juggernautXL_ragnarokBy.safetensors [dd08fa32f9]",
       "vae": ""
     },
     "upscale": {
-      "upscaler": "4x-UltraSharpV2",
+      "upscaler": "4xUltrasharp_4xUltrasharpV10",
       "upscaling_resize": 2.0,
-      "upscale_mode": "single",
-      "steps": 20,
+      "upscale_mode": "img2img",
+      "steps": 15,
       "denoising_strength": 0.2,
-      "gfpgan_visibility": 0.3,
-      "codeformer_visibility": 0.0,
+      "gfpgan_visibility": 0.25,
+      "codeformer_visibility": 0.5,
       "codeformer_weight": 0.5
     },
     "api": {
@@ -67,7 +67,7 @@
       "upscale_enabled": true,
       "video_enabled": false,
       "loop_type": "single",
-      "loop_count": 1,
+      "loop_count": 2,
       "pack_mode": "selected",
       "images_per_prompt": 1
     }
