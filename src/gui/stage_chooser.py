@@ -32,41 +32,51 @@ class StageChooser:
 
     def __init__(
         self,
-        parent: tk.Tk,
-        image_path: Path,
-        image_index: int,
-        total_images: int,
-        result_queue: queue.Queue,
-        on_retune: Callable | None = None
+        # Prefer the more typical tkinter "parent" naming used by tests,
+        # but keep backward compatibility with code that passed "root".
+        parent: tk.Misc | None = None,
+        image_path: Path | None = None,
+        image_index: int = 1,
+        total_images: int = 1,
+        result_queue: queue.Queue | None = None,
+        on_retune: Callable | None = None,
+        # Back-compat: allow callers to still pass root, but tests use parent
+        root: tk.Misc | None = None,
     ):
         """Initialize stage chooser modal.
 
         Args:
-            parent: Parent Tk window
+            parent: Parent Tk widget/window (preferred)
             image_path: Path to the generated image to preview
             image_index: Current image number (1-based)
             total_images: Total number of images in batch
             result_queue: Queue to send choice results to
             on_retune: Optional callback for re-tuning settings
         """
-        self.parent = parent
-        self.image_path = image_path
+        # Resolve parent/root with backwards compatibility
+        self.root = parent or root  # type: ignore[assignment]
+        if self.root is None:
+            # Create a default root if none provided (useful for ad-hoc calls/tests)
+            self.root = tk.Tk()
+
+        # Store core parameters (with sensible defaults for tests)
+        self.image_path = image_path or Path("")
         self.image_index = image_index
         self.total_images = total_images
-        self.result_queue = result_queue
+        self.result_queue = result_queue or queue.Queue()
         self.on_retune_callback = on_retune
 
         self.selected_choice: StageChoice | None = None
         self.apply_to_batch: bool = False
 
         # Create modal window
-        self.window = tk.Toplevel(parent)
+        self.window = tk.Toplevel(self.root)
         self.window.title(f"Choose Next Stage - Image {image_index} of {total_images}")
         self.window.geometry("700x600")
         self.window.configure(bg='#2b2b2b')
 
         # Make modal
-        self.window.transient(parent)
+        self.window.transient(root)
         self.window.grab_set()
 
         # Batch toggle variable

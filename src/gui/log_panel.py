@@ -155,7 +155,11 @@ class LogPanel(ttk.Frame):
         while not self.log_queue.empty():
             try:
                 message, level = self.log_queue.get_nowait()
-                self._add_log_message(message, level)
+                try:
+                    self._add_log_message(message, level)
+                except Exception:
+                    # Ignore UI errors (widget may be destroyed during teardown)
+                    pass
             except queue.Empty:
                 break
 
@@ -207,18 +211,21 @@ class LogPanel(ttk.Frame):
 
     def _insert_message(self, message: str, level: str) -> None:
         preserve_pos = bool(self.scroll_lock_var.get())
-        top_before = self.log_text.yview()[0] if preserve_pos else None
-        self.log_text.configure(state=tk.NORMAL)
-        self.log_text.insert(tk.END, f"{message}\n", level)
-        if not self.scroll_lock_var.get():
-            self.log_text.see(tk.END)
-        else:
-            try:
-                if top_before is not None:
+        try:
+            top_before = self.log_text.yview()[0] if preserve_pos else None
+            self.log_text.configure(state=tk.NORMAL)
+            self.log_text.insert(tk.END, f"{message}\n", level)
+            if not self.scroll_lock_var.get():
+                self.log_text.see(tk.END)
+            elif top_before is not None:
+                try:
                     self.log_text.yview_moveto(top_before)
-            except Exception:
-                pass
-        self.log_text.configure(state=tk.DISABLED)
+                except Exception:
+                    pass
+            self.log_text.configure(state=tk.DISABLED)
+        except Exception:
+            # Widget likely destroyed; safely ignore
+            return
         if self._should_display(level) and self._line_count < self.max_log_lines:
             self._line_count += 1
 
@@ -228,24 +235,27 @@ class LogPanel(ttk.Frame):
 
     def _refresh_display(self) -> None:
         preserve_pos = bool(self.scroll_lock_var.get())
-        top_before = self.log_text.yview()[0] if preserve_pos else None
-        self.log_text.configure(state=tk.NORMAL)
-        self.log_text.delete("1.0", tk.END)
-        visible_count = 0
-        for message, level in self.log_records:
-            if self._should_display(level):
-                self.log_text.insert(tk.END, f"{message}\n", level)
-                visible_count += 1
-        if not self.scroll_lock_var.get():
-            self.log_text.see(tk.END)
-        elif preserve_pos:
-            try:
-                if top_before is not None:
+        try:
+            top_before = self.log_text.yview()[0] if preserve_pos else None
+            self.log_text.configure(state=tk.NORMAL)
+            self.log_text.delete("1.0", tk.END)
+            visible_count = 0
+            for message, level in self.log_records:
+                if self._should_display(level):
+                    self.log_text.insert(tk.END, f"{message}\n", level)
+                    visible_count += 1
+            if not self.scroll_lock_var.get():
+                self.log_text.see(tk.END)
+            elif preserve_pos and top_before is not None:
+                try:
                     self.log_text.yview_moveto(top_before)
-            except Exception:
-                pass
-        self.log_text.configure(state=tk.DISABLED)
-        self._line_count = min(visible_count, self.max_log_lines)
+                except Exception:
+                    pass
+            self.log_text.configure(state=tk.DISABLED)
+            self._line_count = min(visible_count, self.max_log_lines)
+        except Exception:
+            # Widget likely destroyed; ignore refresh request
+            pass
 
     def _on_filter_change(self) -> None:
         self._refresh_display()
@@ -293,10 +303,14 @@ class LogPanel(ttk.Frame):
     def clear(self) -> None:
         """Clear all log messages."""
         self.log_records.clear()
-        self.log_text.configure(state=tk.NORMAL)
-        self.log_text.delete("1.0", tk.END)
-        self._line_count = 0
-        self.log_text.configure(state=tk.DISABLED)
+        try:
+            self.log_text.configure(state=tk.NORMAL)
+            self.log_text.delete("1.0", tk.END)
+            self._line_count = 0
+            self.log_text.configure(state=tk.DISABLED)
+        except Exception:
+            # Widget may be destroyed
+            self._line_count = 0
 
     def clipboard_get(self, **kw):  # type: ignore[override]
         try:

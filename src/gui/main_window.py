@@ -1,14 +1,16 @@
 """Modern Tkinter GUI for Stable Diffusion pipeline with dark theme"""
 
+import json
 import logging
 import subprocess
 import sys
 import threading
+from pathlib import Path
+from typing import Any
+
 import tkinter as tk
 import tkinter.simpledialog
-from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
-from typing import Any
+from tkinter import filedialog, messagebox, ttk, scrolledtext
 
 from ..api import SDWebUIClient
 from ..pipeline import Pipeline, VideoCreator
@@ -167,15 +169,11 @@ class StableNewGUI:
         self.vae_names = []
 
         # Initialize log panel early (before any log calls) to avoid AttributeError
-        # Create a minimal frame to host log panel before full UI is built
-        self._early_log_frame = ttk.Frame(self.root, style="Dark.TFrame")
-        self.log_panel = LogPanel(
-            self._early_log_frame, coordinator=self, height=6, style="Dark.TFrame"
-        )
-        # Add proxy methods for consistent API
-        self.add_log = self.log_panel.append
-        # Legacy compatibility: expose log_text attribute
-        self.log_text = getattr(self.log_panel, "text", None)
+
+        # Add proxy methods for consistent API (log_panel will be created in _build_bottom_panel)
+        self.log_panel = None
+        self.add_log = None
+        self.log_text = None
 
         # Apply dark theme
         self._setup_dark_theme()
@@ -817,15 +815,11 @@ class StableNewGUI:
 
         # Reparent early log panel to bottom_frame
         # (log_panel was created early in __init__ to avoid AttributeError)
-        if hasattr(self, "_early_log_frame") and self._early_log_frame:
-            try:
-                self._early_log_frame.destroy()
-            except Exception:
-                pass
-        if self.log_panel.master != bottom_frame:
-            self.log_panel.pack_forget()
-            self.log_panel.master = bottom_frame
+        # Create log panel directly with bottom_frame as parent
+        self.log_panel = LogPanel(bottom_frame, coordinator=self, height=6, style="Dark.TFrame")
         self.log_panel.pack(fill=tk.BOTH, expand=True)
+        self.add_log = self.log_panel.append
+        self.log_text = getattr(self.log_panel, "log_text", None)
 
         # Attach logging handler to redirect standard logging to GUI
         if not hasattr(self, "gui_log_handler"):
@@ -881,8 +875,15 @@ class StableNewGUI:
             self.progress_message_var.set(message or self._progress_idle_message)
 
     def _reset_progress_ui(self, message: str | None = None) -> None:
-        """Thread-safe reset for the progress UI."""
-        self.root.after(0, lambda: self._apply_progress_reset(message))
+        """Reset the progress UI immediately when possible, else schedule on Tk loop."""
+        try:
+            self._apply_progress_reset(message)
+        except Exception:
+            pass
+        try:
+            self.root.after(0, lambda: self._apply_progress_reset(message))
+        except Exception:
+            pass
 
     def _apply_progress_update(self, stage: str, percent: float, eta: str | None) -> None:
         """Apply progress updates to the UI synchronously."""
@@ -898,8 +899,18 @@ class StableNewGUI:
             self.eta_var.set(f"ETA: {eta}" if eta else self._progress_eta_default)
 
     def _update_progress(self, stage: str, percent: float, eta: str | None = None) -> None:
-        """Schedule a progress UI update from worker threads."""
-        self.root.after(0, lambda: self._apply_progress_update(stage, percent, eta))
+        """Update progress UI, immediately if on Tk thread, else via event loop."""
+        try:
+            # Attempt immediate update (helps tests that call from main thread)
+            self._apply_progress_update(stage, percent, eta)
+        except Exception:
+            # Fallback to Tk event loop scheduling only
+            pass
+        # Always ensure an event-loop scheduled update as well
+        try:
+            self.root.after(0, lambda: self._apply_progress_update(stage, percent, eta))
+        except Exception:
+            pass
 
     def _setup_state_callbacks(self):
         """Setup callbacks for state transitions"""
@@ -1697,7 +1708,7 @@ class StableNewGUI:
         # Log validation summary
         error_count = len(results.get("errors", []))
         warning_count = len(results.get("warnings", []))
-        info_count = len(results.get("info", []))
+    # info_count = len(results.get("info", []))  # Removed unused variable
 
         if error_count == 0 and warning_count == 0:
             self.log_message("✅ Pack validation passed - no issues found", "SUCCESS")

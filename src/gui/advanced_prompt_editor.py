@@ -22,6 +22,7 @@ class AdvancedPromptEditor:
 
         # Model caches
         self.embeddings_cache = set()
+        self.loras_cache = set()
         # Status label available immediately for tests and status updates
         try:
             self._status_var = tk.StringVar(value="Ready")
@@ -33,65 +34,31 @@ class AdvancedPromptEditor:
                 def config(self, **kwargs):
                     return None
             self.status_text = _Dummy()
-        def _save_to_path(self, path: Path):
-            """Save pack to specific path"""
-            try:
-                content = self.prompts_text.get("1.0", tk.END).strip()
 
-                # Validate before saving
-                validation_results = self._validate_content(content)
-                if validation_results["errors"]:
-                    if not messagebox.askyesno(
-                        "Validation Errors",
-                        f"Pack has {len(validation_results['errors'])} errors:\n\n"
-                        f"{chr(10).join(validation_results['errors'][:3])}\n\n"
-                        f"Save anyway?",
-                    ):
-                        return
+        # Ensure key Tk variables exist early to avoid attribute errors during load
+        # These are re-bound to UI widgets later in _build_pack_info_panel
+        try:
+            if not hasattr(self, "pack_name_var"):
+                self.pack_name_var = tk.StringVar()
+            if not hasattr(self, "format_var"):
+                self.format_var = tk.StringVar(value="txt")
+        except Exception:
+            # In environments without full Tk init, fall back to simple stand-ins
+            class _Var:
+                def __init__(self, value=""):
+                    self._v = value
+                def get(self):
+                    return self._v
+                def set(self, v):
+                    self._v = v
+            if not hasattr(self, "pack_name_var"):
+                self.pack_name_var = _Var()
+            if not hasattr(self, "format_var"):
+                self.format_var = _Var("txt")
 
-                # Ensure directory exists
-                path.parent.mkdir(parents=True, exist_ok=True)
-
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(content)
-
-                self.current_pack_path = path
-                self.pack_name_var.set(path.stem)
-                self.is_modified = False
-                self.window.title(f"Advanced Prompt Pack Editor - {path.name}")
-                if hasattr(self, 'status_text'):
-                    self.status_text.config(text=f"Saved: {path.name}")
-
-                # Notify parent of changes
-                if self.on_packs_changed:
-                    self.on_packs_changed()
-
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to save pack: {e}")
-
-        def _save_global_negative(self):
-            """Save the global negative prompt"""
-            try:
-                content = self.global_neg_text.get("1.0", tk.END).strip()
-                self.global_neg_content = content
-
-                # Here you could save to a config file or update the pipeline
-                # For now, just update the in-memory version
-                if hasattr(self, 'status_text'):
-                    self.status_text.config(text="Global negative prompt updated")
-                messagebox.showinfo("Success", "Global negative prompt has been updated.")
-
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to save global negative: {e}")
-
-        def _reset_global_negative(self):
-            """Reset global negative to default"""
-            default_neg = "blurry, bad quality, distorted, ugly, malformed, nsfw, nude, naked, explicit, sexual content, adult content, inappropriate, offensive"
-            self.global_neg_text.delete('1.0', tk.END)
-            self.global_neg_text.insert('1.0', default_neg)
-            self.global_neg_content = default_neg
-            if hasattr(self, 'status_text'):
-                self.status_text.config(text="Global negative reset to default")
+        # Default global negative content storage
+        if not hasattr(self, "global_neg_content"):
+            self.global_neg_content = ""
 
     def open_editor(self, pack_path=None):
         """Open the advanced prompt pack editor"""
@@ -99,7 +66,9 @@ class AdvancedPromptEditor:
             self.window.lift()
             return
 
-        self.window = tk.Toplevel(self.parent)
+        # Always use main Tk root as parent for Toplevel
+        root = self.parent if isinstance(self.parent, tk.Tk) else self.parent.winfo_toplevel()
+        self.window = tk.Toplevel(root)
         self.window.title("Advanced Prompt Pack Editor")
         self.window.geometry("1200x800")
         self.window.configure(bg="#2b2b2b")
@@ -611,6 +580,27 @@ Errors and warnings appear in the Validation tab.
         self.progress_bar.pack(side=tk.RIGHT, padx=(10, 0))
         self.progress_bar.pack_forget()  # Hide initially
 
+    def _load_model_caches(self):
+        """Load embeddings and LoRAs into local caches.
+
+        In this lightweight implementation we simply ensure the caches exist.
+        A future enhancement can query the pipeline or scan model folders.
+        """
+        if not hasattr(self, "embeddings_cache"):
+            self.embeddings_cache = set()
+        if not hasattr(self, "loras_cache"):
+            self.loras_cache = set()
+
+    def _refresh_global_negative_display(self):
+        """Refresh the global negative text editor from stored content."""
+        try:
+            if hasattr(self, "global_neg_text") and self.global_neg_text:
+                self.global_neg_text.delete("1.0", tk.END)
+                self.global_neg_text.insert("1.0", getattr(self, "global_neg_content", ""))
+        except Exception:
+            # Non-fatal in headless or partial UI scenarios
+            pass
+
     def _populate_model_lists(self):
         """Populate the embeddings and LoRAs lists"""
         # Clear existing items
@@ -745,6 +735,28 @@ neg: malformed, bad anatomy, low quality"""
         if file_path:
             self._load_pack(Path(file_path))
 
+    def _save_pack_as(self):
+        """Save the current pack to a new file via dialog"""
+        # Determine proposed filename
+        base_name = self.pack_name_var.get().strip() or "new_pack"
+        ext = (self.format_var.get() or "txt").lower()
+        initial = str(Path("packs") / f"{base_name}.{ext}")
+
+        file_path = filedialog.asksaveasfilename(
+            title="Save Prompt Pack As",
+            initialfile=Path(initial).name,
+            initialdir="packs",
+            defaultextension=f".{ext}",
+            filetypes=[
+                ("Text files", "*.txt"),
+                ("TSV files", "*.tsv"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not file_path:
+            return
+        self._save_content_to_path(Path(file_path))
+
     def _load_pack(self, pack_path: Path):
         """Load a prompt pack from file"""
         try:
@@ -773,64 +785,76 @@ neg: malformed, bad anatomy, low quality"""
             messagebox.showerror("Error", f"Failed to load pack: {e}")
 
     def _save_pack(self):
-        """Save the current pack"""
+        """Save the current pack (or prompt for location if untitled)"""
         if self.current_pack_path:
-            def _save_to_path(self, path: Path):
-                """Save pack to specific path"""
-                try:
-                    content = self.prompts_text.get("1.0", tk.END).strip()
+            self._save_content_to_path(self.current_pack_path)
+        else:
+            self._save_pack_as()
 
-                    # Validate before saving
-                    validation_results = self._validate_content(content)
-                    if validation_results["errors"]:
-                        if not messagebox.askyesno(
-                            "Validation Errors",
-                            f"Pack has {len(validation_results['errors'])} errors:\n\n"
-                            f"{chr(10).join(validation_results['errors'][:3])}\n\n"
-                            f"Save anyway?",
-                        ):
-                            return
+    def _save_content_to_path(self, path: Path):
+        """Core logic to validate and save to a path"""
+        try:
+            content = self.prompts_text.get("1.0", tk.END).strip()
 
-                    # Ensure directory exists
-                    path.parent.mkdir(parents=True, exist_ok=True)
-
-                    with open(path, "w", encoding="utf-8") as f:
-                        f.write(content)
-
-                    self.current_pack_path = path
-                    self.pack_name_var.set(path.stem)
-                    self.is_modified = False
-                    self.window.title(f"Advanced Prompt Pack Editor - {path.name}")
-                    self.status_text.config(text=f"Saved: {path.name}")
-
-                    # Notify parent of changes
-                    if self.on_packs_changed:
-                        self.on_packs_changed()
-
-                except Exception as e:
-                    messagebox.showerror("Error", f"Failed to save pack: {e}")
-
-            def _clone_pack(self):
-                """Clone the current pack"""
-                if not self.current_pack_path:
-                    messagebox.showinfo("Info", "No pack loaded to clone")
+            # Validate before saving
+            validation_results = self._validate_content(content)
+            if validation_results["errors"]:
+                if not messagebox.askyesno(
+                    "Validation Errors",
+                    f"Pack has {len(validation_results['errors'])} errors:\n\n"
+                    f"{chr(10).join(validation_results['errors'][:3])}\n\n"
+                    f"Save anyway?",
+                ):
                     return
 
-                original_name = self.pack_name_var.get()
-                clone_name = f"{original_name}_copy"
+            # Ensure directory exists
+            path.parent.mkdir(parents=True, exist_ok=True)
 
-                # Find available name
-                counter = 1
-                while (Path("packs") / f"{clone_name}.{self.format_var.get()}").exists():
-                    clone_name = f"{original_name}_copy_{counter}"
-                    counter += 1
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
 
-                self.pack_name_var.set(clone_name)
-                self.current_pack_path = None
-                self.is_modified = True
-                self.window.title(f"Advanced Prompt Pack Editor - {clone_name} (Clone) *")
-                if hasattr(self, 'status_text'):
-                    self.status_text.config(text=f"Cloned as: {clone_name}")
+            self.current_pack_path = path
+            # Update name and title
+            try:
+                self.pack_name_var.set(path.stem)
+            except Exception:
+                pass
+            self.is_modified = False
+            if self.window:
+                self.window.title(f"Advanced Prompt Pack Editor - {path.name}")
+            if hasattr(self, 'status_text'):
+                self.status_text.config(text=f"Saved: {path.name}")
+
+            # Notify parent of changes
+            if self.on_packs_changed:
+                self.on_packs_changed()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save pack: {e}")
+
+    def _clone_pack(self):
+        """Clone the current pack to a new untitled name"""
+        if not self.current_pack_path:
+            messagebox.showinfo("Info", "No pack loaded to clone")
+            return
+
+        original_name = (self.pack_name_var.get() or self.current_pack_path.stem).strip()
+        clone_name = f"{original_name}_copy"
+
+        # Find available name within packs directory
+        ext = (self.format_var.get() or (self.current_pack_path.suffix[1:] if self.current_pack_path else "txt")).lower()
+        counter = 1
+        while (Path("packs") / f"{clone_name}.{ext}").exists():
+            clone_name = f"{original_name}_copy_{counter}"
+            counter += 1
+
+        self.pack_name_var.set(clone_name)
+        self.current_pack_path = None
+        self.is_modified = True
+        if self.window:
+            self.window.title(f"Advanced Prompt Pack Editor - {clone_name} (Clone) *")
+        if hasattr(self, 'status_text'):
+            self.status_text.config(text=f"Cloned as: {clone_name}")
 
     def _delete_pack(self):
         """Delete the current pack"""
