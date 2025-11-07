@@ -1378,17 +1378,35 @@ class StableNewGUI:
 
     def _get_config_from_forms(self) -> dict[str, Any]:
         """Extract current configuration from GUI forms"""
-        base_config = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
-        if hasattr(self, "config_panel"):
+        config = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        # 1) Start with ConfigPanel values if present
+        if hasattr(self, "config_panel") and self.config_panel is not None:
             try:
-                base_config = self.config_panel.get_config()
+                config = self.config_panel.get_config()
             except Exception as exc:
-                self.log_message(f"Error reading config from forms: {exc}", "ERROR")
+                self.log_message(f"Error reading config from panel: {exc}", "ERROR")
+        # 2) Overlay with values from this form if available (authoritative when present)
+        try:
+            if hasattr(self, "txt2img_vars"):
+                for k, v in self.txt2img_vars.items():
+                    config.setdefault("txt2img", {})[k] = v.get()
+            if hasattr(self, "img2img_vars"):
+                for k, v in self.img2img_vars.items():
+                    config.setdefault("img2img", {})[k] = v.get()
+            if hasattr(self, "upscale_vars"):
+                for k, v in self.upscale_vars.items():
+                    config.setdefault("upscale", {})[k] = v.get()
+        except Exception as exc:
+            self.log_message(f"Error overlaying config from main form: {exc}", "ERROR")
 
-        if hasattr(self, "pipeline_controls_panel"):
-            base_config["pipeline"] = self.pipeline_controls_panel.get_settings()
+        # 3) Pipeline controls
+        if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
+            try:
+                config["pipeline"] = self.pipeline_controls_panel.get_settings()
+            except Exception:
+                pass
 
-        return base_config
+        return config
 
     def _save_current_pack_config(self):
         """Save current configuration to the selected pack (single pack mode only)"""
@@ -1769,6 +1787,21 @@ class StableNewGUI:
                 self.preferences = preferences
         except Exception as exc:  # pragma: no cover - defensive logging path
             logger.error(f"Failed to save preferences: {exc}")
+
+        # Attempt to stop any running pipeline cleanly
+        try:
+            if hasattr(self, "controller") and self.controller is not None and not self.controller.is_terminal:
+                try:
+                    self.controller.stop_pipeline()
+                except Exception:
+                    pass
+                # Wait briefly for cleanup
+                try:
+                    self.controller.lifecycle_event.wait(timeout=5.0)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         self.root.quit()
         self.root.destroy()
@@ -2629,6 +2662,9 @@ class StableNewGUI:
             selected = []
             if hasattr(self, "packs_listbox"):
                 selected = [self.packs_listbox.get(i) for i in self.packs_listbox.curselection()]
+            # Fallback: if UI focus cleared the visual selection, use last-known pack
+            if (not selected) and hasattr(self, "_last_selected_pack") and self._last_selected_pack:
+                selected = [self._last_selected_pack]
 
             if selected and not self.override_pack_var.get():
                 saved_any = False

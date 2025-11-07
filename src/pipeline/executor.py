@@ -452,7 +452,7 @@ class Pipeline:
             "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 15),
             "sampler_name": config.get("sampler_name", "Euler a"),
-            "scheduler": config.get("scheduler", "Normal"),
+            "scheduler": config.get("scheduler", "normal"),
             "cfg_scale": config.get("cfg_scale", 7.0),
             "denoising_strength": config.get("denoising_strength", 0.3),
             "width": config.get("width", 512),
@@ -1097,15 +1097,16 @@ class Pipeline:
                     "path": str(image_path),
                 }
 
-                # Save manifest (pack manifests for GUI, run manifests for CLI)
+                # Save manifest (pack manifests for GUI, run manifests for CLI) - use stage-suffixed name
                 if output_dir.name in ["txt2img", "img2img", "upscaled"]:
                     pack_dir = output_dir.parent
+                    manifest_name = f"{image_name}_txt2img"
                     try:
-                        self.logger.save_pack_manifest(pack_dir, image_name, metadata)
+                        self.logger.save_pack_manifest(pack_dir, manifest_name, metadata)
                     except Exception:
                         manifest_dir = pack_dir / "manifests"
                         manifest_dir.mkdir(exist_ok=True, parents=True)
-                        with open(manifest_dir / f"{image_name}.json", "w", encoding="utf-8") as f:
+                        with open(manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8") as f:
                             json.dump(metadata, f, indent=2, ensure_ascii=False)
                 else:
                     try:
@@ -1206,15 +1207,16 @@ class Pipeline:
                     "path": str(image_path),
                 }
 
-                # Save manifest (pack manifests for GUI, run manifests for CLI)
+                # Save manifest (pack manifests for GUI, run manifests for CLI) - stage-suffixed
                 if output_dir.name in ["txt2img", "img2img", "upscaled"]:
                     pack_dir = output_dir.parent
+                    manifest_name = f"{image_name}_img2img"
                     try:
-                        self.logger.save_pack_manifest(pack_dir, image_name, metadata)
+                        self.logger.save_pack_manifest(pack_dir, manifest_name, metadata)
                     except Exception:
                         manifest_dir = pack_dir / "manifests"
                         manifest_dir.mkdir(exist_ok=True, parents=True)
-                        with open(manifest_dir / f"{image_name}.json", "w", encoding="utf-8") as f:
+                        with open(manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8") as f:
                             json.dump(metadata, f, indent=2, ensure_ascii=False)
                 else:
                     try:
@@ -1359,20 +1361,22 @@ class Pipeline:
                     "path": str(image_path),
                 }
 
-                # Save manifest to manifests directory
-                # Get the run directory (for CLI) or pack directory (for GUI)
+                # Save manifest (prefer pack manifests) with stage suffix to avoid overwriting
                 if output_dir.name in ["txt2img", "img2img", "upscaled"]:
-                    # GUI mode: output_dir is stage dir, parent is pack dir, grandparent is run dir
                     pack_dir = output_dir.parent
-                    manifest_dir = pack_dir / "manifests"
+                    manifest_name = f"{image_name}_upscale"
+                    try:
+                        self.logger.save_pack_manifest(pack_dir, manifest_name, metadata)
+                    except Exception:
+                        manifest_dir = pack_dir / "manifests"
+                        manifest_dir.mkdir(exist_ok=True, parents=True)
+                        with open(manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8") as f:
+                            json.dump(metadata, f, indent=2, ensure_ascii=False)
                 else:
-                    # CLI mode: output_dir is the run dir, create manifests there
                     manifest_dir = output_dir / "manifests"
-
-                manifest_dir.mkdir(exist_ok=True)
-                manifest_path = manifest_dir / f"{image_name}.json"
-                with open(manifest_path, "w", encoding="utf-8") as f:
-                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+                    manifest_dir.mkdir(exist_ok=True)
+                    with open(manifest_dir / f"{image_name}_upscale.json", "w", encoding="utf-8") as f:
+                        json.dump(metadata, f, indent=2, ensure_ascii=False)
 
                 logger.info(f"✅ Upscale completed: {image_path.name}")
                 return metadata
