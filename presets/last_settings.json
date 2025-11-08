@@ -1,12 +1,19 @@
 {
   "preset": "default",
   "selected_packs": [
-    "Juggernaut_SDXL_MedievalRealism_Pack_Hybrid.txt"
+    "Abethkara.txt",
+    "heroeHers_sdxl_pack.txt",
+    "heroes_sdxl_pack.txt",
+    "Juggernaut_SDXL_MedievalRealism_Pack_Hybrid.txt",
+    "SDXL_characters_10.txt",
+    "SDXL_characters_10_ALT.txt",
+    "SDXL_heroes_10.txt",
+    "SDXL_heroes_10_ALT.txt"
   ],
   "override_pack": true,
   "pipeline_controls": {
     "txt2img_enabled": true,
-    "img2img_enabled": true,
+    "img2img_enabled": false,
     "upscale_enabled": true,
     "video_enabled": false,
     "loop_type": "single",
@@ -16,8 +23,8 @@
   },
   "config": {
     "txt2img": {
-      "steps": 30,
-      "cfg_scale": 7.0,
+      "steps": 36,
+      "cfg_scale": 6.0,
       "width": 1024,
       "height": 1024,
       "sampler_name": "DPM++ 2M",
@@ -32,7 +39,7 @@
       "hr_upscaler": "R-ESRGAN 4x+",
       "denoising_strength": 0.7,
       "hires_steps": 10,
-      "face_restoration_enabled": true,
+      "face_restoration_enabled": false,
       "face_restoration_model": "GFPGAN",
       "face_restoration_weight": 0.5
     },
@@ -45,19 +52,19 @@
       "seed": -1,
       "clip_skip": 2,
       "model": "juggernautXL_ragnarokBy.safetensors [dd08fa32f9]",
-      "vae": "",
+      "vae": "sdxl_vae.safetensors",
       "prompt_adjust": "",
       "negative_adjust": ""
     },
     "upscale": {
-      "upscaler": "4xUltrasharp_4xUltrasharpV10",
+      "upscaler": "R-ESRGAN 4x+",
       "upscaling_resize": 2.0,
       "upscale_mode": "single",
-      "steps": 15,
+      "steps": 17,
       "sampler_name": "DPM++ 2M",
       "scheduler": "karras",
-      "denoising_strength": 0.2,
-      "gfpgan_visibility": 0.0,
+      "denoising_strength": 0.25,
+      "gfpgan_visibility": 0.2,
       "codeformer_visibility": 0.5,
       "codeformer_weight": 0.5
     },
@@ -67,7 +74,7 @@
     },
     "pipeline": {
       "txt2img_enabled": true,
-      "img2img_enabled": true,
+      "img2img_enabled": false,
       "upscale_enabled": true,
       "video_enabled": false,
       "loop_type": "single",
