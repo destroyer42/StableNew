@@ -55,12 +55,36 @@ class PromptPackPanel(ttk.Frame):
 
         # Internal state
         self._last_selected_pack: str | None = None
+        self._last_curselection: tuple[int, ...] = ()
 
         # Build UI
         self._build_ui()
 
         # Load initial packs
         self.refresh_packs(silent=True)
+
+        # Start a lightweight watcher that notices programmatic selection changes
+        # (e.g., tests calling selection_set) and forwards them to our callback.
+        # This ensures mediator callbacks fire even without actual user events.
+        # Poll at a small interval to avoid saturating Tk's idle loop
+        self.after(150, self._watch_selection_change)
+
+    def _watch_selection_change(self) -> None:
+        """Detect selection changes even when set programmatically and notify."""
+        try:
+            current = self.packs_listbox.curselection()
+        except Exception:
+            current = ()
+        if current != self._last_curselection:
+            self._last_curselection = current
+            # Defer to the standard handler to update highlights and notify
+            self._on_pack_selection_changed()
+        # Keep watching while widget exists
+        try:
+            # Keep polling at a low frequency
+            self.after(150, self._watch_selection_change)
+        except Exception:
+            pass
 
     def _build_ui(self):
         """Build the panel UI."""
@@ -134,6 +158,7 @@ class PromptPackPanel(ttk.Frame):
             listbox_frame,
             selectmode=tk.EXTENDED,
             yscrollcommand=scrollbar.set,
+            exportselection=False,
             bg="#3d3d3d",
             fg="#ffffff",
             selectbackground="#0078d4",
@@ -184,7 +209,11 @@ class PromptPackPanel(ttk.Frame):
         else:
             self._last_selected_pack = None
             logger.info("PromptPackPanel: No pack selected.")
-        self._update_selection_highlights()
+        # Update visuals, but never block callback on styling errors (e.g., headless CI)
+        try:
+            self._update_selection_highlights()
+        except Exception as exc:  # noqa: BLE001 - best-effort UI polish
+            logger.debug("PromptPackPanel: highlight update skipped: %s", exc)
         if self._on_selection_changed:
             self._on_selection_changed(selected_packs)
 

@@ -5,6 +5,7 @@ import logging
 import re
 import time
 from datetime import datetime
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -76,6 +77,63 @@ class Pipeline:
             return None
 
         return result
+
+    def _normalize_config_for_pipeline(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Normalize config for consistent WebUI behavior.
+
+        - Optionally disable txt2img hires-fix when downstream stages (img2img/upscale) are enabled,
+          unless explicitly allowed by config["pipeline"]["allow_hr_with_stages"].
+        - Normalize scheduler casing to match WebUI expectations (e.g., "karras" -> "Karras").
+        """
+        cfg = deepcopy(config or {})
+
+        def norm_sched(value: Any) -> Any:
+            if not isinstance(value, str):
+                return value
+            v = value.strip()
+            mapping = {
+                "normal": "Normal",
+                "karras": "Karras",
+                "exponential": "Exponential",
+                "polyexponential": "Polyexponential",
+                "sgm_uniform": "SGM Uniform",
+                "simple": "Simple",
+                "ddim_uniform": "DDIM Uniform",
+                "beta": "Beta",
+                "linear": "Linear",
+                "cosine": "Cosine",
+            }
+            return mapping.get(v.lower(), v)
+
+        # Normalize schedulers across sections
+        for section in ("txt2img", "img2img", "upscale"):
+            sec = cfg.get(section)
+            if isinstance(sec, dict) and "scheduler" in sec:
+                try:
+                    sec["scheduler"] = norm_sched(sec.get("scheduler"))
+                except Exception:
+                    pass
+
+        # Optionally disable hires fix when running downstream stages
+        try:
+            pipeline = cfg.get("pipeline", {})
+            disable_hr = (
+                (pipeline.get("img2img_enabled", True) or pipeline.get("upscale_enabled", True))
+                and not pipeline.get("allow_hr_with_stages", False)
+            )
+            if disable_hr:
+                txt = cfg.setdefault("txt2img", {})
+                if txt.get("enable_hr"):
+                    txt["enable_hr"] = False
+                    # Ensure second-pass is disabled
+                    txt["hr_second_pass_steps"] = 0
+                    logger.info(
+                        "Disabled txt2img hires-fix for downstream stages (override with pipeline.allow_hr_with_stages)"
+                    )
+        except Exception:
+            pass
+
+        return cfg
 
     def _parse_sampler_config(self, config: dict[str, Any]) -> dict[str, str]:
         """
@@ -179,9 +237,11 @@ class Pipeline:
         # Extract name prefix if present
         name_prefix = self._extract_name_prefix(prompt)
 
-        # Apply global NSFW prevention to negative prompt
+        # Apply global NSFW prevention to negative prompt (with optional adjustments)
         base_negative = config.get("negative_prompt", "")
-        enhanced_negative = self.config_manager.add_global_negative(base_negative)
+        negative_adjust = (config.get("negative_adjust") or "").strip()
+        combined_negative = base_negative if not negative_adjust else f"{base_negative} {negative_adjust}".strip()
+        enhanced_negative = self.config_manager.add_global_negative(combined_negative)
         logger.info(
             f"🛡️ Applied global NSFW prevention - Original: '{base_negative}' → Enhanced: '{enhanced_negative[:100]}...'"
         )
@@ -440,13 +500,17 @@ class Pipeline:
         if config.get("vae"):
             self.client.set_vae(config["vae"])
 
+        # Apply optional prompt adjustments from config
+        prompt_adjust = (config.get("prompt_adjust") or "").strip()
+        combined_prompt = prompt if not prompt_adjust else f"{prompt} {prompt_adjust}".strip()
+
         payload = {
             "init_images": [input_base64],
-            "prompt": prompt,
+            "prompt": combined_prompt,
             "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 15),
             "sampler_name": config.get("sampler_name", "Euler a"),
-            "scheduler": config.get("scheduler", "Normal"),
+            "scheduler": config.get("scheduler", "normal"),
             "cfg_scale": config.get("cfg_scale", 7.0),
             "denoising_strength": config.get("denoising_strength", 0.3),
             "width": config.get("width", 512),
@@ -895,6 +959,26 @@ class Pipeline:
             "summary": [],
         }
 
+        # Normalize config for this run (disable conflicting hires, normalize scheduler casing)
+        config = self._normalize_config_for_pipeline(config)
+
+        # Emit a concise summary of stage parameters for this pack
+        try:
+            i2i_steps = config.get("img2img", {}).get("steps")
+            up_mode = config.get("upscale", {}).get("upscale_mode", "single")
+            up_steps = config.get("upscale", {}).get("steps")
+            enable_hr = config.get("txt2img", {}).get("enable_hr")
+            logger.info(
+                "Pack '%s' params => img2img.steps=%s, upscale.mode=%s, upscale.steps=%s, txt2img.enable_hr=%s",
+                pack_name,
+                i2i_steps,
+                up_mode,
+                up_steps,
+                enable_hr,
+            )
+        except Exception:
+            pass
+
         # Generate images with numbered naming
         for batch_idx in range(batch_size):
             # Calculate global image number for this pack
@@ -1091,20 +1175,25 @@ class Pipeline:
                     "path": str(image_path),
                 }
 
-                # Save manifest to manifests directory
-                # Get the run directory (for CLI) or pack directory (for GUI)
+                # Save manifest (pack manifests for GUI, run manifests for CLI) - use stage-suffixed name
                 if output_dir.name in ["txt2img", "img2img", "upscaled"]:
-                    # GUI mode: output_dir is stage dir, parent is pack dir, grandparent is run dir
                     pack_dir = output_dir.parent
-                    manifest_dir = pack_dir / "manifests"
+                    manifest_name = f"{image_name}_txt2img"
+                    try:
+                        self.logger.save_pack_manifest(pack_dir, manifest_name, metadata)
+                    except Exception:
+                        manifest_dir = pack_dir / "manifests"
+                        manifest_dir.mkdir(exist_ok=True, parents=True)
+                        with open(manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8") as f:
+                            json.dump(metadata, f, indent=2, ensure_ascii=False)
                 else:
-                    # CLI mode: output_dir is the run dir, create manifests there
-                    manifest_dir = output_dir / "manifests"
-
-                manifest_dir.mkdir(exist_ok=True)
-                manifest_path = manifest_dir / f"{image_name}.json"
-                with open(manifest_path, "w", encoding="utf-8") as f:
-                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+                    try:
+                        self.logger.save_manifest(output_dir, image_name, metadata)
+                    except Exception:
+                        manifest_dir = output_dir / "manifests"
+                        manifest_dir.mkdir(exist_ok=True, parents=True)
+                        with open(manifest_dir / f"{image_name}.json", "w", encoding="utf-8") as f:
+                            json.dump(metadata, f, indent=2, ensure_ascii=False)
 
                 return metadata
             else:
@@ -1153,10 +1242,15 @@ class Pipeline:
                 self.client.set_vae(config["vae"])
 
             # Build img2img payload
+            # Combine negative prompt with optional adjustments
+            base_negative = config.get("negative_prompt", "")
+            neg_adjust = (config.get("negative_adjust") or "").strip()
+            negative_prompt = base_negative if not neg_adjust else f"{base_negative} {neg_adjust}".strip()
+
             payload = {
                 "init_images": [input_image_b64],
                 "prompt": prompt,
-                "negative_prompt": config.get("negative_prompt", ""),
+                "negative_prompt": negative_prompt,
                 "steps": config.get("steps", 15),
                 "cfg_scale": config.get("cfg_scale", 7.0),
                 "denoising_strength": config.get("denoising_strength", 0.3),
@@ -1169,6 +1263,18 @@ class Pipeline:
                 "batch_size": 1,
                 "n_iter": 1,
             }
+
+            # Log key parameters at INFO to correlate with WebUI progress
+            try:
+                logger.info(
+                    "img2img params => steps=%s, denoise=%s, sampler=%s, scheduler=%s",
+                    payload.get("steps"),
+                    payload.get("denoising_strength"),
+                    payload.get("sampler_name"),
+                    payload.get("scheduler"),
+                )
+            except Exception:
+                pass
 
             # Execute img2img
             response = self.client.img2img(payload)
@@ -1191,20 +1297,25 @@ class Pipeline:
                     "path": str(image_path),
                 }
 
-                # Save manifest to manifests directory
-                # Get the run directory (for CLI) or pack directory (for GUI)
+                # Save manifest (pack manifests for GUI, run manifests for CLI) - stage-suffixed
                 if output_dir.name in ["txt2img", "img2img", "upscaled"]:
-                    # GUI mode: output_dir is stage dir, parent is pack dir, grandparent is run dir
                     pack_dir = output_dir.parent
-                    manifest_dir = pack_dir / "manifests"
+                    manifest_name = f"{image_name}_img2img"
+                    try:
+                        self.logger.save_pack_manifest(pack_dir, manifest_name, metadata)
+                    except Exception:
+                        manifest_dir = pack_dir / "manifests"
+                        manifest_dir.mkdir(exist_ok=True, parents=True)
+                        with open(manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8") as f:
+                            json.dump(metadata, f, indent=2, ensure_ascii=False)
                 else:
-                    # CLI mode: output_dir is the run dir, create manifests there
-                    manifest_dir = output_dir / "manifests"
-
-                manifest_dir.mkdir(exist_ok=True)
-                manifest_path = manifest_dir / f"{image_name}.json"
-                with open(manifest_path, "w", encoding="utf-8") as f:
-                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+                    try:
+                        self.logger.save_manifest(output_dir, image_name, metadata)
+                    except Exception:
+                        manifest_dir = output_dir / "manifests"
+                        manifest_dir.mkdir(exist_ok=True, parents=True)
+                        with open(manifest_dir / f"{image_name}.json", "w", encoding="utf-8") as f:
+                            json.dump(metadata, f, indent=2, ensure_ascii=False)
 
                 logger.info(f"✅ img2img completed: {image_path.name}")
                 return metadata
@@ -1277,6 +1388,19 @@ class Pipeline:
                     "n_iter": 1,
                 }
 
+                try:
+                    logger.info(
+                        "upscale(img2img) params => steps=%s, denoise=%s, sampler=%s, scheduler=%s, target=%sx%s",
+                        payload.get("steps"),
+                        payload.get("denoising_strength"),
+                        payload.get("sampler_name"),
+                        payload.get("scheduler"),
+                        target_width,
+                        target_height,
+                    )
+                except Exception:
+                    pass
+
                 response = self.client.img2img(payload)
                 response_key = "images"
                 image_key = 0
@@ -1340,20 +1464,22 @@ class Pipeline:
                     "path": str(image_path),
                 }
 
-                # Save manifest to manifests directory
-                # Get the run directory (for CLI) or pack directory (for GUI)
+                # Save manifest (prefer pack manifests) with stage suffix to avoid overwriting
                 if output_dir.name in ["txt2img", "img2img", "upscaled"]:
-                    # GUI mode: output_dir is stage dir, parent is pack dir, grandparent is run dir
                     pack_dir = output_dir.parent
-                    manifest_dir = pack_dir / "manifests"
+                    manifest_name = f"{image_name}_upscale"
+                    try:
+                        self.logger.save_pack_manifest(pack_dir, manifest_name, metadata)
+                    except Exception:
+                        manifest_dir = pack_dir / "manifests"
+                        manifest_dir.mkdir(exist_ok=True, parents=True)
+                        with open(manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8") as f:
+                            json.dump(metadata, f, indent=2, ensure_ascii=False)
                 else:
-                    # CLI mode: output_dir is the run dir, create manifests there
                     manifest_dir = output_dir / "manifests"
-
-                manifest_dir.mkdir(exist_ok=True)
-                manifest_path = manifest_dir / f"{image_name}.json"
-                with open(manifest_path, "w", encoding="utf-8") as f:
-                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+                    manifest_dir.mkdir(exist_ok=True)
+                    with open(manifest_dir / f"{image_name}_upscale.json", "w", encoding="utf-8") as f:
+                        json.dump(metadata, f, indent=2, ensure_ascii=False)
 
                 logger.info(f"✅ Upscale completed: {image_path.name}")
                 return metadata

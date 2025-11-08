@@ -137,13 +137,29 @@ class LogPanel(ttk.Frame):
         except Exception:
             pass
 
+    def append(self, message: str, level: str = "INFO") -> None:
+        """
+        Append a log message to the display (alias for log()).
+
+        This method is thread-safe and can be called from any thread.
+
+        Args:
+            message: Log message text
+            level: Log level (INFO, WARNING, ERROR, SUCCESS, DEBUG)
+        """
+        self.log(message, level)
+
     def _process_queue(self):
         """Process pending log messages from queue."""
         # Process all pending messages
         while not self.log_queue.empty():
             try:
                 message, level = self.log_queue.get_nowait()
-                self._add_log_message(message, level)
+                try:
+                    self._add_log_message(message, level)
+                except Exception:
+                    # Ignore UI errors (widget may be destroyed during teardown)
+                    pass
             except queue.Empty:
                 break
 
@@ -170,7 +186,9 @@ class LogPanel(ttk.Frame):
         """
         normalized_level = level.upper()
         if normalized_level not in LEVEL_STYLES:
-            logger.debug(f"Unknown log level '{level}' encountered; falling back to DEFAULT_LEVEL ('{DEFAULT_LEVEL}').")
+            logger.debug(
+                f"Unknown log level '{level}' encountered; falling back to DEFAULT_LEVEL ('{DEFAULT_LEVEL}')."
+            )
             normalized_level = DEFAULT_LEVEL
 
         self.log_records.append((message, normalized_level))
@@ -193,18 +211,21 @@ class LogPanel(ttk.Frame):
 
     def _insert_message(self, message: str, level: str) -> None:
         preserve_pos = bool(self.scroll_lock_var.get())
-        top_before = self.log_text.yview()[0] if preserve_pos else None
-        self.log_text.configure(state=tk.NORMAL)
-        self.log_text.insert(tk.END, f"{message}\n", level)
-        if not self.scroll_lock_var.get():
-            self.log_text.see(tk.END)
-        else:
-            try:
-                if top_before is not None:
+        try:
+            top_before = self.log_text.yview()[0] if preserve_pos else None
+            self.log_text.configure(state=tk.NORMAL)
+            self.log_text.insert(tk.END, f"{message}\n", level)
+            if not self.scroll_lock_var.get():
+                self.log_text.see(tk.END)
+            elif top_before is not None:
+                try:
                     self.log_text.yview_moveto(top_before)
-            except Exception:
-                pass
-        self.log_text.configure(state=tk.DISABLED)
+                except Exception:
+                    pass
+            self.log_text.configure(state=tk.DISABLED)
+        except Exception:
+            # Widget likely destroyed; safely ignore
+            return
         if self._should_display(level) and self._line_count < self.max_log_lines:
             self._line_count += 1
 
@@ -214,24 +235,27 @@ class LogPanel(ttk.Frame):
 
     def _refresh_display(self) -> None:
         preserve_pos = bool(self.scroll_lock_var.get())
-        top_before = self.log_text.yview()[0] if preserve_pos else None
-        self.log_text.configure(state=tk.NORMAL)
-        self.log_text.delete("1.0", tk.END)
-        visible_count = 0
-        for message, level in self.log_records:
-            if self._should_display(level):
-                self.log_text.insert(tk.END, f"{message}\n", level)
-                visible_count += 1
-        if not self.scroll_lock_var.get():
-            self.log_text.see(tk.END)
-        elif preserve_pos:
-            try:
-                if top_before is not None:
+        try:
+            top_before = self.log_text.yview()[0] if preserve_pos else None
+            self.log_text.configure(state=tk.NORMAL)
+            self.log_text.delete("1.0", tk.END)
+            visible_count = 0
+            for message, level in self.log_records:
+                if self._should_display(level):
+                    self.log_text.insert(tk.END, f"{message}\n", level)
+                    visible_count += 1
+            if not self.scroll_lock_var.get():
+                self.log_text.see(tk.END)
+            elif preserve_pos and top_before is not None:
+                try:
                     self.log_text.yview_moveto(top_before)
-            except Exception:
-                pass
-        self.log_text.configure(state=tk.DISABLED)
-        self._line_count = min(visible_count, self.max_log_lines)
+                except Exception:
+                    pass
+            self.log_text.configure(state=tk.DISABLED)
+            self._line_count = min(visible_count, self.max_log_lines)
+        except Exception:
+            # Widget likely destroyed; ignore refresh request
+            pass
 
     def _on_filter_change(self) -> None:
         self._refresh_display()
@@ -250,6 +274,11 @@ class LogPanel(ttk.Frame):
                 self._locked_view_top = 0.0
 
     # Convenience API expected by tests
+    @property
+    def text(self) -> scrolledtext.ScrolledText:
+        """Return the underlying text widget (for legacy compatibility)."""
+        return self.log_text
+
     def get_scroll_lock(self) -> bool:
         """Return True if scroll lock is enabled, else False."""
         return bool(self.scroll_lock_var.get())
@@ -274,10 +303,14 @@ class LogPanel(ttk.Frame):
     def clear(self) -> None:
         """Clear all log messages."""
         self.log_records.clear()
-        self.log_text.configure(state=tk.NORMAL)
-        self.log_text.delete("1.0", tk.END)
-        self._line_count = 0
-        self.log_text.configure(state=tk.DISABLED)
+        try:
+            self.log_text.configure(state=tk.NORMAL)
+            self.log_text.delete("1.0", tk.END)
+            self._line_count = 0
+            self.log_text.configure(state=tk.DISABLED)
+        except Exception:
+            # Widget may be destroyed
+            self._line_count = 0
 
     def clipboard_get(self, **kw):  # type: ignore[override]
         try:
@@ -338,4 +371,3 @@ class TkinterLogHandler(logging.Handler):
         except Exception:
             # Don't let logging errors break the app
             self.handleError(record)
-

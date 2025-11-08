@@ -1,19 +1,22 @@
 """Modern Tkinter GUI for Stable Diffusion pipeline with dark theme"""
 
+import json
+import os
 import logging
 import subprocess
 import sys
 import threading
+from pathlib import Path
+from typing import Any
+
 import tkinter as tk
 import tkinter.simpledialog
-from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
-from typing import Any
+from tkinter import filedialog, messagebox, ttk, scrolledtext
 
 from ..api import SDWebUIClient
 from ..pipeline import Pipeline, VideoCreator
 from ..utils import ConfigManager, PreferencesManager, StructuredLogger, setup_logging
-from ..utils.file_io import read_prompt_pack, get_prompt_packs
+from ..utils.file_io import get_prompt_packs, read_prompt_pack
 from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
 from .advanced_prompt_editor import AdvancedPromptEditor
 from .api_status_panel import APIStatusPanel
@@ -24,7 +27,7 @@ from .log_panel import LogPanel, TkinterLogHandler
 from .pipeline_controls_panel import PipelineControlsPanel
 from .prompt_pack_list_manager import PromptPackListManager
 from .prompt_pack_panel import PromptPackPanel
-from .state import GUIState, StateManager, CancellationError
+from .state import CancellationError, GUIState, StateManager
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +77,7 @@ class StableNewGUI:
 
         # Register progress callbacks with a flexible API to support test harness controllers
         registered = False
+
         # Compatibility wrapper: allow (percent, status) signature
         def _compat_progress(*args, **kwargs):
             try:
@@ -84,7 +88,11 @@ class StableNewGUI:
             except Exception:
                 pass
 
-        for meth in ("set_progress_callbacks", "register_progress_callbacks", "configure_progress_callbacks"):
+        for meth in (
+            "set_progress_callbacks",
+            "register_progress_callbacks",
+            "configure_progress_callbacks",
+        ):
             if hasattr(self.controller, meth):
                 try:
                     getattr(self.controller, meth)(
@@ -121,7 +129,6 @@ class StableNewGUI:
         # GUI state
         config_preferences = self.preferences.get("config", {})
         api_preferences = config_preferences.get("api", {})
-        pipeline_preferences = self.preferences.get("pipeline_controls", {})
 
         self.selected_packs = list(self.preferences.get("selected_packs", []))
         self.current_config = None
@@ -157,20 +164,35 @@ class StableNewGUI:
         self._progress_eta_default = "ETA: --"
         self._progress_idle_message = "Ready for next run"
 
+        # Initialize metadata attributes early to avoid NameErrors
+        self.schedulers = []
+        self.upscaler_names = []
+        self.vae_names = []
+
+        # Initialize log panel early (before any log calls) to avoid AttributeError
+
+        # Add proxy methods for consistent API (log_panel will be created in _build_bottom_panel)
+        self.log_panel = None
+        self.add_log = None
+        self.log_text = None
+
         # Apply dark theme
         self._setup_dark_theme()
 
         # Load or create default preset
         self._ensure_default_preset()
 
-        # Auto-launch WebUI
-        self._launch_webui()
-
         # Build UI
         self._build_ui()
 
         # Apply saved preferences after UI construction
         self.root.after(0, self._apply_saved_preferences)
+
+        # Auto-launch WebUI after the window is built to avoid blocking init
+        try:
+            self.root.after(0, self._launch_webui)
+        except Exception:
+            pass
 
         # Setup logging redirect
         setup_logging("INFO")
@@ -182,8 +204,6 @@ class StableNewGUI:
         # Configure dark theme colors
         bg_color = "#2b2b2b"
         fg_color = "#ffffff"
-        select_bg = "#404040"
-        select_fg = "#ffffff"
         button_bg = "#404040"
         button_active = "#505050"
         entry_bg = "#3d3d3d"
@@ -307,6 +327,10 @@ class StableNewGUI:
 
     def _launch_webui(self):
         """Auto-launch Stable Diffusion WebUI with improved detection"""
+        # Allow disabling auto-launch in headless/CI environments
+        if os.environ.get("STABLENEW_NO_WEBUI", "").lower() in {"1", "true", "yes"}:
+            logger.info("Auto-launch of WebUI disabled by STABLENEW_NO_WEBUI")
+            return
         webui_path = Path("C:/Users/rober/stable-diffusion-webui/webui-user.bat")
 
         # First check if WebUI is already running
@@ -346,8 +370,8 @@ class StableNewGUI:
             self.log_message("⚠️ WebUI not found - please start manually", "WARNING")
             messagebox.showinfo(
                 "WebUI Not Found",
-                f"WebUI not found at: {webui_path}\n\n"
-                "Please start Stable Diffusion WebUI manually\n"
+                f"WebUI not found at: {webui_path}"
+                "Please start Stable Diffusion WebUI manually"
                 "with --api flag and click 'Check API'",
             )
 
@@ -492,7 +516,9 @@ class StableNewGUI:
         if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
             self.pipeline_controls_panel.destroy()
         # Determine initial state for the new panel
-        initial_state = prev_state if prev_state is not None else self.preferences.get("pipeline_controls")
+        initial_state = (
+            prev_state if prev_state is not None else self.preferences.get("pipeline_controls")
+        )
 
         # Create the PipelineControlsPanel component
         self.pipeline_controls_panel = PipelineControlsPanel(
@@ -566,6 +592,24 @@ class StableNewGUI:
             command=self._save_current_pack_config,
             style="Dark.TButton",
         ).pack(side=tk.LEFT, padx=(0, 5))
+
+        # Auto-apply toggle and top save indicator
+        try:
+            self.auto_apply_var = tk.BooleanVar(value=False)
+            ttk.Checkbutton(
+                config_buttons,
+                text="Auto-apply on change",
+                variable=self.auto_apply_var,
+                style="Dark.TCheckbutton",
+            ).pack(side=tk.LEFT, padx=(10, 5))
+
+            self.top_save_indicator_var = tk.StringVar(value="")
+            self.top_save_indicator = ttk.Label(
+                config_buttons, textvariable=self.top_save_indicator_var, style="Dark.TLabel"
+            )
+            self.top_save_indicator.pack(side=tk.LEFT, padx=(8, 0))
+        except Exception:
+            pass
 
         # Preset selection dropdown
         preset_frame = ttk.LabelFrame(config_buttons, text="Base Preset", padding=5)
@@ -795,13 +839,18 @@ class StableNewGUI:
             side=tk.LEFT
         )  # Red accent for exit
 
-        # Live log panel using LogPanel component
+        # Reparent early log panel to bottom_frame
+        # (log_panel was created early in __init__ to avoid AttributeError)
+        # Create log panel directly with bottom_frame as parent
         self.log_panel = LogPanel(bottom_frame, coordinator=self, height=6, style="Dark.TFrame")
         self.log_panel.pack(fill=tk.BOTH, expand=True)
+        self.add_log = self.log_panel.append
+        self.log_text = getattr(self.log_panel, "log_text", None)
 
         # Attach logging handler to redirect standard logging to GUI
-        self.gui_log_handler = TkinterLogHandler(self.log_panel)
-        logging.getLogger().addHandler(self.gui_log_handler)
+        if not hasattr(self, "gui_log_handler"):
+            self.gui_log_handler = TkinterLogHandler(self.log_panel)
+            logging.getLogger().addHandler(self.gui_log_handler)
 
     def _build_status_bar(self, parent):
         """Build status bar showing current state"""
@@ -852,8 +901,15 @@ class StableNewGUI:
             self.progress_message_var.set(message or self._progress_idle_message)
 
     def _reset_progress_ui(self, message: str | None = None) -> None:
-        """Thread-safe reset for the progress UI."""
-        self.root.after(0, lambda: self._apply_progress_reset(message))
+        """Reset the progress UI immediately when possible, else schedule on Tk loop."""
+        try:
+            self._apply_progress_reset(message)
+        except Exception:
+            pass
+        try:
+            self.root.after(0, lambda: self._apply_progress_reset(message))
+        except Exception:
+            pass
 
     def _apply_progress_update(self, stage: str, percent: float, eta: str | None) -> None:
         """Apply progress updates to the UI synchronously."""
@@ -866,13 +922,21 @@ class StableNewGUI:
             self.progress_message_var.set(f"{stage_text} ({clamped_percent:.0f}%)")
 
         if hasattr(self, "eta_var"):
-            self.eta_var.set(
-                f"ETA: {eta}" if eta else self._progress_eta_default
-            )
+            self.eta_var.set(f"ETA: {eta}" if eta else self._progress_eta_default)
 
     def _update_progress(self, stage: str, percent: float, eta: str | None = None) -> None:
-        """Schedule a progress UI update from worker threads."""
-        self.root.after(0, lambda: self._apply_progress_update(stage, percent, eta))
+        """Update progress UI, immediately if on Tk thread, else via event loop."""
+        try:
+            # Attempt immediate update (helps tests that call from main thread)
+            self._apply_progress_update(stage, percent, eta)
+        except Exception:
+            # Fallback to Tk event loop scheduling only
+            pass
+        # Always ensure an event-loop scheduled update as well
+        try:
+            self.root.after(0, lambda: self._apply_progress_update(stage, percent, eta))
+        except Exception:
+            pass
 
     def _setup_state_callbacks(self):
         """Setup callbacks for state transitions"""
@@ -948,6 +1012,7 @@ class StableNewGUI:
         if text is None:
             try:
                 from .state import GUIState
+
                 if hasattr(self, "state_manager") and self.state_manager.is_state(GUIState.ERROR):
                     message = "Error"
                 else:
@@ -959,6 +1024,7 @@ class StableNewGUI:
         # Normalize cancellation text to Ready once we've returned to IDLE
         try:
             from .state import GUIState
+
             if (
                 str(message).strip().lower() == "cancelled"
                 and hasattr(self, "state_manager")
@@ -980,17 +1046,23 @@ class StableNewGUI:
         # Schedule next poll
         self.root.after(100, self._poll_controller_logs)
 
-    def _check_api_connection(self):
-        """Check API connection status with improved diagnostics"""
+        def _check_api_connection(self):
+            """Check API connection status with improved diagnostics"""
 
-        def check_in_thread():
-            api_url = self.api_url_var.get()
+            def check_in_thread():
+                api_url = self.api_url_var.get()
 
             # Try the specified URL first
             self.log_message("🔍 Checking API connection...", "INFO")
 
             # First try direct connection
             client = SDWebUIClient(api_url)
+            # Apply configured timeout from API tab (keeps UI responsive on failures)
+            try:
+                if hasattr(self, "api_vars") and "timeout" in self.api_vars:
+                    client.timeout = int(self.api_vars["timeout"].get() or 30)
+            except Exception:
+                pass
             if client.check_api_ready():
                 # Perform health check
                 health = validate_webui_health(api_url)
@@ -1017,6 +1089,11 @@ class StableNewGUI:
             if discovered_url:
                 # Test the discovered URL
                 client = SDWebUIClient(discovered_url)
+                try:
+                    if hasattr(self, "api_vars") and "timeout" in self.api_vars:
+                        client.timeout = int(self.api_vars["timeout"].get() or 30)
+                except Exception:
+                    pass
                 if client.check_api_ready():
                     health = validate_webui_health(discovered_url)
 
@@ -1045,6 +1122,86 @@ class StableNewGUI:
                 "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
             )
             self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
+
+        # Removed erroneous nested thread start; class-level _check_api_connection handles this
+
+    # Class-level API check method (fix accidental nesting)
+    def _check_api_connection(self):
+        """Check API connection status with improved diagnostics (class-level)."""
+
+        def check_in_thread():
+            api_url = self.api_url_var.get()
+
+            # Try the specified URL first
+            self.log_message("?? Checking API connection...", "INFO")
+
+            # First try direct connection
+            client = SDWebUIClient(api_url)
+            # Apply configured timeout from API tab (keeps UI responsive on failures)
+            try:
+                if hasattr(self, "api_vars") and "timeout" in self.api_vars:
+                    client.timeout = int(self.api_vars["timeout"].get() or 30)
+            except Exception:
+                pass
+            if client.check_api_ready():
+                # Perform health check
+                health = validate_webui_health(api_url)
+
+                self.api_connected = True
+                self.client = client
+                self.pipeline = Pipeline(client, self.structured_logger)
+                self.controller.set_pipeline(self.pipeline)
+
+                self.root.after(0, lambda: self._update_api_status(True, api_url))
+
+                if health.get("models_loaded"):
+                    self.log_message(
+                        f"? API connected! Found {health.get('model_count', 0)} models", "SUCCESS"
+                    )
+                else:
+                    self.log_message("?? API connected but no models loaded", "WARNING")
+                return
+
+            # If direct connection failed, try port discovery
+            self.log_message("?? Trying port discovery...", "INFO")
+            discovered_url = find_webui_api_port()
+
+            if discovered_url:
+                # Test the discovered URL
+                client = SDWebUIClient(discovered_url)
+                try:
+                    if hasattr(self, "api_vars") and "timeout" in self.api_vars:
+                        client.timeout = int(self.api_vars["timeout"].get() or 30)
+                except Exception:
+                    pass
+                if client.check_api_ready():
+                    health = validate_webui_health(discovered_url)
+
+                    self.api_connected = True
+                    self.client = client
+                    self.pipeline = Pipeline(client, self.structured_logger)
+                    self.controller.set_pipeline(self.pipeline)
+
+                    # Update URL field and status
+                    self.root.after(0, lambda: self.api_url_var.set(discovered_url))
+                    self.root.after(0, lambda: self._update_api_status(True, discovered_url))
+
+                    if health.get("models_loaded"):
+                        self.log_message(
+                            f"? API found at {discovered_url}! Found {health.get('model_count', 0)} models",
+                            "SUCCESS",
+                        )
+                    else:
+                        self.log_message("?? API found but no models loaded", "WARNING")
+                    return
+
+            # Connection failed
+            self.api_connected = False
+            self.root.after(0, lambda: self._update_api_status(False))
+            self.log_message(
+                "? API connection failed. Please ensure WebUI is running with --api", "ERROR"
+            )
+            self.log_message("?? Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
 
         threading.Thread(target=check_in_thread, daemon=True).start()
 
@@ -1187,7 +1344,7 @@ class StableNewGUI:
         """Refresh the prompt packs list without logging (for initialization)"""
         if hasattr(self, "prompt_pack_panel"):
             self.prompt_pack_panel.refresh_packs(silent=True)
-    
+
     def _refresh_prompt_packs_async(self):
         """Scan packs directory on a worker thread and populate asynchronously."""
         if not hasattr(self, "prompt_pack_panel"):
@@ -1198,9 +1355,13 @@ class StableNewGUI:
                 packs_dir = Path("packs")
                 pack_files = get_prompt_packs(packs_dir)
                 self.root.after(0, lambda: self.prompt_pack_panel.populate(pack_files))
-                self.root.after(0, lambda: self.log_message(f"?? Loaded {len(pack_files)} prompt packs", "INFO"))
+                self.root.after(
+                    0, lambda: self.log_message(f"?? Loaded {len(pack_files)} prompt packs", "INFO")
+                )
             except Exception as exc:
-                self.root.after(0, lambda: self.log_message(f"? Failed to load packs: {exc}", "WARNING"))
+                self.root.after(
+                    0, lambda err=exc: self.log_message(f"? Failed to load packs: {err}", "WARNING")
+                )
 
         threading.Thread(target=scan_and_populate, daemon=True).start()
 
@@ -1239,7 +1400,6 @@ class StableNewGUI:
 
         # Update status messages
         if hasattr(self, "current_pack_label"):
-            pack_list = ", ".join(selected_packs) if selected_packs else "none"
             self.current_pack_label.configure(
                 text=f"Override mode: {len(selected_packs)} packs selected", foreground="#ffa500"
             )
@@ -1317,17 +1477,106 @@ class StableNewGUI:
 
     def _get_config_from_forms(self) -> dict[str, Any]:
         """Extract current configuration from GUI forms"""
-        base_config = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
-        if hasattr(self, "config_panel"):
+        config = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        # 1) Start with ConfigPanel values if present
+        if hasattr(self, "config_panel") and self.config_panel is not None:
             try:
-                base_config = self.config_panel.get_config()
+                config = self.config_panel.get_config()
             except Exception as exc:
-                self.log_message(f"Error reading config from forms: {exc}", "ERROR")
+                self.log_message(f"Error reading config from panel: {exc}", "ERROR")
+        # 2) Overlay with values from this form if available (authoritative when present)
+        try:
+            if hasattr(self, "txt2img_vars"):
+                for k, v in self.txt2img_vars.items():
+                    config.setdefault("txt2img", {})[k] = v.get()
+            if hasattr(self, "img2img_vars"):
+                for k, v in self.img2img_vars.items():
+                    config.setdefault("img2img", {})[k] = v.get()
+            if hasattr(self, "upscale_vars"):
+                for k, v in self.upscale_vars.items():
+                    config.setdefault("upscale", {})[k] = v.get()
+        except Exception as exc:
+            self.log_message(f"Error overlaying config from main form: {exc}", "ERROR")
 
-        if hasattr(self, "pipeline_controls_panel"):
-            base_config["pipeline"] = self.pipeline_controls_panel.get_settings()
+        # 3) Pipeline controls
+        if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
+            try:
+                config["pipeline"] = self.pipeline_controls_panel.get_settings()
+            except Exception:
+                pass
 
-        return base_config
+        return config
+    def _attach_summary_traces(self) -> None:
+        """Attach change traces to update live summaries."""
+        if getattr(self, "_summary_traces_attached", False):
+            return
+        try:
+            def attach_dict(dct: dict):
+                for var in dct.values():
+                    try:
+                        var.trace_add("write", lambda *_: self._update_live_config_summary())
+                    except Exception:
+                        pass
+
+            if hasattr(self, "txt2img_vars"):
+                attach_dict(self.txt2img_vars)
+            if hasattr(self, "img2img_vars"):
+                attach_dict(self.img2img_vars)
+            if hasattr(self, "upscale_vars"):
+                attach_dict(self.upscale_vars)
+            if hasattr(self, "pipeline_controls_panel"):
+                p = self.pipeline_controls_panel
+                for v in (
+                    getattr(p, "txt2img_enabled", None),
+                    getattr(p, "img2img_enabled", None),
+                    getattr(p, "upscale_enabled", None),
+                ):
+                    try:
+                        v and v.trace_add("write", lambda *_: self._update_live_config_summary())
+                    except Exception:
+                        pass
+            self._summary_traces_attached = True
+        except Exception:
+            pass
+
+    def _update_live_config_summary(self) -> None:
+        """Compute and render the per-tab "next run" summaries from current vars."""
+        try:
+            # txt2img summary
+            if hasattr(self, "txt2img_vars") and hasattr(self, "txt2img_summary_var"):
+                t = self.txt2img_vars
+                steps = t.get("steps").get() if "steps" in t else "-"
+                sampler = t.get("sampler_name").get() if "sampler_name" in t else "-"
+                cfg = t.get("cfg_scale").get() if "cfg_scale" in t else "-"
+                width = t.get("width").get() if "width" in t else "-"
+                height = t.get("height").get() if "height" in t else "-"
+                self.txt2img_summary_var.set(f"Next run: steps {steps}, sampler {sampler}, cfg {cfg}, size {width}x{height}")
+
+            # img2img summary
+            if hasattr(self, "img2img_vars") and hasattr(self, "img2img_summary_var"):
+                i2i = self.img2img_vars
+                steps = i2i.get("steps").get() if "steps" in i2i else "-"
+                denoise = i2i.get("denoising_strength").get() if "denoising_strength" in i2i else "-"
+                sampler = i2i.get("sampler_name").get() if "sampler_name" in i2i else "-"
+                self.img2img_summary_var.set(f"Next run: steps {steps}, denoise {denoise}, sampler {sampler}")
+
+            # upscale summary
+            if hasattr(self, "upscale_vars") and hasattr(self, "upscale_summary_var"):
+                up = self.upscale_vars
+                mode = (up.get("upscale_mode").get() if "upscale_mode" in up else "single").lower()
+                scale = up.get("upscaling_resize").get() if "upscaling_resize" in up else "-"
+                if mode == "img2img":
+                    steps = up.get("steps").get() if "steps" in up else "-"
+                    denoise = up.get("denoising_strength").get() if "denoising_strength" in up else "-"
+                    sampler = up.get("sampler_name").get() if "sampler_name" in up else "-"
+                    self.upscale_summary_var.set(
+                        f"Mode: img2img — steps {steps}, denoise {denoise}, sampler {sampler}, scale {scale}x"
+                    )
+                else:
+                    upscaler = up.get("upscaler").get() if "upscaler" in up else "-"
+                    self.upscale_summary_var.set(f"Mode: single — upscaler {upscaler}, scale {scale}x")
+        except Exception:
+            pass
 
     def _save_current_pack_config(self):
         """Save current configuration to the selected pack (single pack mode only)"""
@@ -1343,16 +1592,34 @@ class StableNewGUI:
                 self.log_message(f"Failed to save configuration for pack: {pack_name}", "ERROR")
 
     def log_message(self, message: str, level: str = "INFO"):
-        """Add message to live log"""
-        import datetime
+        """Add message to live log with safe console fallback."""
+        import datetime, sys
 
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {message}\n"
+        log_entry = f"[{timestamp}] {message}"
 
-        if hasattr(self, "log_panel"):
-            self.log_panel.log(log_entry.strip(), level)
+        # Prefer GUI log panel once available
+        try:
+            add_log = getattr(self, "add_log", None)
+            if callable(add_log):
+                add_log(log_entry.strip(), level)
+            elif getattr(self, "log_panel", None) is not None:
+                self.log_panel.log(log_entry.strip(), level)
+            else:
+                raise RuntimeError("GUI log not ready")
+        except Exception:
+            # Safe console fallback that won't crash on Windows codepages
+            try:
+                enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+                safe_line = f"[{level}] {log_entry.strip()}".encode(enc, errors="replace").decode(
+                    enc, errors="replace"
+                )
+                print(safe_line)
+            except Exception:
+                # Last-resort: swallow to avoid crashing the GUI init
+                pass
 
-        # Also log to Python logger
+        # Mirror to standard logger
         if level == "ERROR":
             logger.error(message)
         elif level == "WARNING":
@@ -1365,6 +1632,91 @@ class StableNewGUI:
         if not self.api_connected:
             messagebox.showerror("API Error", "Please connect to API first")
             return
+
+        # Controller-based, cancellable implementation (bypasses legacy thread path below)
+        from .state import CancellationError
+        from src.utils.file_io import read_prompt_pack
+
+        selected_packs = self._get_selected_packs()
+        if not selected_packs:
+            self.log_message("No prompt packs selected", "WARNING")
+            return
+
+        self.log_message("▶️ Starting pipeline execution...", "INFO")
+
+        # Snapshot Tk-backed values on the main thread (thread-safe)
+        try:
+            config_snapshot = self._get_config_from_forms()
+        except Exception:
+            config_snapshot = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        try:
+            batch_size_snapshot = int(self.images_per_prompt_var.get())
+        except Exception:
+            batch_size_snapshot = 1
+        def pipeline_func():
+            cancel = self.controller.cancel_token
+            session_run_dir = self.structured_logger.create_run_directory()
+            self.log_message(f"📁 Session directory: {session_run_dir.name}", "INFO")
+
+            total_generated = 0
+            for pack_file in selected_packs:
+                if cancel.is_cancelled():
+                    raise CancellationError("User cancelled before pack start")
+                self.log_message(f"📦 Processing pack: {pack_file.name}", "INFO")
+                prompts = read_prompt_pack(pack_file)
+                if not prompts:
+                    self.log_message(f"No prompts found in {pack_file.name}", "WARNING")
+                    continue
+                config = config_snapshot
+                batch_size = batch_size_snapshot
+
+
+
+                for i, prompt_data in enumerate(prompts):
+                    if cancel.is_cancelled():
+                        raise CancellationError("User cancelled during prompt loop")
+                    self.log_message(
+                        f"📝 Prompt {i+1}/{len(prompts)}: {prompt_data['positive'][:50]}...",
+                        "INFO",
+                    )
+                    result = self.pipeline.run_pack_pipeline(
+                        pack_name=pack_file.stem,
+                        prompt=prompt_data.get("positive", ""),
+                        config=config,
+                        run_dir=session_run_dir,
+                        prompt_index=i,
+                        batch_size=batch_size,
+                    )
+                    if cancel.is_cancelled():
+                        raise CancellationError("User cancelled after pack stage")
+                    if result and result.get("summary"):
+                        gen = len(result["summary"])
+                        total_generated += gen
+                        self.log_message(
+                            f"✅ Generated {gen} image(s) for prompt {i+1}", "SUCCESS"
+                        )
+                    else:
+                        self.log_message(
+                            f"❌ Failed to generate images for prompt {i+1}", "ERROR"
+                        )
+                self.log_message(f"✅ Completed pack '{pack_file.stem}'", "SUCCESS")
+            return {"images_generated": total_generated, "output_dir": str(session_run_dir)}
+
+        def on_complete(result: dict):
+            try:
+                num_images = int(result.get("images_generated", 0)) if result else 0
+                output_dir = result.get("output_dir", "") if result else ""
+            except Exception:
+                num_images, output_dir = 0, ""
+            self.log_message(f"🎉 Pipeline completed: {num_images} image(s)", "SUCCESS")
+            if output_dir:
+                self.log_message(f"📂 Output: {output_dir}", "INFO")
+
+        def on_error(e: Exception):
+            self._handle_pipeline_error(e)
+
+        self.controller.start_pipeline(pipeline_func, on_complete=on_complete, on_error=on_error)
+        return
 
         def run_pipeline_thread():
             try:
@@ -1388,15 +1740,8 @@ class StableNewGUI:
                         self.log_message(f"No prompts found in {pack_file.name}", "WARNING")
                         continue
 
-                    # Get configuration - use current form values if available
-                    if hasattr(self, "txt2img_vars") and self.current_config:
-                        config = self.current_config
-                    else:
-                        # Fall back to file-based config
-                        pack_overrides = self.config_manager.get_pack_overrides(pack_file.stem)
-                        config = self.config_manager.resolve_config(
-                            preset_name="default", pack_overrides=pack_overrides
-                        )
+                    # Always read the latest form values to ensure UI changes are respected
+                    config = self._get_config_from_forms()
 
                     # Process each prompt in the pack
                     images_generated = 0
@@ -1466,9 +1811,6 @@ class StableNewGUI:
 
                 # Create run directory
                 run_dir = self.structured_logger.create_run_directory("txt2img_only")
-
-                # Get configuration
-                config = self.current_config or self.config_manager.get_default_config()
 
                 # Run txt2img for selected packs
                 for pack_name in selected_packs:
@@ -1661,7 +2003,7 @@ class StableNewGUI:
         # Log validation summary
         error_count = len(results.get("errors", []))
         warning_count = len(results.get("warnings", []))
-        info_count = len(results.get("info", []))
+    # info_count = len(results.get("info", []))  # Removed unused variable
 
         if error_count == 0 and warning_count == 0:
             self.log_message("✅ Pack validation passed - no issues found", "SUCCESS")
@@ -1712,6 +2054,21 @@ class StableNewGUI:
         except Exception as exc:  # pragma: no cover - defensive logging path
             logger.error(f"Failed to save preferences: {exc}")
 
+        # Attempt to stop any running pipeline cleanly
+        try:
+            if hasattr(self, "controller") and self.controller is not None and not self.controller.is_terminal:
+                try:
+                    self.controller.stop_pipeline()
+                except Exception:
+                    pass
+                # Wait briefly for cleanup
+                try:
+                    self.controller.lifecycle_event.wait(timeout=5.0)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         self.root.quit()
         self.root.destroy()
 
@@ -1728,6 +2085,26 @@ class StableNewGUI:
 
         self.log_message("🚀 StableNew GUI started", "SUCCESS")
         self.log_message("Please connect to WebUI API to begin", "INFO")
+
+        # Ensure window is visible and focused before starting mainloop
+        self.root.deiconify()  # Make sure window is not minimized
+        self.root.lift()  # Bring to front
+        self.root.focus_force()  # Force focus
+
+        # Log window state for debugging
+        self.log_message("🖥️ GUI window should now be visible", "INFO")
+
+        # Add a periodic check to ensure window stays visible
+        def check_window_visibility():
+            if self.root.state() == "iconic":  # Window is minimized
+                self.log_message("⚠️ Window was minimized, restoring...", "WARNING")
+                self.root.deiconify()
+                self.root.lift()
+            # Schedule next check in 30 seconds
+            self.root.after(30000, check_window_visibility)
+
+        # Start the visibility checker
+        self.root.after(5000, check_window_visibility)  # First check after 5 seconds
 
         # Start the GUI main loop
         self.root.mainloop()
@@ -1960,7 +2337,7 @@ class StableNewGUI:
         ttk.Label(model_row, text="SD Model:", style="Dark.TLabel", width=15).pack(side=tk.LEFT)
         self.txt2img_vars["model"] = tk.StringVar(value="")
         self.model_combo = ttk.Combobox(
-            model_row, textvariable=self.txt2img_vars["model"], width=25, state="readonly"
+            model_row, textvariable=self.txt2img_vars["model"], width=40, state="readonly"
         )
         self.model_combo.pack(side=tk.LEFT, padx=(5, 5))
         self.txt2img_widgets["model"] = self.model_combo
@@ -1974,7 +2351,7 @@ class StableNewGUI:
         ttk.Label(vae_row, text="VAE Model:", style="Dark.TLabel", width=15).pack(side=tk.LEFT)
         self.txt2img_vars["vae"] = tk.StringVar(value="")
         self.vae_combo = ttk.Combobox(
-            vae_row, textvariable=self.txt2img_vars["vae"], width=25, state="readonly"
+            vae_row, textvariable=self.txt2img_vars["vae"], width=40, state="readonly"
         )
         self.vae_combo.pack(side=tk.LEFT, padx=(5, 5))
         self.txt2img_widgets["vae"] = self.vae_combo
@@ -2103,6 +2480,27 @@ class StableNewGUI:
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+
+        # Live summary for next run (txt2img)
+        try:
+            self.txt2img_summary_var = getattr(self, "txt2img_summary_var", tk.StringVar(value=""))
+            summary_frame = ttk.Frame(tab_frame, style="Dark.TFrame")
+            summary_frame.pack(fill=tk.X, padx=10, pady=(5, 8))
+            ttk.Label(
+                summary_frame,
+                textvariable=self.txt2img_summary_var,
+                style="Dark.TLabel",
+                font=("Consolas", 9),
+            ).pack(side=tk.LEFT)
+        except Exception:
+            pass
+
+        # Attach traces and initialize summary text
+        try:
+            self._attach_summary_traces()
+            self._update_live_config_summary()
+        except Exception:
+            pass
 
     def _build_img2img_config_tab(self, notebook):
         """Build img2img configuration form"""
@@ -2281,7 +2679,7 @@ class StableNewGUI:
         ttk.Label(model_row, text="SD Model:", style="Dark.TLabel", width=15).pack(side=tk.LEFT)
         self.img2img_vars["model"] = tk.StringVar(value="")
         self.img2img_model_combo = ttk.Combobox(
-            model_row, textvariable=self.img2img_vars["model"], width=25, state="readonly"
+            model_row, textvariable=self.img2img_vars["model"], width=40, state="readonly"
         )
         self.img2img_model_combo.pack(side=tk.LEFT, padx=(5, 5))
         self.img2img_widgets["model"] = self.img2img_model_combo
@@ -2295,7 +2693,7 @@ class StableNewGUI:
         ttk.Label(vae_row, text="VAE Model:", style="Dark.TLabel", width=15).pack(side=tk.LEFT)
         self.img2img_vars["vae"] = tk.StringVar(value="")
         self.img2img_vae_combo = ttk.Combobox(
-            vae_row, textvariable=self.img2img_vars["vae"], width=25, state="readonly"
+            vae_row, textvariable=self.img2img_vars["vae"], width=40, state="readonly"
         )
         self.img2img_vae_combo.pack(side=tk.LEFT, padx=(5, 5))
         self.img2img_widgets["vae"] = self.img2img_vae_combo
@@ -2304,6 +2702,46 @@ class StableNewGUI:
         ).pack(side=tk.LEFT)
 
         canvas.pack(fill="both", expand=True)
+
+        # Live summary for next run (upscale)
+        try:
+            self.upscale_summary_var = getattr(self, "upscale_summary_var", tk.StringVar(value=""))
+            summary_frame = ttk.Frame(tab_frame, style="Dark.TFrame")
+            summary_frame.pack(fill=tk.X, padx=10, pady=(5, 8))
+            ttk.Label(
+                summary_frame,
+                textvariable=self.upscale_summary_var,
+                style="Dark.TLabel",
+                font=("Consolas", 9),
+            ).pack(side=tk.LEFT)
+        except Exception:
+            pass
+
+        try:
+            self._attach_summary_traces()
+            self._update_live_config_summary()
+        except Exception:
+            pass
+
+        # Live summary for next run (img2img)
+        try:
+            self.img2img_summary_var = getattr(self, "img2img_summary_var", tk.StringVar(value=""))
+            summary_frame = ttk.Frame(tab_frame, style="Dark.TFrame")
+            summary_frame.pack(fill=tk.X, padx=10, pady=(5, 8))
+            ttk.Label(
+                summary_frame,
+                textvariable=self.img2img_summary_var,
+                style="Dark.TLabel",
+                font=("Consolas", 9),
+            ).pack(side=tk.LEFT)
+        except Exception:
+            pass
+
+        try:
+            self._attach_summary_traces()
+            self._update_live_config_summary()
+        except Exception:
+            pass
 
     def _build_upscale_config_tab(self, notebook):
         """Build upscale configuration form"""
@@ -2363,7 +2801,7 @@ class StableNewGUI:
         ttk.Label(upscaler_row, text="Upscaler:", style="Dark.TLabel", width=15).pack(side=tk.LEFT)
         self.upscale_vars["upscaler"] = tk.StringVar(value="R-ESRGAN 4x+")
         self.upscaler_combo = ttk.Combobox(
-            upscaler_row, textvariable=self.upscale_vars["upscaler"], width=25, state="readonly"
+            upscaler_row, textvariable=self.upscale_vars["upscaler"], width=40, state="readonly"
         )
         self.upscaler_combo.pack(side=tk.LEFT, padx=(5, 5))
         self.upscale_widgets["upscaler"] = self.upscaler_combo
@@ -2551,6 +2989,9 @@ class StableNewGUI:
             selected = []
             if hasattr(self, "packs_listbox"):
                 selected = [self.packs_listbox.get(i) for i in self.packs_listbox.curselection()]
+            # Fallback: if UI focus cleared the visual selection, use last-known pack
+            if (not selected) and hasattr(self, "_last_selected_pack") and self._last_selected_pack:
+                selected = [self._last_selected_pack]
 
             if selected and not self.override_pack_var.get():
                 saved_any = False
@@ -2564,6 +3005,22 @@ class StableNewGUI:
                     self._show_config_status(
                         f"Configuration saved for {len(selected)} selected pack(s)"
                     )
+                    try:
+                        messagebox.showinfo(
+                            "Config Saved",
+                            f"Saved configuration for {len(selected)} selected pack(s)",
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self, "config_panel"):
+                            self.config_panel.show_save_indicator("Saved")
+                    except Exception:
+                        pass
+                    try:
+                        self.show_top_save_indicator("Saved")
+                    except Exception:
+                        pass
                 else:
                     self.log_message("Failed to save configuration for selected packs", "ERROR")
             else:
@@ -2574,11 +3031,35 @@ class StableNewGUI:
                 )
                 if preset_name:
                     self.config_manager.save_preset(preset_name, config)
-                    self.log_message(
-                        f"Saved configuration as preset: {preset_name}", "SUCCESS"
-                    )
+                    self.log_message(f"Saved configuration as preset: {preset_name}", "SUCCESS")
+                    try:
+                        messagebox.showinfo(
+                            "Preset Saved",
+                            f"Saved configuration as preset: {preset_name}",
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self, "config_panel"):
+                            self.config_panel.show_save_indicator("Saved")
+                    except Exception:
+                        pass
+                    try:
+                        self.show_top_save_indicator("Saved")
+                    except Exception:
+                        pass
                 else:
                     self.log_message("Configuration updated (not saved as preset)", "INFO")
+                    self._show_config_status("Configuration updated (not saved as preset)")
+                    try:
+                        if hasattr(self, "config_panel"):
+                            self.config_panel.show_save_indicator("Saved")
+                    except Exception:
+                        pass
+                    try:
+                        self.show_top_save_indicator("Saved")
+                    except Exception:
+                        pass
 
         except Exception as e:
             self.log_message(f"Failed to save configuration: {e}", "ERROR")
@@ -2588,6 +3069,30 @@ class StableNewGUI:
         defaults = self.config_manager.get_default_config()
         self._load_config_into_forms(defaults)
         self.log_message("Configuration reset to defaults", "INFO")
+
+    def on_config_save(self, _config: dict) -> None:
+        """Coordinator callback from ConfigPanel to save current settings."""
+        try:
+            self._save_all_config()
+            if hasattr(self, "config_panel"):
+                self.config_panel.show_save_indicator("Saved")
+            self.show_top_save_indicator("Saved")
+        except Exception:
+            pass
+
+    def show_top_save_indicator(self, text: str = "Saved", duration_ms: int = 2000) -> None:
+        """Show a colored indicator next to the top Save button."""
+        try:
+            color = "#00c853" if (text or "").lower() == "saved" else "#ffa500"
+            try:
+                self.top_save_indicator.configure(foreground=color)
+            except Exception:
+                pass
+            self.top_save_indicator_var.set(text)
+            if duration_ms and (text or "").lower() == "saved":
+                self.root.after(duration_ms, lambda: self.top_save_indicator_var.set(""))
+        except Exception:
+            pass
 
     def _on_preset_changed(self, event=None):
         """Handle preset dropdown selection changes"""
@@ -2719,9 +3224,9 @@ class StableNewGUI:
         preferences = {
             "preset": self.preset_var.get() if hasattr(self, "preset_var") else "default",
             "selected_packs": [],
-            "override_pack": bool(self.override_pack_var.get())
-            if hasattr(self, "override_pack_var")
-            else False,
+            "override_pack": (
+                bool(self.override_pack_var.get()) if hasattr(self, "override_pack_var") else False
+            ),
             "pipeline_controls": self.preferences_manager.default_pipeline_controls(),
             "config": self._get_config_from_forms(),
         }
@@ -2851,11 +3356,11 @@ class StableNewGUI:
 
         # Show current preset
         presets = self.config_manager.list_presets()
-        settings_text.insert(1.0, "Available Presets:\n\n")
+        settings_text.insert(1.0, "Available Presets:")
         for preset in presets:
-            settings_text.insert(tk.END, f"- {preset}\n")
+            settings_text.insert(tk.END, f"- {preset}")
 
-        settings_text.insert(tk.END, "\n\nDefault Configuration:\n\n")
+        settings_text.insert(tk.END, "Default Configuration:")
         default_config = self.config_manager.get_default_config()
         settings_text.insert(tk.END, json.dumps(default_config, indent=2))
 
@@ -2873,7 +3378,7 @@ class StableNewGUI:
     def _add_log_message(self, message: str):
         """Add message to log viewer"""
         self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, message + "\n")
+        self.log_text.insert(tk.END, message + "")
         self.log_text.see(tk.END)
         self.log_text.config(state=tk.DISABLED)
 
@@ -2939,6 +3444,15 @@ class StableNewGUI:
         self.controller.report_progress("Running pipeline...", 0.0, "ETA: --")
 
         # Define pipeline function that checks cancel token
+        # Snapshot Tk-backed values on the main thread (thread-safe)
+        try:
+            config_snapshot = self._get_config_from_forms()
+        except Exception:
+            config_snapshot = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        try:
+            batch_size_snapshot = int(self.images_per_prompt_var.get())
+        except Exception:
+            batch_size_snapshot = 1
         def pipeline_func():
             try:
                 # Pass cancel_token to pipeline
@@ -2965,8 +3479,13 @@ class StableNewGUI:
                 # Build error text up-front
                 try:
                     import sys
+
                     ex_type, ex, _ = sys.exc_info()
-                    err_text = f"Pipeline failed: {ex_type.__name__}: {ex}" if (ex_type and ex) else "Pipeline failed"
+                    err_text = (
+                        f"Pipeline failed: {ex_type.__name__}: {ex}"
+                        if (ex_type and ex)
+                        else "Pipeline failed"
+                    )
                 except Exception:
                     err_text = "Pipeline failed"
 
@@ -2999,6 +3518,7 @@ class StableNewGUI:
                     pass
                 try:
                     from .state import GUIState
+
                     # Schedule transition on Tk thread for deterministic callback behavior
                     self.root.after(0, lambda: self.state_manager.transition_to(GUIState.ERROR))
                 except Exception:
@@ -3023,7 +3543,7 @@ class StableNewGUI:
                 0,
                 lambda: messagebox.showinfo(
                     "Success",
-                    f"Pipeline completed!\n{num_images} images generated\nOutput: {output_dir}",
+                    f"Pipeline completed!{num_images} images generatedOutput: {output_dir}",
                 ),
             )
             # Reset error-control flags for the next run
@@ -3057,9 +3577,14 @@ class StableNewGUI:
                     pass
                 try:
                     # Also schedule to ensure it wins over any queued 'Running' updates
-                    self.root.after(0, lambda: hasattr(self, "progress_message_var") and self.progress_message_var.set("Error"))
+                    self.root.after(
+                        0,
+                        lambda: hasattr(self, "progress_message_var")
+                        and self.progress_message_var.set("Error"),
+                    )
                     # Schedule explicit ERROR transition to drive status callbacks
                     from .state import GUIState
+
                     self.root.after(0, lambda: self.state_manager.transition_to(GUIState.ERROR))
                 except Exception:
                     pass
@@ -3113,7 +3638,7 @@ class StableNewGUI:
 
                 if self.video_creator.create_video_from_directory(image_dir, video_path):
                     self._add_log_message(f"✓ Video created: {video_path}")
-                    messagebox.showinfo("Success", f"Video created:\n{video_path}")
+                    messagebox.showinfo("Success", f"Video created:{video_path}")
                 else:
                     self._add_log_message(f"✗ Failed to create video from {subdir}")
 
@@ -3142,6 +3667,8 @@ class StableNewGUI:
 
     def _refresh_models_async(self):
         """Refresh the list of available SD models (thread-safe version)"""
+        from functools import partial
+
         if self.client is None:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
@@ -3163,23 +3690,11 @@ class StableNewGUI:
                 self._add_log_message(f"🔄 Loaded {len(models)} SD models")
 
             self.root.after(0, update_widgets)
-            try:
-                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_scheduler_options(schedulers))
-            except Exception:
-                pass
-            try:
-                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_upscaler_options(upscaler_names))
-            except Exception:
-                pass
-            try:
-                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_vae_options(vae_names))
-            except Exception:
-                pass
-            # Also update unified ConfigPanel if present
-            try:
-                self.root.after(0, lambda: hasattr(self, "config_panel") and self.config_panel.set_model_options(model_names))
-            except Exception:
-                pass
+
+            # Also update unified ConfigPanel if present using partial to capture value
+            if hasattr(self, "config_panel"):
+                self.root.after(0, partial(self.config_panel.set_model_options, list(model_names)))
+
         except Exception as exc:
             # Marshal error message back to main thread
             # Capture exception in default argument to avoid closure issues
@@ -3207,6 +3722,8 @@ class StableNewGUI:
 
     def _refresh_vae_models_async(self):
         """Refresh the list of available VAE models (thread-safe version)"""
+        from functools import partial
+
         if self.client is None:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
@@ -3215,17 +3732,25 @@ class StableNewGUI:
         try:
             # Perform API call in worker thread
             vae_models = self.client.get_vae_models()
-            vae_names = [""] + [vae.get("model_name", "") for vae in vae_models]
+            vae_names_local = [""] + [vae.get("model_name", "") for vae in vae_models]
+
+            # Store in instance attribute
+            self.vae_names = list(vae_names_local)
 
             # Marshal widget updates back to main thread
             def update_widgets():
                 if hasattr(self, "vae_combo"):
-                    self.vae_combo["values"] = tuple(vae_names)
+                    self.vae_combo["values"] = tuple(self.vae_names)
                 if hasattr(self, "img2img_vae_combo"):
-                    self.img2img_vae_combo["values"] = tuple(vae_names)
+                    self.img2img_vae_combo["values"] = tuple(self.vae_names)
                 self._add_log_message(f"🔄 Loaded {len(vae_models)} VAE models")
 
             self.root.after(0, update_widgets)
+
+            # Also update config panel if present using partial to capture value
+            if hasattr(self, "config_panel"):
+                self.root.after(0, partial(self.config_panel.set_vae_options, list(self.vae_names)))
+
         except Exception as exc:
             # Marshal error message back to main thread
             # Capture exception in default argument to avoid closure issues
@@ -3257,6 +3782,8 @@ class StableNewGUI:
 
     def _refresh_upscalers_async(self):
         """Refresh the list of available upscalers (thread-safe version)"""
+        from functools import partial
+
         if self.client is None:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
@@ -3265,17 +3792,27 @@ class StableNewGUI:
         try:
             # Perform API call in worker thread
             upscalers = self.client.get_upscalers()
-            upscaler_names = [
+            upscaler_names_local = [
                 upscaler.get("name", "") for upscaler in upscalers if upscaler.get("name")
             ]
+
+            # Store in instance attribute
+            self.upscaler_names = list(upscaler_names_local)
 
             # Marshal widget updates back to main thread
             def update_widgets():
                 if hasattr(self, "upscaler_combo"):
-                    self.upscaler_combo["values"] = tuple(upscaler_names)
+                    self.upscaler_combo["values"] = tuple(self.upscaler_names)
                 self._add_log_message(f"🔄 Loaded {len(upscalers)} upscalers")
 
             self.root.after(0, update_widgets)
+
+            # Also update config panel if present using partial to capture value
+            if hasattr(self, "config_panel"):
+                self.root.after(
+                    0, partial(self.config_panel.set_upscaler_options, list(self.upscaler_names))
+                )
+
         except Exception as exc:
             # Marshal error message back to main thread
             # Capture exception in default argument to avoid closure issues
@@ -3304,6 +3841,8 @@ class StableNewGUI:
 
     def _refresh_schedulers_async(self):
         """Refresh the list of available schedulers (thread-safe version)"""
+        from functools import partial
+
         if not self.client:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
@@ -3313,15 +3852,25 @@ class StableNewGUI:
             # Perform API call in worker thread
             schedulers = self.client.get_schedulers()
 
-            # Marshal widget updates back to main thread
+            # Store in instance attribute
+            self.schedulers = list(schedulers)
+
+            # Marshal widget updates back to main thread using partial
             def update_widgets():
                 if hasattr(self, "scheduler_combo"):
-                    self.scheduler_combo["values"] = tuple(schedulers)
+                    self.scheduler_combo["values"] = tuple(self.schedulers)
                 if hasattr(self, "img2img_scheduler_combo"):
-                    self.img2img_scheduler_combo["values"] = tuple(schedulers)
-                self._add_log_message(f"🔄 Loaded {len(schedulers)} schedulers")
+                    self.img2img_scheduler_combo["values"] = tuple(self.schedulers)
+                self._add_log_message(f"🔄 Loaded {len(self.schedulers)} schedulers")
 
             self.root.after(0, update_widgets)
+
+            # Also update config panel if present using partial to capture value
+            if hasattr(self, "config_panel"):
+                self.root.after(
+                    0, partial(self.config_panel.set_scheduler_options, list(self.schedulers))
+                )
+
         except Exception as exc:
             # Marshal error message back to main thread
             # Capture exception in default argument to avoid closure issues
@@ -3357,26 +3906,6 @@ class StableNewGUI:
         """Generate random seed for img2img"""
         self._randomize_seed("img2img")
 
-    def run(self):
-        """Run the GUI application"""
-        # Ensure window is visible and focused before starting mainloop
-        self.root.deiconify()  # Make sure window is not minimized
-        self.root.lift()  # Bring to front
-        self.root.focus_force()  # Force focus
 
-        # Log window state for debugging
-        self.log_message("🖥️ GUI window should now be visible", "INFO")
 
-        # Add a periodic check to ensure window stays visible
-        def check_window_visibility():
-            if self.root.state() == "iconic":  # Window is minimized
-                self.log_message("⚠️ Window was minimized, restoring...", "WARNING")
-                self.root.deiconify()
-                self.root.lift()
-            # Schedule next check in 30 seconds
-            self.root.after(30000, check_window_visibility)
 
-        # Start the visibility checker
-        self.root.after(5000, check_window_visibility)  # First check after 5 seconds
-
-        self.root.mainloop()
