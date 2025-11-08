@@ -5,6 +5,7 @@ import logging
 import re
 import time
 from datetime import datetime
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -76,6 +77,63 @@ class Pipeline:
             return None
 
         return result
+
+    def _normalize_config_for_pipeline(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Normalize config for consistent WebUI behavior.
+
+        - Optionally disable txt2img hires-fix when downstream stages (img2img/upscale) are enabled,
+          unless explicitly allowed by config["pipeline"]["allow_hr_with_stages"].
+        - Normalize scheduler casing to match WebUI expectations (e.g., "karras" -> "Karras").
+        """
+        cfg = deepcopy(config or {})
+
+        def norm_sched(value: Any) -> Any:
+            if not isinstance(value, str):
+                return value
+            v = value.strip()
+            mapping = {
+                "normal": "Normal",
+                "karras": "Karras",
+                "exponential": "Exponential",
+                "polyexponential": "Polyexponential",
+                "sgm_uniform": "SGM Uniform",
+                "simple": "Simple",
+                "ddim_uniform": "DDIM Uniform",
+                "beta": "Beta",
+                "linear": "Linear",
+                "cosine": "Cosine",
+            }
+            return mapping.get(v.lower(), v)
+
+        # Normalize schedulers across sections
+        for section in ("txt2img", "img2img", "upscale"):
+            sec = cfg.get(section)
+            if isinstance(sec, dict) and "scheduler" in sec:
+                try:
+                    sec["scheduler"] = norm_sched(sec.get("scheduler"))
+                except Exception:
+                    pass
+
+        # Optionally disable hires fix when running downstream stages
+        try:
+            pipeline = cfg.get("pipeline", {})
+            disable_hr = (
+                (pipeline.get("img2img_enabled", True) or pipeline.get("upscale_enabled", True))
+                and not pipeline.get("allow_hr_with_stages", False)
+            )
+            if disable_hr:
+                txt = cfg.setdefault("txt2img", {})
+                if txt.get("enable_hr"):
+                    txt["enable_hr"] = False
+                    # Ensure second-pass is disabled
+                    txt["hr_second_pass_steps"] = 0
+                    logger.info(
+                        "Disabled txt2img hires-fix for downstream stages (override with pipeline.allow_hr_with_stages)"
+                    )
+        except Exception:
+            pass
+
+        return cfg
 
     def _parse_sampler_config(self, config: dict[str, Any]) -> dict[str, str]:
         """
@@ -901,6 +959,26 @@ class Pipeline:
             "summary": [],
         }
 
+        # Normalize config for this run (disable conflicting hires, normalize scheduler casing)
+        config = self._normalize_config_for_pipeline(config)
+
+        # Emit a concise summary of stage parameters for this pack
+        try:
+            i2i_steps = config.get("img2img", {}).get("steps")
+            up_mode = config.get("upscale", {}).get("upscale_mode", "single")
+            up_steps = config.get("upscale", {}).get("steps")
+            enable_hr = config.get("txt2img", {}).get("enable_hr")
+            logger.info(
+                "Pack '%s' params => img2img.steps=%s, upscale.mode=%s, upscale.steps=%s, txt2img.enable_hr=%s",
+                pack_name,
+                i2i_steps,
+                up_mode,
+                up_steps,
+                enable_hr,
+            )
+        except Exception:
+            pass
+
         # Generate images with numbered naming
         for batch_idx in range(batch_size):
             # Calculate global image number for this pack
@@ -1186,10 +1264,10 @@ class Pipeline:
                 "n_iter": 1,
             }
 
-            # Optional debug payload log to correlate with WebUI logs
+            # Log key parameters at INFO to correlate with WebUI progress
             try:
-                logger.debug(
-                    "img2img payload: steps=%s, denoise=%s, sampler=%s, scheduler=%s",
+                logger.info(
+                    "img2img params => steps=%s, denoise=%s, sampler=%s, scheduler=%s",
                     payload.get("steps"),
                     payload.get("denoising_strength"),
                     payload.get("sampler_name"),
@@ -1311,8 +1389,8 @@ class Pipeline:
                 }
 
                 try:
-                    logger.debug(
-                        "upscale img2img payload: steps=%s, denoise=%s, sampler=%s, scheduler=%s, target=%sx%s",
+                    logger.info(
+                        "upscale(img2img) params => steps=%s, denoise=%s, sampler=%s, scheduler=%s, target=%sx%s",
                         payload.get("steps"),
                         payload.get("denoising_strength"),
                         payload.get("sampler_name"),

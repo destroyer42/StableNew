@@ -32,7 +32,7 @@
       "hr_upscaler": "R-ESRGAN 4x+",
       "denoising_strength": 0.7,
       "hires_steps": 10,
-      "face_restoration_enabled": false,
+      "face_restoration_enabled": true,
       "face_restoration_model": "GFPGAN",
       "face_restoration_weight": 0.5
     },
@@ -50,14 +50,14 @@
       "negative_adjust": ""
     },
     "upscale": {
-      "upscaler": "R-ESRGAN 4x+",
+      "upscaler": "4xUltrasharp_4xUltrasharpV10",
       "upscaling_resize": 2.0,
-      "upscale_mode": "img2img",
+      "upscale_mode": "single",
       "steps": 15,
       "sampler_name": "DPM++ 2M",
       "scheduler": "karras",
       "denoising_strength": 0.2,
-      "gfpgan_visibility": 0.25,
+      "gfpgan_visibility": 0.0,
       "codeformer_visibility": 0.5,
       "codeformer_weight": 0.5
     },

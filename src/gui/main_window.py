@@ -370,8 +370,8 @@ class StableNewGUI:
             self.log_message("⚠️ WebUI not found - please start manually", "WARNING")
             messagebox.showinfo(
                 "WebUI Not Found",
-                f"WebUI not found at: {webui_path}$1$1"
-                "Please start Stable Diffusion WebUI manually$1"
+                f"WebUI not found at: {webui_path}"
+                "Please start Stable Diffusion WebUI manually"
                 "with --api flag and click 'Check API'",
             )
 
@@ -1046,17 +1046,23 @@ class StableNewGUI:
         # Schedule next poll
         self.root.after(100, self._poll_controller_logs)
 
-    def _check_api_connection(self):
-        """Check API connection status with improved diagnostics"""
+        def _check_api_connection(self):
+            """Check API connection status with improved diagnostics"""
 
-        def check_in_thread():
-            api_url = self.api_url_var.get()
+            def check_in_thread():
+                api_url = self.api_url_var.get()
 
             # Try the specified URL first
             self.log_message("🔍 Checking API connection...", "INFO")
 
             # First try direct connection
             client = SDWebUIClient(api_url)
+            # Apply configured timeout from API tab (keeps UI responsive on failures)
+            try:
+                if hasattr(self, "api_vars") and "timeout" in self.api_vars:
+                    client.timeout = int(self.api_vars["timeout"].get() or 30)
+            except Exception:
+                pass
             if client.check_api_ready():
                 # Perform health check
                 health = validate_webui_health(api_url)
@@ -1083,6 +1089,11 @@ class StableNewGUI:
             if discovered_url:
                 # Test the discovered URL
                 client = SDWebUIClient(discovered_url)
+                try:
+                    if hasattr(self, "api_vars") and "timeout" in self.api_vars:
+                        client.timeout = int(self.api_vars["timeout"].get() or 30)
+                except Exception:
+                    pass
                 if client.check_api_ready():
                     health = validate_webui_health(discovered_url)
 
@@ -1111,6 +1122,86 @@ class StableNewGUI:
                 "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
             )
             self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
+
+        # Removed erroneous nested thread start; class-level _check_api_connection handles this
+
+    # Class-level API check method (fix accidental nesting)
+    def _check_api_connection(self):
+        """Check API connection status with improved diagnostics (class-level)."""
+
+        def check_in_thread():
+            api_url = self.api_url_var.get()
+
+            # Try the specified URL first
+            self.log_message("?? Checking API connection...", "INFO")
+
+            # First try direct connection
+            client = SDWebUIClient(api_url)
+            # Apply configured timeout from API tab (keeps UI responsive on failures)
+            try:
+                if hasattr(self, "api_vars") and "timeout" in self.api_vars:
+                    client.timeout = int(self.api_vars["timeout"].get() or 30)
+            except Exception:
+                pass
+            if client.check_api_ready():
+                # Perform health check
+                health = validate_webui_health(api_url)
+
+                self.api_connected = True
+                self.client = client
+                self.pipeline = Pipeline(client, self.structured_logger)
+                self.controller.set_pipeline(self.pipeline)
+
+                self.root.after(0, lambda: self._update_api_status(True, api_url))
+
+                if health.get("models_loaded"):
+                    self.log_message(
+                        f"? API connected! Found {health.get('model_count', 0)} models", "SUCCESS"
+                    )
+                else:
+                    self.log_message("?? API connected but no models loaded", "WARNING")
+                return
+
+            # If direct connection failed, try port discovery
+            self.log_message("?? Trying port discovery...", "INFO")
+            discovered_url = find_webui_api_port()
+
+            if discovered_url:
+                # Test the discovered URL
+                client = SDWebUIClient(discovered_url)
+                try:
+                    if hasattr(self, "api_vars") and "timeout" in self.api_vars:
+                        client.timeout = int(self.api_vars["timeout"].get() or 30)
+                except Exception:
+                    pass
+                if client.check_api_ready():
+                    health = validate_webui_health(discovered_url)
+
+                    self.api_connected = True
+                    self.client = client
+                    self.pipeline = Pipeline(client, self.structured_logger)
+                    self.controller.set_pipeline(self.pipeline)
+
+                    # Update URL field and status
+                    self.root.after(0, lambda: self.api_url_var.set(discovered_url))
+                    self.root.after(0, lambda: self._update_api_status(True, discovered_url))
+
+                    if health.get("models_loaded"):
+                        self.log_message(
+                            f"? API found at {discovered_url}! Found {health.get('model_count', 0)} models",
+                            "SUCCESS",
+                        )
+                    else:
+                        self.log_message("?? API found but no models loaded", "WARNING")
+                    return
+
+            # Connection failed
+            self.api_connected = False
+            self.root.after(0, lambda: self._update_api_status(False))
+            self.log_message(
+                "? API connection failed. Please ensure WebUI is running with --api", "ERROR"
+            )
+            self.log_message("?? Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
 
         threading.Thread(target=check_in_thread, daemon=True).start()
 
@@ -1505,7 +1596,7 @@ class StableNewGUI:
         import datetime, sys
 
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {message}$1"
+        log_entry = f"[{timestamp}] {message}"
 
         # Prefer GUI log panel once available
         try:
@@ -1553,6 +1644,15 @@ class StableNewGUI:
 
         self.log_message("▶️ Starting pipeline execution...", "INFO")
 
+        # Snapshot Tk-backed values on the main thread (thread-safe)
+        try:
+            config_snapshot = self._get_config_from_forms()
+        except Exception:
+            config_snapshot = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        try:
+            batch_size_snapshot = int(self.images_per_prompt_var.get())
+        except Exception:
+            batch_size_snapshot = 1
         def pipeline_func():
             cancel = self.controller.cancel_token
             session_run_dir = self.structured_logger.create_run_directory()
@@ -1567,11 +1667,11 @@ class StableNewGUI:
                 if not prompts:
                     self.log_message(f"No prompts found in {pack_file.name}", "WARNING")
                     continue
-                config = self._get_config_from_forms()
-                try:
-                    batch_size = int(self.images_per_prompt_var.get())
-                except Exception:
-                    batch_size = 1
+                config = config_snapshot
+                batch_size = batch_size_snapshot
+
+
+
                 for i, prompt_data in enumerate(prompts):
                     if cancel.is_cancelled():
                         raise CancellationError("User cancelled during prompt loop")
@@ -3256,11 +3356,11 @@ class StableNewGUI:
 
         # Show current preset
         presets = self.config_manager.list_presets()
-        settings_text.insert(1.0, "Available Presets:$1$1")
+        settings_text.insert(1.0, "Available Presets:")
         for preset in presets:
-            settings_text.insert(tk.END, f"- {preset}$1")
+            settings_text.insert(tk.END, f"- {preset}")
 
-        settings_text.insert(tk.END, "$1$1Default Configuration:$1$1")
+        settings_text.insert(tk.END, "Default Configuration:")
         default_config = self.config_manager.get_default_config()
         settings_text.insert(tk.END, json.dumps(default_config, indent=2))
 
@@ -3278,7 +3378,7 @@ class StableNewGUI:
     def _add_log_message(self, message: str):
         """Add message to log viewer"""
         self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, message + "$1")
+        self.log_text.insert(tk.END, message + "")
         self.log_text.see(tk.END)
         self.log_text.config(state=tk.DISABLED)
 
@@ -3344,6 +3444,15 @@ class StableNewGUI:
         self.controller.report_progress("Running pipeline...", 0.0, "ETA: --")
 
         # Define pipeline function that checks cancel token
+        # Snapshot Tk-backed values on the main thread (thread-safe)
+        try:
+            config_snapshot = self._get_config_from_forms()
+        except Exception:
+            config_snapshot = {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        try:
+            batch_size_snapshot = int(self.images_per_prompt_var.get())
+        except Exception:
+            batch_size_snapshot = 1
         def pipeline_func():
             try:
                 # Pass cancel_token to pipeline
@@ -3434,7 +3543,7 @@ class StableNewGUI:
                 0,
                 lambda: messagebox.showinfo(
                     "Success",
-                    f"Pipeline completed!$1{num_images} images generated$1Output: {output_dir}",
+                    f"Pipeline completed!{num_images} images generatedOutput: {output_dir}",
                 ),
             )
             # Reset error-control flags for the next run
@@ -3529,7 +3638,7 @@ class StableNewGUI:
 
                 if self.video_creator.create_video_from_directory(image_dir, video_path):
                     self._add_log_message(f"✓ Video created: {video_path}")
-                    messagebox.showinfo("Success", f"Video created:$1{video_path}")
+                    messagebox.showinfo("Success", f"Video created:{video_path}")
                 else:
                     self._add_log_message(f"✗ Failed to create video from {subdir}")
 
@@ -3796,4 +3905,7 @@ class StableNewGUI:
     def _randomize_img2img_seed(self):
         """Generate random seed for img2img"""
         self._randomize_seed("img2img")
+
+
+
 

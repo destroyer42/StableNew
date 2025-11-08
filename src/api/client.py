@@ -6,6 +6,7 @@ import logging
 import random
 import time
 from typing import Any
+import json
 
 import requests
 
@@ -168,6 +169,32 @@ class SDWebUIClient:
             logger.error(f"txt2img response parsing failed: {exc}")
             return None
 
+        # Log parameters returned by the API for correlation
+        try:
+            params = data.get("parameters")
+            if not params:
+                # Some servers return a JSON string in 'info'
+                info = data.get("info")
+                if isinstance(info, str) and info:
+                    try:
+                        params = json.loads(info)
+                    except Exception:
+                        params = None
+            if isinstance(params, dict):
+                logger.info(
+                    "txt2img response params => steps=%s, sampler=%s, scheduler=%s, cfg=%s, size=%sx%s",
+                    params.get("steps"),
+                    params.get("sampler_name"),
+                    params.get("scheduler") or params.get("scheduling"),
+                    params.get("cfg_scale"),
+                    params.get("width"),
+                    params.get("height"),
+                )
+            else:
+                logger.debug("txt2img response has no parameters field")
+        except Exception:
+            logger.debug("Failed to log txt2img response parameters", exc_info=True)
+
         logger.info(
             "txt2img completed successfully, generated %s images",
             len(data.get("images", [])),
@@ -198,6 +225,31 @@ class SDWebUIClient:
         except ValueError as exc:
             logger.error(f"img2img response parsing failed: {exc}")
             return None
+
+        # Log parameters returned by the API for correlation
+        try:
+            params = data.get("parameters")
+            if not params:
+                info = data.get("info")
+                if isinstance(info, str) and info:
+                    try:
+                        params = json.loads(info)
+                    except Exception:
+                        params = None
+            if isinstance(params, dict):
+                logger.info(
+                    "img2img response params => steps=%s, denoise=%s, sampler=%s, scheduler=%s, size=%sx%s",
+                    params.get("steps"),
+                    params.get("denoising_strength"),
+                    params.get("sampler_name"),
+                    params.get("scheduler") or params.get("scheduling"),
+                    params.get("width"),
+                    params.get("height"),
+                )
+            else:
+                logger.debug("img2img response has no parameters field")
+        except Exception:
+            logger.debug("Failed to log img2img response parameters", exc_info=True)
 
         logger.info("img2img completed successfully")
         return data
