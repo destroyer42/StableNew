@@ -1186,6 +1186,18 @@ class Pipeline:
                 "n_iter": 1,
             }
 
+            # Optional debug payload log to correlate with WebUI logs
+            try:
+                logger.debug(
+                    "img2img payload: steps=%s, denoise=%s, sampler=%s, scheduler=%s",
+                    payload.get("steps"),
+                    payload.get("denoising_strength"),
+                    payload.get("sampler_name"),
+                    payload.get("scheduler"),
+                )
+            except Exception:
+                pass
+
             # Execute img2img
             response = self.client.img2img(payload)
             if not response or "images" not in response or not response["images"]:
@@ -1297,6 +1309,19 @@ class Pipeline:
                     "batch_size": 1,
                     "n_iter": 1,
                 }
+
+                try:
+                    logger.debug(
+                        "upscale img2img payload: steps=%s, denoise=%s, sampler=%s, scheduler=%s, target=%sx%s",
+                        payload.get("steps"),
+                        payload.get("denoising_strength"),
+                        payload.get("sampler_name"),
+                        payload.get("scheduler"),
+                        target_width,
+                        target_height,
+                    )
+                except Exception:
+                    pass
 
                 response = self.client.img2img(payload)
                 response_key = "images"

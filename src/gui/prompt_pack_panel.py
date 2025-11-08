@@ -66,8 +66,8 @@ class PromptPackPanel(ttk.Frame):
         # Start a lightweight watcher that notices programmatic selection changes
         # (e.g., tests calling selection_set) and forwards them to our callback.
         # This ensures mediator callbacks fire even without actual user events.
-        # Run on idle so tests that call tk.update() once can still trigger it
-        self.after_idle(self._watch_selection_change)
+        # Poll at a small interval to avoid saturating Tk's idle loop
+        self.after(150, self._watch_selection_change)
 
     def _watch_selection_change(self) -> None:
         """Detect selection changes even when set programmatically and notify."""
@@ -81,8 +81,8 @@ class PromptPackPanel(ttk.Frame):
             self._on_pack_selection_changed()
         # Keep watching while widget exists
         try:
-            # Keep polling lightly on idle cycles
-            self.after_idle(self._watch_selection_change)
+            # Keep polling at a low frequency
+            self.after(150, self._watch_selection_change)
         except Exception:
             pass
 

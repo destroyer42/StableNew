@@ -1,6 +1,7 @@
 """Modern Tkinter GUI for Stable Diffusion pipeline with dark theme"""
 
 import json
+import os
 import logging
 import subprocess
 import sys
@@ -181,14 +182,17 @@ class StableNewGUI:
         # Load or create default preset
         self._ensure_default_preset()
 
-        # Auto-launch WebUI
-        self._launch_webui()
-
         # Build UI
         self._build_ui()
 
         # Apply saved preferences after UI construction
         self.root.after(0, self._apply_saved_preferences)
+
+        # Auto-launch WebUI after the window is built to avoid blocking init
+        try:
+            self.root.after(0, self._launch_webui)
+        except Exception:
+            pass
 
         # Setup logging redirect
         setup_logging("INFO")
@@ -323,6 +327,10 @@ class StableNewGUI:
 
     def _launch_webui(self):
         """Auto-launch Stable Diffusion WebUI with improved detection"""
+        # Allow disabling auto-launch in headless/CI environments
+        if os.environ.get("STABLENEW_NO_WEBUI", "").lower() in {"1", "true", "yes"}:
+            logger.info("Auto-launch of WebUI disabled by STABLENEW_NO_WEBUI")
+            return
         webui_path = Path("C:/Users/rober/stable-diffusion-webui/webui-user.bat")
 
         # First check if WebUI is already running
@@ -362,8 +370,8 @@ class StableNewGUI:
             self.log_message("⚠️ WebUI not found - please start manually", "WARNING")
             messagebox.showinfo(
                 "WebUI Not Found",
-                f"WebUI not found at: {webui_path}\n\n"
-                "Please start Stable Diffusion WebUI manually\n"
+                f"WebUI not found at: {webui_path}$1$1"
+                "Please start Stable Diffusion WebUI manually$1"
                 "with --api flag and click 'Check API'",
             )
 
@@ -1407,6 +1415,77 @@ class StableNewGUI:
                 pass
 
         return config
+    def _attach_summary_traces(self) -> None:
+        """Attach change traces to update live summaries."""
+        if getattr(self, "_summary_traces_attached", False):
+            return
+        try:
+            def attach_dict(dct: dict):
+                for var in dct.values():
+                    try:
+                        var.trace_add("write", lambda *_: self._update_live_config_summary())
+                    except Exception:
+                        pass
+
+            if hasattr(self, "txt2img_vars"):
+                attach_dict(self.txt2img_vars)
+            if hasattr(self, "img2img_vars"):
+                attach_dict(self.img2img_vars)
+            if hasattr(self, "upscale_vars"):
+                attach_dict(self.upscale_vars)
+            if hasattr(self, "pipeline_controls_panel"):
+                p = self.pipeline_controls_panel
+                for v in (
+                    getattr(p, "txt2img_enabled", None),
+                    getattr(p, "img2img_enabled", None),
+                    getattr(p, "upscale_enabled", None),
+                ):
+                    try:
+                        v and v.trace_add("write", lambda *_: self._update_live_config_summary())
+                    except Exception:
+                        pass
+            self._summary_traces_attached = True
+        except Exception:
+            pass
+
+    def _update_live_config_summary(self) -> None:
+        """Compute and render the per-tab "next run" summaries from current vars."""
+        try:
+            # txt2img summary
+            if hasattr(self, "txt2img_vars") and hasattr(self, "txt2img_summary_var"):
+                t = self.txt2img_vars
+                steps = t.get("steps").get() if "steps" in t else "-"
+                sampler = t.get("sampler_name").get() if "sampler_name" in t else "-"
+                cfg = t.get("cfg_scale").get() if "cfg_scale" in t else "-"
+                width = t.get("width").get() if "width" in t else "-"
+                height = t.get("height").get() if "height" in t else "-"
+                self.txt2img_summary_var.set(f"Next run: steps {steps}, sampler {sampler}, cfg {cfg}, size {width}x{height}")
+
+            # img2img summary
+            if hasattr(self, "img2img_vars") and hasattr(self, "img2img_summary_var"):
+                i2i = self.img2img_vars
+                steps = i2i.get("steps").get() if "steps" in i2i else "-"
+                denoise = i2i.get("denoising_strength").get() if "denoising_strength" in i2i else "-"
+                sampler = i2i.get("sampler_name").get() if "sampler_name" in i2i else "-"
+                self.img2img_summary_var.set(f"Next run: steps {steps}, denoise {denoise}, sampler {sampler}")
+
+            # upscale summary
+            if hasattr(self, "upscale_vars") and hasattr(self, "upscale_summary_var"):
+                up = self.upscale_vars
+                mode = (up.get("upscale_mode").get() if "upscale_mode" in up else "single").lower()
+                scale = up.get("upscaling_resize").get() if "upscaling_resize" in up else "-"
+                if mode == "img2img":
+                    steps = up.get("steps").get() if "steps" in up else "-"
+                    denoise = up.get("denoising_strength").get() if "denoising_strength" in up else "-"
+                    sampler = up.get("sampler_name").get() if "sampler_name" in up else "-"
+                    self.upscale_summary_var.set(
+                        f"Mode: img2img — steps {steps}, denoise {denoise}, sampler {sampler}, scale {scale}x"
+                    )
+                else:
+                    upscaler = up.get("upscaler").get() if "upscaler" in up else "-"
+                    self.upscale_summary_var.set(f"Mode: single — upscaler {upscaler}, scale {scale}x")
+        except Exception:
+            pass
 
     def _save_current_pack_config(self):
         """Save current configuration to the selected pack (single pack mode only)"""
@@ -1422,23 +1501,34 @@ class StableNewGUI:
                 self.log_message(f"Failed to save configuration for pack: {pack_name}", "ERROR")
 
     def log_message(self, message: str, level: str = "INFO"):
-        """Add message to live log"""
-        import datetime
+        """Add message to live log with safe console fallback."""
+        import datetime, sys
 
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {message}\n"
+        log_entry = f"[{timestamp}] {message}$1"
 
-        # Use add_log proxy with safe fallback
+        # Prefer GUI log panel once available
         try:
-            if hasattr(self, "add_log"):
-                self.add_log(log_entry.strip(), level)
-            elif hasattr(self, "log_panel"):
+            add_log = getattr(self, "add_log", None)
+            if callable(add_log):
+                add_log(log_entry.strip(), level)
+            elif getattr(self, "log_panel", None) is not None:
                 self.log_panel.log(log_entry.strip(), level)
+            else:
+                raise RuntimeError("GUI log not ready")
         except Exception:
-            # Fallback to print if logging subsystem is not ready
-            print(f"[{level}] {log_entry.strip()}")
+            # Safe console fallback that won't crash on Windows codepages
+            try:
+                enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+                safe_line = f"[{level}] {log_entry.strip()}".encode(enc, errors="replace").decode(
+                    enc, errors="replace"
+                )
+                print(safe_line)
+            except Exception:
+                # Last-resort: swallow to avoid crashing the GUI init
+                pass
 
-        # Also log to Python logger
+        # Mirror to standard logger
         if level == "ERROR":
             logger.error(message)
         elif level == "WARNING":
@@ -1451,6 +1541,82 @@ class StableNewGUI:
         if not self.api_connected:
             messagebox.showerror("API Error", "Please connect to API first")
             return
+
+        # Controller-based, cancellable implementation (bypasses legacy thread path below)
+        from .state import CancellationError
+        from src.utils.file_io import read_prompt_pack
+
+        selected_packs = self._get_selected_packs()
+        if not selected_packs:
+            self.log_message("No prompt packs selected", "WARNING")
+            return
+
+        self.log_message("▶️ Starting pipeline execution...", "INFO")
+
+        def pipeline_func():
+            cancel = self.controller.cancel_token
+            session_run_dir = self.structured_logger.create_run_directory()
+            self.log_message(f"📁 Session directory: {session_run_dir.name}", "INFO")
+
+            total_generated = 0
+            for pack_file in selected_packs:
+                if cancel.is_cancelled():
+                    raise CancellationError("User cancelled before pack start")
+                self.log_message(f"📦 Processing pack: {pack_file.name}", "INFO")
+                prompts = read_prompt_pack(pack_file)
+                if not prompts:
+                    self.log_message(f"No prompts found in {pack_file.name}", "WARNING")
+                    continue
+                config = self._get_config_from_forms()
+                try:
+                    batch_size = int(self.images_per_prompt_var.get())
+                except Exception:
+                    batch_size = 1
+                for i, prompt_data in enumerate(prompts):
+                    if cancel.is_cancelled():
+                        raise CancellationError("User cancelled during prompt loop")
+                    self.log_message(
+                        f"📝 Prompt {i+1}/{len(prompts)}: {prompt_data['positive'][:50]}...",
+                        "INFO",
+                    )
+                    result = self.pipeline.run_pack_pipeline(
+                        pack_name=pack_file.stem,
+                        prompt=prompt_data.get("positive", ""),
+                        config=config,
+                        run_dir=session_run_dir,
+                        prompt_index=i,
+                        batch_size=batch_size,
+                    )
+                    if cancel.is_cancelled():
+                        raise CancellationError("User cancelled after pack stage")
+                    if result and result.get("summary"):
+                        gen = len(result["summary"])
+                        total_generated += gen
+                        self.log_message(
+                            f"✅ Generated {gen} image(s) for prompt {i+1}", "SUCCESS"
+                        )
+                    else:
+                        self.log_message(
+                            f"❌ Failed to generate images for prompt {i+1}", "ERROR"
+                        )
+                self.log_message(f"✅ Completed pack '{pack_file.stem}'", "SUCCESS")
+            return {"images_generated": total_generated, "output_dir": str(session_run_dir)}
+
+        def on_complete(result: dict):
+            try:
+                num_images = int(result.get("images_generated", 0)) if result else 0
+                output_dir = result.get("output_dir", "") if result else ""
+            except Exception:
+                num_images, output_dir = 0, ""
+            self.log_message(f"🎉 Pipeline completed: {num_images} image(s)", "SUCCESS")
+            if output_dir:
+                self.log_message(f"📂 Output: {output_dir}", "INFO")
+
+        def on_error(e: Exception):
+            self._handle_pipeline_error(e)
+
+        self.controller.start_pipeline(pipeline_func, on_complete=on_complete, on_error=on_error)
+        return
 
         def run_pipeline_thread():
             try:
@@ -2215,6 +2381,27 @@ class StableNewGUI:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
+        # Live summary for next run (txt2img)
+        try:
+            self.txt2img_summary_var = getattr(self, "txt2img_summary_var", tk.StringVar(value=""))
+            summary_frame = ttk.Frame(tab_frame, style="Dark.TFrame")
+            summary_frame.pack(fill=tk.X, padx=10, pady=(5, 8))
+            ttk.Label(
+                summary_frame,
+                textvariable=self.txt2img_summary_var,
+                style="Dark.TLabel",
+                font=("Consolas", 9),
+            ).pack(side=tk.LEFT)
+        except Exception:
+            pass
+
+        # Attach traces and initialize summary text
+        try:
+            self._attach_summary_traces()
+            self._update_live_config_summary()
+        except Exception:
+            pass
+
     def _build_img2img_config_tab(self, notebook):
         """Build img2img configuration form"""
         tab_frame = ttk.Frame(notebook, style="Dark.TFrame")
@@ -2415,6 +2602,46 @@ class StableNewGUI:
         ).pack(side=tk.LEFT)
 
         canvas.pack(fill="both", expand=True)
+
+        # Live summary for next run (upscale)
+        try:
+            self.upscale_summary_var = getattr(self, "upscale_summary_var", tk.StringVar(value=""))
+            summary_frame = ttk.Frame(tab_frame, style="Dark.TFrame")
+            summary_frame.pack(fill=tk.X, padx=10, pady=(5, 8))
+            ttk.Label(
+                summary_frame,
+                textvariable=self.upscale_summary_var,
+                style="Dark.TLabel",
+                font=("Consolas", 9),
+            ).pack(side=tk.LEFT)
+        except Exception:
+            pass
+
+        try:
+            self._attach_summary_traces()
+            self._update_live_config_summary()
+        except Exception:
+            pass
+
+        # Live summary for next run (img2img)
+        try:
+            self.img2img_summary_var = getattr(self, "img2img_summary_var", tk.StringVar(value=""))
+            summary_frame = ttk.Frame(tab_frame, style="Dark.TFrame")
+            summary_frame.pack(fill=tk.X, padx=10, pady=(5, 8))
+            ttk.Label(
+                summary_frame,
+                textvariable=self.img2img_summary_var,
+                style="Dark.TLabel",
+                font=("Consolas", 9),
+            ).pack(side=tk.LEFT)
+        except Exception:
+            pass
+
+        try:
+            self._attach_summary_traces()
+            self._update_live_config_summary()
+        except Exception:
+            pass
 
     def _build_upscale_config_tab(self, notebook):
         """Build upscale configuration form"""
@@ -3029,11 +3256,11 @@ class StableNewGUI:
 
         # Show current preset
         presets = self.config_manager.list_presets()
-        settings_text.insert(1.0, "Available Presets:\n\n")
+        settings_text.insert(1.0, "Available Presets:$1$1")
         for preset in presets:
-            settings_text.insert(tk.END, f"- {preset}\n")
+            settings_text.insert(tk.END, f"- {preset}$1")
 
-        settings_text.insert(tk.END, "\n\nDefault Configuration:\n\n")
+        settings_text.insert(tk.END, "$1$1Default Configuration:$1$1")
         default_config = self.config_manager.get_default_config()
         settings_text.insert(tk.END, json.dumps(default_config, indent=2))
 
@@ -3051,7 +3278,7 @@ class StableNewGUI:
     def _add_log_message(self, message: str):
         """Add message to log viewer"""
         self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, message + "\n")
+        self.log_text.insert(tk.END, message + "$1")
         self.log_text.see(tk.END)
         self.log_text.config(state=tk.DISABLED)
 
@@ -3207,7 +3434,7 @@ class StableNewGUI:
                 0,
                 lambda: messagebox.showinfo(
                     "Success",
-                    f"Pipeline completed!\n{num_images} images generated\nOutput: {output_dir}",
+                    f"Pipeline completed!$1{num_images} images generated$1Output: {output_dir}",
                 ),
             )
             # Reset error-control flags for the next run
@@ -3302,7 +3529,7 @@ class StableNewGUI:
 
                 if self.video_creator.create_video_from_directory(image_dir, video_path):
                     self._add_log_message(f"✓ Video created: {video_path}")
-                    messagebox.showinfo("Success", f"Video created:\n{video_path}")
+                    messagebox.showinfo("Success", f"Video created:$1{video_path}")
                 else:
                     self._add_log_message(f"✗ Failed to create video from {subdir}")
 
@@ -3569,3 +3796,4 @@ class StableNewGUI:
     def _randomize_img2img_seed(self):
         """Generate random seed for img2img"""
         self._randomize_seed("img2img")
+
