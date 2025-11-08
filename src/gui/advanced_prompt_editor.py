@@ -7,6 +7,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
+from .tooltip import Tooltip
+
 
 class AdvancedPromptEditor:
     """Advanced prompt pack editor with comprehensive validation and smart features"""
@@ -59,6 +61,13 @@ class AdvancedPromptEditor:
         # Default global negative content storage
         if not hasattr(self, "global_neg_content"):
             self.global_neg_content = ""
+
+    def _attach_tooltip(self, widget: tk.Widget, text: str, delay: int = 1500) -> None:
+        """Attach a tooltip to a widget when Tk is available."""
+        try:
+            Tooltip(widget, text, delay=delay)
+        except Exception:
+            pass
 
     def open_editor(self, pack_path=None):
         """Open the advanced prompt pack editor"""
@@ -128,43 +137,55 @@ class AdvancedPromptEditor:
         file_frame = ttk.LabelFrame(toolbar, text="File", style="Dark.TFrame")
         file_frame.pack(side=tk.LEFT, padx=(0, 10))
 
-        ttk.Button(file_frame, text="📄 New", command=self._new_pack, width=8).pack(
-            side=tk.LEFT, padx=2, pady=2
-        )
-        ttk.Button(file_frame, text="📁 Open", command=self._open_pack, width=8).pack(
-            side=tk.LEFT, padx=2, pady=2
-        )
-        ttk.Button(file_frame, text="💾 Save", command=self._save_pack, width=8).pack(
-            side=tk.LEFT, padx=2, pady=2
-        )
-        ttk.Button(file_frame, text="💾 Save As", command=self._save_pack_as, width=8).pack(
-            side=tk.LEFT, padx=2, pady=2
-        )
+        new_btn = ttk.Button(file_frame, text="New", command=self._new_pack, width=10)
+        new_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        self._attach_tooltip(new_btn, "Create a new blank prompt pack.")
+
+        open_btn = ttk.Button(file_frame, text="Open", command=self._open_pack, width=10)
+        open_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        self._attach_tooltip(open_btn, "Browse for an existing prompt pack to edit.")
+
+        save_btn = ttk.Button(file_frame, text="Save", command=self._save_pack, width=10)
+        save_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        self._attach_tooltip(save_btn, "Save changes to the currently loaded pack.")
+
+        save_as_btn = ttk.Button(file_frame, text="Save As", command=self._save_pack_as, width=10)
+        save_as_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        self._attach_tooltip(save_as_btn, "Save the current pack contents to a new file.")
 
         # Pack operations
         pack_frame = ttk.LabelFrame(toolbar, text="Pack", style="Dark.TFrame")
         pack_frame.pack(side=tk.LEFT, padx=(0, 10))
 
-        ttk.Button(pack_frame, text="🔄 Clone", command=self._clone_pack, width=8).pack(
-            side=tk.LEFT, padx=2, pady=2
-        )
-        ttk.Button(pack_frame, text="🗑️ Delete", command=self._delete_pack, width=8).pack(
-            side=tk.LEFT, padx=2, pady=2
-        )
+        clone_btn = ttk.Button(pack_frame, text="Clone Pack", command=self._clone_pack, width=12)
+        clone_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        self._attach_tooltip(clone_btn, "Duplicate the currently loaded pack under a new name.")
+
+        delete_btn = ttk.Button(pack_frame, text="Delete Pack", command=self._delete_pack, width=12)
+        delete_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        self._attach_tooltip(delete_btn, "Delete the current pack file from disk.")
 
         # Validation operations
         validation_frame = ttk.LabelFrame(toolbar, text="Validation", style="Dark.TFrame")
         validation_frame.pack(side=tk.LEFT, padx=(0, 10))
 
-        ttk.Button(validation_frame, text="✅ Validate", command=self._validate_pack, width=8).pack(
-            side=tk.LEFT, padx=2, pady=2
+        validate_btn = ttk.Button(
+            validation_frame, text="Run Validation", command=self._validate_pack, width=14
         )
-        ttk.Button(validation_frame, text="🔧 Auto Fix", command=self._auto_fix, width=8).pack(
-            side=tk.LEFT, padx=2, pady=2
+        validate_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        self._attach_tooltip(validate_btn, "Run all syntax checks on the current pack.")
+
+        auto_fix_btn = ttk.Button(
+            validation_frame, text="Auto Fix", command=self._auto_fix, width=10
         )
-        ttk.Button(validation_frame, text="🔍 Models", command=self._refresh_models, width=8).pack(
-            side=tk.LEFT, padx=2, pady=2
+        auto_fix_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        self._attach_tooltip(auto_fix_btn, "Attempt to fix common validation issues automatically.")
+
+        models_btn = ttk.Button(
+            validation_frame, text="Refresh Models", command=self._refresh_models, width=14
         )
+        models_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        self._attach_tooltip(models_btn, "Reload available embeddings and LoRAs for validation checks.")
 
     def _build_pack_info_panel(self, parent):
         """Build pack information panel"""
@@ -305,21 +326,34 @@ class AdvancedPromptEditor:
         ttk.Label(quick_frame, text="Quick Insert:", style="Dark.TLabel").pack(
             side=tk.LEFT, padx=(0, 10)
         )
-        ttk.Button(
-            quick_frame, text="📷 Quality Tags", command=lambda: self._insert_template("quality")
-        ).pack(side=tk.LEFT, padx=2)
-        ttk.Button(
-            quick_frame, text="🎨 Style Tags", command=lambda: self._insert_template("style")
-        ).pack(side=tk.LEFT, padx=2)
-        ttk.Button(
-            quick_frame, text="🚫 Negative", command=lambda: self._insert_template("negative")
-        ).pack(side=tk.LEFT, padx=2)
-        ttk.Button(quick_frame, text="🔗 LoRA", command=lambda: self._insert_template("lora")).pack(
-            side=tk.LEFT, padx=2
+
+        quality_btn = ttk.Button(
+            quick_frame, text="Quality Tags", command=lambda: self._insert_template("quality")
         )
-        ttk.Button(
-            quick_frame, text="📦 Embedding", command=lambda: self._insert_template("embedding")
-        ).pack(side=tk.LEFT, padx=2)
+        quality_btn.pack(side=tk.LEFT, padx=2)
+        self._attach_tooltip(quality_btn, "Insert a template of quality/clarity tags at the cursor.")
+
+        style_btn = ttk.Button(
+            quick_frame, text="Style Tags", command=lambda: self._insert_template("style")
+        )
+        style_btn.pack(side=tk.LEFT, padx=2)
+        self._attach_tooltip(style_btn, "Insert common style descriptors (e.g., cinematic, photorealistic).")
+
+        negative_btn = ttk.Button(
+            quick_frame, text="Negative", command=lambda: self._insert_template("negative")
+        )
+        negative_btn.pack(side=tk.LEFT, padx=2)
+        self._attach_tooltip(negative_btn, "Insert a negative prompt scaffold for the current block.")
+
+        lora_btn = ttk.Button(quick_frame, text="LoRA", command=lambda: self._insert_template("lora"))
+        lora_btn.pack(side=tk.LEFT, padx=2)
+        self._attach_tooltip(lora_btn, "Insert a LoRA template (name and optional weight).")
+
+        embedding_btn = ttk.Button(
+            quick_frame, text="Embedding", command=lambda: self._insert_template("embedding")
+        )
+        embedding_btn.pack(side=tk.LEFT, padx=2)
+        self._attach_tooltip(embedding_btn, "Insert an embedding placeholder.")
 
     def _build_global_negative_tab(self):
         """Build the global negative prompt editor"""
@@ -363,12 +397,23 @@ class AdvancedPromptEditor:
         button_frame = ttk.Frame(global_frame, style="Dark.TFrame")
         button_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
 
-        ttk.Button(
-            button_frame, text="💾 Save Global Negative", command=self._save_global_negative
-        ).pack(side=tk.LEFT)
-        ttk.Button(
-            button_frame, text="🔄 Reset to Default", command=self._reset_global_negative
-        ).pack(side=tk.LEFT, padx=(10, 0))
+        save_global_btn = ttk.Button(
+            button_frame, text="Save Global Negative", command=self._save_global_negative
+        )
+        save_global_btn.pack(side=tk.LEFT)
+        self._attach_tooltip(
+            save_global_btn,
+            "Persist the global negative prompt so every pack you load inherits these safety terms.",
+        )
+
+        reset_global_btn = ttk.Button(
+            button_frame, text="Reset to Default", command=self._reset_global_negative
+        )
+        reset_global_btn.pack(side=tk.LEFT, padx=(10, 0))
+        self._attach_tooltip(
+            reset_global_btn,
+            "Restore the stock global negative prompt if your custom text causes issues.",
+        )
 
     def _build_validation_tab(self):
         """Build the validation results tab"""
@@ -379,11 +424,19 @@ class AdvancedPromptEditor:
         controls_frame = ttk.Frame(validation_frame, style="Dark.TFrame")
         controls_frame.pack(fill=tk.X, padx=10, pady=10)
 
-        ttk.Button(controls_frame, text="🔍 Run Validation", command=self._validate_pack).pack(
-            side=tk.LEFT, padx=(0, 10)
+        run_validation_btn = ttk.Button(
+            controls_frame, text="Run Validation", command=self._validate_pack
         )
-        ttk.Button(controls_frame, text="🔧 Auto Fix Issues", command=self._auto_fix).pack(
-            side=tk.LEFT
+        run_validation_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(
+            run_validation_btn,
+            "Analyze the open pack for syntax, missing models, and angle bracket issues.",
+        )
+        auto_fix_btn = ttk.Button(controls_frame, text="Auto Fix Issues", command=self._auto_fix)
+        auto_fix_btn.pack(side=tk.LEFT)
+        self._attach_tooltip(
+            auto_fix_btn,
+            "Attempt to repair common validation problems automatically (experimental).",
         )
 
         # Auto-validate checkbox
@@ -1014,32 +1067,33 @@ neg: malformed, bad anatomy, low quality"""
     def _validate_prompt_text(self, prompt: str, location: str, results: dict):
         """Validate individual prompt text"""
         # Check embeddings
-        embedding_pattern = r"<embedding:([^>]+)>"
-        embeddings = re.findall(embedding_pattern, prompt)
+        embedding_pattern = re.compile(r"<embedding:([^>]+)>", flags=re.IGNORECASE)
+        embeddings = embedding_pattern.findall(prompt)
+        embedding_cache = {e.lower() for e in getattr(self, "embeddings_cache", set())}
 
         for embedding in embeddings:
+            name = embedding.strip()
             results["stats"]["embedding_count"] += 1
 
-            # Check if embedding exists
-            if self.embeddings_cache and embedding not in self.embeddings_cache:
-                results["errors"].append(f"{location}: Unknown embedding '{embedding}'")
+            if embedding_cache and name.lower() not in embedding_cache:
+                results["errors"].append(f"{location}: Unknown embedding '{name}'")
             else:
-                results["info"].append(f"{location}: Found embedding '{embedding}'")
+                results["info"].append(f"{location}: Found embedding '{name}'")
 
         # Check LoRAs
-        lora_pattern = r"<lora:([^:>]+)(?::([^>]+))?>"
-        loras = re.findall(lora_pattern, prompt)
+        lora_pattern = re.compile(r"<lora:([^:>]+)(?::([^>]+))?>", flags=re.IGNORECASE)
+        loras = lora_pattern.findall(prompt)
+        lora_cache = {l.lower() for l in getattr(self, "loras_cache", set())}
 
         for lora_name, weight in loras:
+            name = lora_name.strip()
             results["stats"]["lora_count"] += 1
 
-            # Check if LoRA exists
-            if self.loras_cache and lora_name not in self.loras_cache:
-                results["errors"].append(f"{location}: Unknown LoRA '{lora_name}'")
+            if lora_cache and name.lower() not in lora_cache:
+                results["errors"].append(f"{location}: Unknown LoRA '{name}'")
             else:
-                results["info"].append(f"{location}: Found LoRA '{lora_name}'")
+                results["info"].append(f"{location}: Found LoRA '{name}'")
 
-            # Validate weight
             if weight:
                 try:
                     weight_val = float(weight)
@@ -1056,7 +1110,7 @@ neg: malformed, bad anatomy, low quality"""
                         f"{location}: Invalid LoRA weight '{weight}' - must be a number"
                     )
             else:
-                results["info"].append(f"{location}: LoRA '{lora_name}' using default weight (1.0)")
+                results["info"].append(f"{location}: LoRA '{name}' using default weight (1.0)")
 
         # Check for common syntax errors
         if "<<" in prompt or ">>" in prompt:
@@ -1064,7 +1118,11 @@ neg: malformed, bad anatomy, low quality"""
                 f"{location}: Double angle brackets found - did you mean single brackets?"
             )
 
-        if prompt.count("<") != prompt.count(">"):
+        token_pattern = re.compile(r"<[A-Za-z0-9_]+:[^<>]+>")
+        sanitized = token_pattern.sub("", prompt)
+        sanitized = re.sub(r"<\s*>", "", sanitized)
+
+        if sanitized.count("<") != sanitized.count(">"):
             results["errors"].append(f"{location}: Mismatched angle brackets")
 
         # Check for very long prompts
@@ -1074,7 +1132,7 @@ neg: malformed, bad anatomy, low quality"""
             )
 
         # Check for suspicious patterns
-        if re.search(r"<[^>]*[<>][^>]*>", prompt):
+        if re.search(r"<[^>]*[<>][^>]*>", sanitized):
             results["errors"].append(f"{location}: Nested angle brackets detected")
 
         # Check for common typos in tags

@@ -141,7 +141,7 @@ class ConfigManager:
                 "denoising_strength": 0.35,  # For img2img-based upscaling
                 "steps": 20,
                 "sampler_name": "Euler a",
-                "scheduler": "normal",
+                "scheduler": "Normal",
                 "gfpgan_visibility": 0.0,  # Face restoration strength
                 "codeformer_visibility": 0.0,  # Face restoration alternative
                 "codeformer_weight": 0.5,  # CodeFormer fidelity

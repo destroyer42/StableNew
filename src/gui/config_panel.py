@@ -57,9 +57,42 @@ class ConfigPanel(ttk.Frame):
 
         # Face restoration widgets (for show/hide)
         self.face_restoration_widgets: list[tk.Widget] = []
+        self._scheduler_options = [
+            "Normal",
+            "Karras",
+            "Exponential",
+            "Polyexponential",
+            "SGM Uniform",
+            "Simple",
+            "DDIM Uniform",
+            "Beta",
+            "Linear",
+            "Cosine",
+        ]
 
         # Build UI
         self._build_ui()
+
+    def _normalize_scheduler_value(self, value: str | None) -> str:
+        mapping = {
+            "normal": "Normal",
+            "karras": "Karras",
+            "exponential": "Exponential",
+            "polyexponential": "Polyexponential",
+            "sgm_uniform": "SGM Uniform",
+            "sgm uniform": "SGM Uniform",
+            "simple": "Simple",
+            "ddim_uniform": "DDIM Uniform",
+            "ddim uniform": "DDIM Uniform",
+            "beta": "Beta",
+            "linear": "Linear",
+            "cosine": "Cosine",
+        }
+        if not value:
+            return "Normal"
+        normalized = str(value).strip()
+        return mapping.get(normalized.lower(), normalized)
+
 
     def _build_ui(self):
         """Build the panel UI."""
@@ -129,7 +162,7 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_vars["width"] = tk.IntVar(value=512)
         self.txt2img_vars["height"] = tk.IntVar(value=512)
         self.txt2img_vars["sampler_name"] = tk.StringVar(value="Euler a")
-        self.txt2img_vars["scheduler"] = tk.StringVar(value="normal")
+        self.txt2img_vars["scheduler"] = tk.StringVar(value="Normal")
         self.txt2img_vars["seed"] = tk.IntVar(value=-1)
         self.txt2img_vars["clip_skip"] = tk.IntVar(value=2)
         self.txt2img_vars["model"] = tk.StringVar(value="")
@@ -238,7 +271,7 @@ class ConfigPanel(ttk.Frame):
         scheduler_combo = ttk.Combobox(
             sampler_frame,
             textvariable=self.txt2img_vars["scheduler"],
-            values=["normal", "karras", "exponential", "sgm_uniform"],
+            values=self._scheduler_options,
             state="readonly",
             width=13,
         )
@@ -396,7 +429,7 @@ class ConfigPanel(ttk.Frame):
         self.img2img_vars["denoising_strength"] = tk.DoubleVar(value=0.3)
         self.img2img_vars["cfg_scale"] = tk.DoubleVar(value=7.0)
         self.img2img_vars["sampler_name"] = tk.StringVar(value="Euler a")
-        self.img2img_vars["scheduler"] = tk.StringVar(value="normal")
+        self.img2img_vars["scheduler"] = tk.StringVar(value="Normal")
         self.img2img_vars["seed"] = tk.IntVar(value=-1)
         self.img2img_vars["clip_skip"] = tk.IntVar(value=2)
         self.img2img_vars["model"] = tk.StringVar(value="")
@@ -461,7 +494,7 @@ class ConfigPanel(ttk.Frame):
         img_scheduler_combo = ttk.Combobox(
             basic_frame,
             textvariable=self.img2img_vars["scheduler"],
-            values=["normal", "karras", "exponential", "sgm_uniform"],
+            values=self._scheduler_options,
             state="readonly",
             width=15,
         )
@@ -526,7 +559,7 @@ class ConfigPanel(ttk.Frame):
         self.upscale_vars["upscale_mode"] = tk.StringVar(value="single")
         self.upscale_vars["steps"] = tk.IntVar(value=20)  # Used when Upscale runs via img2img
         self.upscale_vars["sampler_name"] = tk.StringVar(value="Euler a")
-        self.upscale_vars["scheduler"] = tk.StringVar(value="normal")
+        self.upscale_vars["scheduler"] = tk.StringVar(value="Normal")
         self.upscale_vars["denoising_strength"] = tk.DoubleVar(value=0.2)
         self.upscale_vars["gfpgan_visibility"] = tk.DoubleVar(value=0.0)
         self.upscale_vars["codeformer_visibility"] = tk.DoubleVar(value=0.0)
@@ -616,7 +649,7 @@ class ConfigPanel(ttk.Frame):
         up_scheduler_combo = ttk.Combobox(
             settings_frame,
             textvariable=self.upscale_vars["scheduler"],
-            values=["normal", "karras", "exponential", "sgm_uniform"],
+            values=self._scheduler_options,
             state="readonly",
             width=15,
         )
@@ -751,7 +784,7 @@ class ConfigPanel(ttk.Frame):
                 "width": 512,
                 "height": 512,
                 "sampler_name": "Euler a",
-                "scheduler": "normal",
+                "scheduler": "Normal",
                 "seed": -1,
                 "clip_skip": 2,
                 "model": "",
@@ -771,7 +804,7 @@ class ConfigPanel(ttk.Frame):
                 "denoising_strength": 0.3,
                 "cfg_scale": 7.0,
                 "sampler_name": "Euler a",
-                "scheduler": "normal",
+                "scheduler": "Normal",
                 "seed": -1,
                 "clip_skip": 2,
                 "model": "",
@@ -818,6 +851,15 @@ class ConfigPanel(ttk.Frame):
         # Extract API config
         for key, var in self.api_vars.items():
             config["api"][key] = var.get()
+
+        # Normalize scheduler casing before returning
+        for section in ("txt2img", "img2img", "upscale"):
+            sec = config.get(section)
+            if isinstance(sec, dict) and "scheduler" in sec:
+                try:
+                    sec["scheduler"] = self._normalize_scheduler_value(sec.get("scheduler"))
+                except Exception:
+                    pass
 
         return config
 
@@ -892,18 +934,24 @@ class ConfigPanel(ttk.Frame):
         if "txt2img" in config:
             for key, value in config["txt2img"].items():
                 if key in self.txt2img_vars:
+                    if key == "scheduler":
+                        value = self._normalize_scheduler_value(value)
                     self.txt2img_vars[key].set(value)
 
         # Set img2img config
         if "img2img" in config:
             for key, value in config["img2img"].items():
                 if key in self.img2img_vars:
+                    if key == "scheduler":
+                        value = self._normalize_scheduler_value(value)
                     self.img2img_vars[key].set(value)
 
         # Set upscale config
         if "upscale" in config:
             for key, value in config["upscale"].items():
                 if key in self.upscale_vars:
+                    if key == "scheduler":
+                        value = self._normalize_scheduler_value(value)
                     self.upscale_vars[key].set(value)
 
         # Set API config
@@ -1030,5 +1078,11 @@ class ConfigPanel(ttk.Frame):
 
     def set_scheduler_options(self, schedulers: Iterable[str]) -> None:
         """Update scheduler dropdowns."""
-        self._set_combobox_values(self.txt2img_widgets.get("scheduler"), schedulers)
-        self._set_combobox_values(self.img2img_widgets.get("scheduler"), schedulers)
+        normalized = [
+            self._normalize_scheduler_value(s) for s in schedulers or [] if s is not None
+        ]
+        if not normalized:
+            normalized = list(self._scheduler_options)
+        self._set_combobox_values(self.txt2img_widgets.get("scheduler"), normalized)
+        self._set_combobox_values(self.img2img_widgets.get("scheduler"), normalized)
+        self._set_combobox_values(self.upscale_widgets.get("scheduler"), normalized)

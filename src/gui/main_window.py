@@ -6,6 +6,7 @@ import logging
 import subprocess
 import sys
 import threading
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ from .log_panel import LogPanel, TkinterLogHandler
 from .pipeline_controls_panel import PipelineControlsPanel
 from .prompt_pack_list_manager import PromptPackListManager
 from .prompt_pack_panel import PromptPackPanel
+from .tooltip import Tooltip
 from .state import CancellationError, GUIState, StateManager
 
 logger = logging.getLogger(__name__)
@@ -438,9 +440,17 @@ class StableNewGUI:
 
         # Check API button - compact
         self.check_api_btn = ttk.Button(
-            api_frame, text="🔄", command=self._check_api_connection, style="Dark.TButton", width=3
+            api_frame,
+            text="Check API",
+            command=self._check_api_connection,
+            style="Dark.TButton",
+            width=10,
         )
         self.check_api_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(
+            self.check_api_btn,
+            "Validate the WebUI API connection using the URL above. Refreshes model/vae lists when successful.",
+        )
 
         # Status indicator panel
         self.api_status_panel = APIStatusPanel(api_frame, coordinator=self, style="Dark.TFrame")
@@ -479,13 +489,18 @@ class StableNewGUI:
         try:
             override_header = ttk.Frame(center_panel, style="Dark.TFrame")
             override_header.pack(fill=tk.X, pady=(0, 4))
-            ttk.Checkbutton(
+            override_checkbox = ttk.Checkbutton(
                 override_header,
                 text="Override pack settings with current config",
                 variable=self.override_pack_var,
                 style="Dark.TCheckbutton",
                 command=self._on_override_changed,
-            ).pack(side=tk.LEFT)
+            )
+            override_checkbox.pack(side=tk.LEFT)
+            self._attach_tooltip(
+                override_checkbox,
+                "When enabled, the visible configuration is applied to every selected pack. Disable to use each pack's saved config.",
+            )
         except Exception:
             pass
 
@@ -577,31 +592,53 @@ class StableNewGUI:
         config_buttons = ttk.Frame(config_frame, style="Dark.TFrame")
         config_buttons.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5, 10))
 
-        ttk.Button(
+        save_all_btn = ttk.Button(
             config_buttons,
-            text="� Save All Changes",
+            text="Save All Changes",
             command=self._save_all_config,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
-            config_buttons, text="↺ Reset All", command=self._reset_all_config, style="Dark.TButton"
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
+        )
+        save_all_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self._attach_tooltip(
+            save_all_btn,
+            "Write every visible setting to the current preset/override so multi-pack runs stay consistent.",
+        )
+
+        reset_all_btn = ttk.Button(
+            config_buttons, text="Reset All", command=self._reset_all_config, style="Dark.TButton"
+        )
+        reset_all_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self._attach_tooltip(
+            reset_all_btn,
+            "Revert the form back to the base preset. Does not touch pack-specific files.",
+        )
+
+        save_pack_btn = ttk.Button(
             config_buttons,
-            text="💾 Save Pack Config",
+            text="Save Pack Config",
             command=self._save_current_pack_config,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 5))
+        )
+        save_pack_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self._attach_tooltip(
+            save_pack_btn,
+            "Stores the current values into the highlighted pack's JSON. Available only when a single pack is selected and override is off.",
+        )
 
         # Auto-apply toggle and top save indicator
         try:
             self.auto_apply_var = tk.BooleanVar(value=False)
-            ttk.Checkbutton(
+            auto_apply_check = ttk.Checkbutton(
                 config_buttons,
                 text="Auto-apply on change",
                 variable=self.auto_apply_var,
                 style="Dark.TCheckbutton",
-            ).pack(side=tk.LEFT, padx=(10, 5))
+            )
+            auto_apply_check.pack(side=tk.LEFT, padx=(10, 5))
+            self._attach_tooltip(
+                auto_apply_check,
+                "Immediately save edits to the active pack/preset whenever a field changes. Helpful for rapid tweaking.",
+            )
 
             self.top_save_indicator_var = tk.StringVar(value="")
             self.top_save_indicator = ttk.Label(
@@ -626,12 +663,17 @@ class StableNewGUI:
         self.preset_dropdown.pack(side=tk.LEFT)
         self.preset_dropdown.bind("<<ComboboxSelected>>", self._on_preset_changed)
 
-        ttk.Button(
+        save_override_btn = ttk.Button(
             config_buttons,
-            text="� Save as Override Preset",
+            text="Save as Override Preset",
             command=self._save_override_preset,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT)
+        )
+        save_override_btn.pack(side=tk.LEFT)
+        self._attach_tooltip(
+            save_override_btn,
+            "Capture the current settings as a reusable preset that can be applied to future packs.",
+        )
 
     def _build_pipeline_controls_tab(self, notebook):
         """Build pipeline execution controls tab"""
@@ -796,48 +838,74 @@ class StableNewGUI:
 
         self.run_pipeline_btn = ttk.Button(
             main_buttons,
-            text="🚀 Run Full Pipeline",
+            text="Run Full Pipeline",
             command=self._run_full_pipeline,
             style="Accent.TButton",
         )  # Blue accent for primary action
         self.run_pipeline_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(
+            self.run_pipeline_btn,
+            "Process every highlighted pack sequentially using the current configuration. Override mode applies when enabled.",
+        )
 
-        ttk.Button(
+        txt2img_only_btn = ttk.Button(
             main_buttons,
-            text="🎨 txt2img Only",
+            text="txt2img Only",
             command=self._run_txt2img_only,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(
+        )
+        txt2img_only_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(
+            txt2img_only_btn,
+            "Generate txt2img outputs for the selected pack(s) only.",
+        )
+
+        upscale_only_btn = ttk.Button(
             main_buttons,
-            text="📈 Upscale Only",
+            text="Upscale Only",
             command=self._run_upscale_only,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(
-            main_buttons, text="🎬 Create Video", command=self._create_video, style="Dark.TButton"
-        ).pack(side=tk.LEFT, padx=(0, 10))
+        )
+        upscale_only_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(
+            upscale_only_btn,
+            "Run only the upscale stage for the currently selected outputs (skips txt2img/img2img).",
+        )
+
+        create_video_btn = ttk.Button(
+            main_buttons, text="Create Video", command=self._create_video, style="Dark.TButton"
+        )
+        create_video_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(create_video_btn, "Combine rendered images into a video file.")
 
         # Utility buttons
         util_buttons = ttk.Frame(actions_frame, style="Dark.TFrame")
         util_buttons.pack(side=tk.RIGHT)
 
-        ttk.Button(
+        open_output_btn = ttk.Button(
             util_buttons,
-            text="📁 Open Output",
+            text="Open Output",
             command=self._open_output_folder,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(
-            util_buttons, text="🛑 Stop", command=self._stop_execution, style="Danger.TButton"
-        ).pack(
-            side=tk.LEFT, padx=(0, 10)
-        )  # Red accent for stop
-        ttk.Button(
-            util_buttons, text="❌ Exit", command=self._graceful_exit, style="Danger.TButton"
-        ).pack(
-            side=tk.LEFT
-        )  # Red accent for exit
+        )
+        open_output_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(open_output_btn, "Open the output directory in your system file browser.")
+
+        stop_btn = ttk.Button(
+            util_buttons, text="Stop", command=self._stop_execution, style="Danger.TButton"
+        )
+        stop_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(
+            stop_btn,
+            "Request cancellation of the pipeline run. The current stage finishes before stopping.",
+        )
+
+        exit_btn = ttk.Button(
+            util_buttons, text="Exit", command=self._graceful_exit, style="Danger.TButton"
+        )
+        exit_btn.pack(side=tk.LEFT)
+        self._attach_tooltip(exit_btn, "Gracefully stop background work and close StableNew.")
+
 
         # Reparent early log panel to bottom_frame
         # (log_panel was created early in __init__ to avoid AttributeError)
@@ -1627,6 +1695,13 @@ class StableNewGUI:
         else:
             logger.info(message)
 
+    def _attach_tooltip(self, widget: tk.Widget, text: str, delay: int = 1500) -> None:
+        """Attach a tooltip to a widget if possible."""
+        try:
+            Tooltip(widget, text, delay=delay)
+        except Exception:
+            pass
+
     def _run_full_pipeline(self):
         """Run the complete pipeline"""
         if not self.api_connected:
@@ -1642,7 +1717,15 @@ class StableNewGUI:
             self.log_message("No prompt packs selected", "WARNING")
             return
 
-        self.log_message("▶️ Starting pipeline execution...", "INFO")
+        pack_summary = ", ".join(pack.name for pack in selected_packs)
+        self.log_message(
+            f"▶️ Starting pipeline execution for {len(selected_packs)} pack(s): {pack_summary}",
+            "INFO",
+        )
+        try:
+            override_mode = bool(self.override_pack_var.get())
+        except Exception:
+            override_mode = False
 
         # Snapshot Tk-backed values on the main thread (thread-safe)
         try:
@@ -1653,13 +1736,45 @@ class StableNewGUI:
             batch_size_snapshot = int(self.images_per_prompt_var.get())
         except Exception:
             batch_size_snapshot = 1
+
+        config_snapshot = config_snapshot or {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        pipeline_overrides = deepcopy(config_snapshot.get("pipeline", {}))
+        api_overrides = deepcopy(config_snapshot.get("api", {}))
+
+        def resolve_config_for_pack(pack_file: Path) -> dict[str, Any]:
+            """Return per-pack configuration honoring override mode."""
+            if override_mode:
+                return deepcopy(config_snapshot)
+
+            pack_config: dict[str, Any] = {}
+            if hasattr(self, "config_manager") and self.config_manager:
+                try:
+                    pack_config = self.config_manager.ensure_pack_config(
+                        pack_file.name, self.preset_var.get()
+                    )
+                except Exception as exc:
+                    self.log_message(
+                        f"⚠️ Failed to load config for {pack_file.name}: {exc}. Using current form values.",
+                        "WARNING",
+                    )
+
+            merged = deepcopy(pack_config) if pack_config else {}
+            if pipeline_overrides:
+                merged.setdefault("pipeline", {}).update(pipeline_overrides)
+            if api_overrides:
+                merged.setdefault("api", {}).update(api_overrides)
+
+            if merged:
+                return merged
+            return deepcopy(config_snapshot)
+
         def pipeline_func():
             cancel = self.controller.cancel_token
             session_run_dir = self.structured_logger.create_run_directory()
             self.log_message(f"📁 Session directory: {session_run_dir.name}", "INFO")
 
             total_generated = 0
-            for pack_file in selected_packs:
+            for pack_file in list(selected_packs):
                 if cancel.is_cancelled():
                     raise CancellationError("User cancelled before pack start")
                 self.log_message(f"📦 Processing pack: {pack_file.name}", "INFO")
@@ -1667,7 +1782,11 @@ class StableNewGUI:
                 if not prompts:
                     self.log_message(f"No prompts found in {pack_file.name}", "WARNING")
                     continue
-                config = config_snapshot
+                config = resolve_config_for_pack(pack_file)
+                config_mode = "override" if override_mode else "pack"
+                self.log_message(
+                    f"⚙️ Using {config_mode} configuration for {pack_file.name}", "INFO"
+                )
                 batch_size = batch_size_snapshot
 
 
@@ -1941,21 +2060,36 @@ class StableNewGUI:
         threading.Thread(target=video_thread, daemon=True).start()
 
     def _get_selected_packs(self) -> list[Path]:
-        """Get list of selected prompt pack files"""
-        selected_indices = self.packs_listbox.curselection()
-        if not selected_indices:
-            return []
+        """Resolve the currently selected prompt packs in UI order."""
+        pack_names: list[str] = []
+
+        if getattr(self, "selected_packs", None):
+            pack_names = list(dict.fromkeys(self.selected_packs))
+        elif hasattr(self, "prompt_pack_panel") and hasattr(
+            self.prompt_pack_panel, "get_selected_packs"
+        ):
+            try:
+                pack_names = list(self.prompt_pack_panel.get_selected_packs())
+            except Exception:
+                pack_names = []
+
+        if not pack_names and hasattr(self, "packs_listbox"):
+            try:
+                selected_indices = self.packs_listbox.curselection()
+                pack_names = [self.packs_listbox.get(i) for i in selected_indices]
+            except Exception:
+                pack_names = []
 
         packs_dir = Path("packs")
-        selected_packs = []
-
-        for index in selected_indices:
-            pack_name = self.packs_listbox.get(index)
+        resolved: list[Path] = []
+        for pack_name in pack_names:
             pack_path = packs_dir / pack_name
             if pack_path.exists():
-                selected_packs.append(pack_path)
+                resolved.append(pack_path)
+            else:
+                self.log_message(f"⚠️ Pack not found on disk: {pack_path}", "WARNING")
 
-        return selected_packs
+        return resolved
 
     def _open_output_folder(self):
         """Open the output folder"""

@@ -50,7 +50,7 @@ class TestConfigMetaUpdates:
         scheduler_widget = self.config_panel.txt2img_widgets.get("scheduler")
         if scheduler_widget is not None:
             values = scheduler_widget["values"]
-            assert "normal" in values or "karras" in values
+            assert "Normal" in values or "Karras" in values
 
     def test_set_upscaler_options_enables_combo(self):
         """Test that set_upscaler_options enables combo when values present."""
@@ -140,7 +140,10 @@ class TestConfigMetaUpdates:
                 )
                 self.root.after(0, partial(self.config_panel.set_vae_options, list(self.vae_names)))
 
-        mock_gui = MockGUI(self.config_panel)
+        try:
+            mock_gui = MockGUI(self.config_panel)
+        except tk.TclError:
+            pytest.skip("Tk/Tcl unavailable for mock GUI")
 
         metadata = {
             "schedulers": ["normal", "karras"],
