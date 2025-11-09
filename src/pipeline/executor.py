@@ -39,6 +39,8 @@ class Pipeline:
         self.progress_controller = None
         self._current_model: str | None = None
         self._current_vae: str | None = None
+        self._current_hypernetwork: str | None = None
+        self._current_hn_strength: float | None = None
 
     def set_progress_controller(self, controller: Any | None) -> None:
         """Attach a progress reporting controller."""
@@ -65,6 +67,46 @@ class Pipeline:
                 self._current_vae = vae_name
         except Exception:
             self._current_vae = None
+            raise
+
+    def _ensure_hypernetwork(self, name: str | None, strength: float | None) -> None:
+        """
+        Ensure the requested hypernetwork (and optional strength) is active.
+
+        Args:
+            name: Hypernetwork name or None/"None" to disable.
+            strength: Optional strength override.
+        """
+
+        normalized = None
+        if isinstance(name, str) and name.strip():
+            candidate = name.strip()
+            if candidate.lower() != "none":
+                normalized = candidate
+
+        target_strength = float(strength) if strength is not None else None
+
+        if (
+            normalized == self._current_hypernetwork
+            and (
+                (target_strength is None and self._current_hn_strength is None)
+                or (
+                    target_strength is not None
+                    and self._current_hn_strength is not None
+                    and abs(self._current_hn_strength - target_strength) < 1e-3
+                )
+            )
+        ):
+            return
+
+        try:
+            self.client.set_hypernetwork(normalized, target_strength)
+            self._current_hypernetwork = normalized
+            self._current_hn_strength = target_strength
+        except Exception:
+            # Reset cached state so future attempts are not skipped
+            self._current_hypernetwork = None
+            self._current_hn_strength = None
             raise
 
     def _load_image_base64(self, path: Path) -> str | None:
@@ -169,6 +211,52 @@ class Pipeline:
             pass
 
         return cfg
+
+    def _annotate_active_variant(
+        self,
+        config: dict[str, Any],
+        variant_index: int,
+        variant_label: str | None,
+    ) -> None:
+        """Record the active variant inside the pipeline config for downstream consumers."""
+
+        pipeline_cfg = config.setdefault("pipeline", {})
+        if variant_label or variant_index:
+            pipeline_cfg["active_variant"] = {
+                "index": variant_index,
+                "label": variant_label,
+            }
+        else:
+            pipeline_cfg.pop("active_variant", None)
+
+    @staticmethod
+    def _tag_variant_metadata(
+        metadata: dict[str, Any] | None,
+        variant_index: int,
+        variant_label: str | None,
+    ) -> dict[str, Any] | None:
+        """Attach variant context to stage metadata dictionaries."""
+
+        if not isinstance(metadata, dict):
+            return metadata
+        metadata["variant"] = {
+            "index": variant_index,
+            "label": variant_label,
+        }
+        return metadata
+
+    @staticmethod
+    def _build_variant_suffix(variant_index: int, variant_label: str | None) -> str:
+        """Return a filesystem-safe suffix for the active variant."""
+
+        slug = ""
+        if variant_label:
+            slug = re.sub(r"[^A-Za-z0-9]+", "-", variant_label).strip("-").lower()
+        if slug:
+            return f"_{slug}"
+        if variant_index:
+            return f"_v{variant_index + 1:02d}"
+        return ""
 
     def _parse_sampler_config(self, config: dict[str, Any]) -> dict[str, str]:
         """
@@ -959,6 +1047,8 @@ class Pipeline:
         run_dir: Path,
         prompt_index: int = 0,
         batch_size: int = 1,
+        variant_index: int = 0,
+        variant_label: str | None = None,
     ) -> dict[str, Any]:
         """
         Run pipeline for a single prompt from a pack with new directory structure.
@@ -970,6 +1060,8 @@ class Pipeline:
             run_dir: Main session run directory
             prompt_index: Index of prompt within pack
             batch_size: Number of images to generate
+            variant_index: Index of the active model/hypernetwork variant (0-based)
+            variant_label: Human readable label for the active variant
 
         Returns:
             Pipeline results for this prompt
@@ -997,6 +1089,7 @@ class Pipeline:
 
         # Normalize config for this run (disable conflicting hires, normalize scheduler casing)
         config = self._normalize_config_for_pipeline(config)
+        self._annotate_active_variant(config, variant_index, variant_label)
 
         # Emit a concise summary of stage parameters for this pack
         try:
@@ -1020,7 +1113,8 @@ class Pipeline:
             # Calculate global image number for this pack
             image_number = (prompt_index * batch_size) + batch_idx + 1
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            image_name = f"{image_number:03d}_{timestamp}"
+            variant_suffix = self._build_variant_suffix(variant_index, variant_label)
+            image_name = f"{image_number:03d}_{timestamp}{variant_suffix}"
 
             # Step 1: txt2img
             txt2img_dir = pack_dir / "txt2img"
@@ -1033,6 +1127,7 @@ class Pipeline:
             )
 
             if txt2img_meta:
+                txt2img_meta = self._tag_variant_metadata(txt2img_meta, variant_index, variant_label)
                 results["txt2img"].append(txt2img_meta)
 
                 # Step 2: img2img cleanup (if enabled)
@@ -1046,6 +1141,9 @@ class Pipeline:
                         image_name,  # Use same base name
                     )
                     if img2img_meta:
+                        img2img_meta = self._tag_variant_metadata(
+                            img2img_meta, variant_index, variant_label
+                        )
                         results["img2img"].append(img2img_meta)
                         last_image_path = img2img_meta["path"]
                     else:
@@ -1066,6 +1164,9 @@ class Pipeline:
                         pack_dir,
                     )
                     if adetailer_meta:
+                        adetailer_meta = self._tag_variant_metadata(
+                            adetailer_meta, variant_index, variant_label
+                        )
                         results["adetailer"].append(adetailer_meta)
                         last_image_path = adetailer_meta["path"]
 
@@ -1079,6 +1180,9 @@ class Pipeline:
                         image_name,  # Use same base name
                     )
                     if upscaled_meta:
+                        upscaled_meta = self._tag_variant_metadata(
+                            upscaled_meta, variant_index, variant_label
+                        )
                         results["upscaled"].append(upscaled_meta)
                         final_image_path = upscaled_meta["path"]
                     else:
@@ -1095,6 +1199,10 @@ class Pipeline:
                     "prompt": prompt,
                     "final_image": final_image_path,
                     "steps_completed": [],
+                    "variant": {
+                        "index": variant_index,
+                        "label": variant_label,
+                    },
                 }
 
                 if txt2img_meta:
@@ -1157,6 +1265,11 @@ class Pipeline:
             vae_name = txt2img_config.get("vae")
             if model_name or vae_name:
                 self._ensure_model_and_vae(model_name, vae_name)
+
+            self._ensure_hypernetwork(
+                txt2img_config.get("hypernetwork"),
+                txt2img_config.get("hypernetwork_strength"),
+            )
 
             # Parse sampler configuration for this stage
             sampler_config = self._parse_sampler_config(txt2img_config)
@@ -1293,6 +1406,11 @@ class Pipeline:
             vae_name = config.get("vae")
             if model_name or vae_name:
                 self._ensure_model_and_vae(model_name, vae_name)
+
+            self._ensure_hypernetwork(
+                config.get("hypernetwork"),
+                config.get("hypernetwork_strength"),
+            )
 
             # Build img2img payload
             # Combine negative prompt with optional adjustments

@@ -56,7 +56,7 @@ neg: blurred details, distorted anatomy, bad metal texture, fake reflections
 
 # 7. The Sapphire Maiden
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-female maiden, olive skin, curly black hair, light blue eyes, youthful beauty, full figured, large bust, small waist, hourglass figure
+female maiden, olive skin, curly black hair, light blue eyes, youthful beauty, large bust, small waist, hourglass figure
 wearing royal blue gown with silver embroidery, standing in flower-filled castle courtyard, soft daylight, painterly realism, serene expression
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands>

@@ -26,6 +26,7 @@ class PreferencesManager:
         "images_per_prompt": 1,
         "model_matrix": [],
         "hypernetworks": [],
+        "variant_mode": "fanout",
     }
 
     def __init__(self, path: str | Path | None = None):

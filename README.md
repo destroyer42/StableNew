@@ -106,8 +106,8 @@ Control pipeline stages by setting flags in your configuration:
 - **Modern GUI**: Dark-themed Tkinter interface with component-based architecture
 - **Component Architecture**: 
   - Prompt Pack Panel - Multi-select with custom list management
-  - Pipeline Controls Panel - Stage toggles, loop config, batch settings
-  - Config Panel - Enhanced tabs with validation and new features
+  - Pipeline Controls Panel - Loop config, batch settings, and API options
+  - Tabbed Config Center - Pipeline, img2img, ADetailer, Upscale, Randomization, and General tabs each with inline help and per-stage toggles
   - API Status Panel - Color-coded connection indicator
   - Log Panel - Thread-safe live logging with Python integration
 - **Real-time State Feedback**: Status bar shows pipeline state (Idle/Running/Stopping/Error)
@@ -117,6 +117,7 @@ Control pipeline stages by setting flags in your configuration:
 - **ADetailer Panel**: Enable/disable targeted face & hand fixes with per-model prompts, confidence, steps, and denoise tuning
 - **Interactive Config**: Real-time configuration editing with pack-specific overrides
 - **Next Run Summaries**: Inline indicators beneath the configuration panel mirror the exact steps/samplers/denoise values that will be sent for txt2img, img2img, and upscale stages
+- **Adaptive Hypernetworks**: Both txt2img and img2img tabs expose hypernetwork dropdowns plus strength sliders for quick weighting
 - **Pack Management**: Dynamic prompt pack selection with status indicators
 - **Configuration Override**: Apply current settings across multiple packs
 - **Smart Sampler Handling**: Proper sampler/scheduler separation (no more warnings!)

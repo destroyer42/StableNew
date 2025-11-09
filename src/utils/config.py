@@ -119,6 +119,8 @@ class ConfigManager:
                 "clip_skip": 2,  # CLIP layers to skip
                 "model": "",  # SD model checkpoint (empty = use current)
                 "vae": "",  # VAE model (empty = use model default)
+                "hypernetwork": "None",
+                "hypernetwork_strength": 1.0,
                 "styles": [],  # Style names to apply
             },
             "img2img": {
@@ -131,6 +133,8 @@ class ConfigManager:
                 "clip_skip": 2,
                 "model": "",  # SD model checkpoint (empty = use current)
                 "vae": "",  # VAE model (empty = use model default)
+                "hypernetwork": "None",
+                "hypernetwork_strength": 1.0,
                 "prompt_adjust": "",
                 "negative_adjust": "",
             },
@@ -160,6 +164,28 @@ class ConfigManager:
             },
             "video": {"fps": 24, "codec": "libx264", "quality": "medium"},
             "api": {"base_url": "http://127.0.0.1:7860", "timeout": 300},
+            "randomization": {
+                "enabled": False,
+                "prompt_sr": {
+                    "enabled": False,
+                    "mode": "random",
+                    "rules": [],
+                    "raw_text": "",
+                },
+                "wildcards": {
+                    "enabled": False,
+                    "mode": "random",
+                    "tokens": [],
+                    "raw_text": "",
+                },
+                "matrix": {
+                    "enabled": False,
+                    "mode": "fanout",
+                    "limit": 8,
+                    "slots": [],
+                    "raw_text": "",
+                },
+            },
         }
 
     def resolve_config(

@@ -14,6 +14,8 @@ class DummyPipeline:
         run_dir,
         prompt_index,
         batch_size,
+        variant_index=0,
+        variant_label=None,
     ):
         self.calls.append(
             {
@@ -22,6 +24,8 @@ class DummyPipeline:
                 "config": config,
                 "batch_size": batch_size,
                 "run_dir": run_dir,
+                "variant_index": variant_index,
+                "variant_label": variant_label,
             }
         )
         return {"summary": [{"pack": pack_name, "prompt": prompt}]}
@@ -86,3 +90,53 @@ def test_multiple_pipeline_runs_use_current_preset(tmp_path, monkeypatch, minima
         ("heroes.txt", "preset_B"),
         ("villains.txt", "preset_B"),
     ]
+
+
+def test_variant_plan_runs_each_combo(tmp_path, monkeypatch, minimal_gui_app):
+    """Pipeline should fan-out variant combinations across prompts."""
+
+    pack = tmp_path / "packs" / "combo.txt"
+    pack.parent.mkdir(parents=True, exist_ok=True)
+    pack.write_text("prompt block", encoding="utf-8")
+
+    monkeypatch.setattr(minimal_gui_app, "_get_selected_packs", lambda: [pack])
+    monkeypatch.setattr(
+        "src.gui.main_window.read_prompt_pack",
+        lambda _path: [{"positive": "variant prompt"}],
+    )
+
+    pipeline = DummyPipeline()
+    minimal_gui_app.pipeline = pipeline
+
+    minimal_gui_app._get_config_from_forms = lambda: {
+        "txt2img": {"model": "base_model"},
+        "img2img": {"model": "base_model"},
+        "pipeline": {
+            "model_matrix": ["modelA", "modelB"],
+            "hypernetworks": [{"name": "HN1", "strength": 0.5}],
+            "variant_mode": "fanout",
+            "img2img_enabled": True,
+            "upscale_enabled": True,
+        },
+    }  # type: ignore
+    minimal_gui_app.images_per_prompt_var.set("1")
+
+    def fake_start(pipeline_func, on_complete=None, on_error=None):
+        try:
+            result = pipeline_func()
+            if on_complete:
+                on_complete(result)
+        except Exception as exc:  # pragma: no cover - mirrors controller contract
+            if on_error:
+                on_error(exc)
+            else:
+                raise
+        return True
+
+    minimal_gui_app.controller.start_pipeline = fake_start  # type: ignore[assignment]
+
+    minimal_gui_app._run_full_pipeline()
+
+    assert len(pipeline.calls) == 2
+    variant_indices = [call["variant_index"] for call in pipeline.calls]
+    assert variant_indices == [0, 1]
