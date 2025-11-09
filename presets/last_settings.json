@@ -8,21 +8,22 @@
     "txt2img_enabled": true,
     "img2img_enabled": false,
     "adetailer_enabled": true,
-    "upscale_enabled": true,
+    "upscale_enabled": false,
     "video_enabled": false,
     "loop_type": "single",
     "loop_count": 1,
     "pack_mode": "selected",
     "images_per_prompt": 1,
     "model_matrix": [],
-    "hypernetworks": []
+    "hypernetworks": [],
+    "variant_mode": "fanout"
   },
   "config": {
     "txt2img": {
       "steps": 30,
       "cfg_scale": 6.0,
-      "width": 1024,
-      "height": 1024,
+      "width": 768,
+      "height": 896,
       "sampler_name": "DPM++ 2M",
       "scheduler": "Karras",
       "seed": -1,
@@ -30,12 +31,14 @@
       "model": "juggernautXL_ragnarokBy.safetensors [dd08fa32f9]",
       "vae": "",
       "negative_prompt": "blurry, bad quality, distorted, ugly, malformed",
+      "hypernetwork": "None",
+      "hypernetwork_strength": 1.0,
       "enable_hr": true,
       "hr_scale": 2.0,
       "hr_upscaler": "R-ESRGAN 4x+",
       "denoising_strength": 0.2,
-      "hires_steps": 15,
-      "face_restoration_enabled": false,
+      "hires_steps": 12,
+      "face_restoration_enabled": true,
       "face_restoration_model": "GFPGAN",
       "face_restoration_weight": 0.5
     },
@@ -49,6 +52,8 @@
       "clip_skip": 2,
       "model": "juggernautXL_ragnarokBy.safetensors [dd08fa32f9]",
       "vae": "",
+      "hypernetwork": "None",
+      "hypernetwork_strength": 1.0,
       "prompt_adjust": "",
       "negative_adjust": ""
     },
@@ -71,12 +76,16 @@
     "pipeline": {
       "txt2img_enabled": true,
       "img2img_enabled": false,
-      "upscale_enabled": true,
+      "adetailer_enabled": true,
+      "upscale_enabled": false,
       "video_enabled": false,
       "loop_type": "single",
       "loop_count": 1,
       "pack_mode": "selected",
-      "images_per_prompt": 1
+      "images_per_prompt": 1,
+      "model_matrix": [],
+      "hypernetworks": [],
+      "variant_mode": "fanout"
     },
     "adetailer": {
       "adetailer_enabled": true,
