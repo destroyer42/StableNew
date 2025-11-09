@@ -20,6 +20,7 @@ from ..utils import ConfigManager, PreferencesManager, StructuredLogger, setup_l
 from ..utils.file_io import get_prompt_packs, read_prompt_pack
 from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
 from .advanced_prompt_editor import AdvancedPromptEditor
+from .adetailer_config_panel import ADetailerConfigPanel
 from .api_status_panel import APIStatusPanel
 from .config_panel import ConfigPanel
 from .controller import PipelineController
@@ -515,8 +516,54 @@ class StableNewGUI:
         self.api_vars = self.config_panel.api_vars
         self.config_status_label = self.config_panel.config_status_label
 
+        # Live “next run” summary indicators
+        try:
+            summary_frame = ttk.LabelFrame(
+                center_panel, text="Next Run Summary", style="Dark.TFrame", padding=5
+            )
+            summary_frame.pack(fill=tk.X, padx=5, pady=(6, 2))
+
+            self.txt2img_summary_var = getattr(self, "txt2img_summary_var", tk.StringVar(value=""))
+            self.img2img_summary_var = getattr(self, "img2img_summary_var", tk.StringVar(value=""))
+            self.upscale_summary_var = getattr(self, "upscale_summary_var", tk.StringVar(value=""))
+
+            ttk.Label(
+                summary_frame,
+                textvariable=self.txt2img_summary_var,
+                style="Dark.TLabel",
+                font=("Consolas", 9),
+            ).pack(anchor=tk.W, pady=1)
+            ttk.Label(
+                summary_frame,
+                textvariable=self.img2img_summary_var,
+                style="Dark.TLabel",
+                font=("Consolas", 9),
+            ).pack(anchor=tk.W, pady=1)
+            ttk.Label(
+                summary_frame,
+                textvariable=self.upscale_summary_var,
+                style="Dark.TLabel",
+                font=("Consolas", 9),
+            ).pack(anchor=tk.W, pady=1)
+
+            self._attach_summary_traces()
+            self._update_live_config_summary()
+        except Exception:
+            pass
+
         # Pipeline controls in right panel
         self._build_pipeline_controls_panel(right_panel)
+        self._build_adetailer_panel(right_panel)
+
+    def _build_adetailer_panel(self, parent):
+        """Build the optional ADetailer configuration panel."""
+        try:
+            self.adetailer_panel = ADetailerConfigPanel(parent)
+            self.adetailer_panel.frame.configure(style="Dark.TFrame")
+            self.adetailer_panel.frame.pack(fill=tk.X, padx=5, pady=(5, 0))
+        except Exception as exc:
+            logger.warning("Failed to initialize ADetailer panel: %s", exc)
+            self.adetailer_panel = None
 
     def _build_pipeline_controls_panel(self, parent):
         """Build compact pipeline controls panel using PipelineControlsPanel component, with state restore."""
@@ -1570,6 +1617,12 @@ class StableNewGUI:
         if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
             try:
                 config["pipeline"] = self.pipeline_controls_panel.get_settings()
+            except Exception:
+                pass
+
+        if hasattr(self, "adetailer_panel") and self.adetailer_panel is not None:
+            try:
+                config["adetailer"] = self.adetailer_panel.get_config()
             except Exception:
                 pass
 
@@ -3300,6 +3353,8 @@ class StableNewGUI:
         try:
             if hasattr(self, "config_panel"):
                 self.config_panel.set_config(config)
+            if hasattr(self, "adetailer_panel") and self.adetailer_panel:
+                self.adetailer_panel.set_config(config.get("adetailer", {}))
         except Exception as e:
             self.log_message(f"Error loading config into forms: {e}", "ERROR")
 

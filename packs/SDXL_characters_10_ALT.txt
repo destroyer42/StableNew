@@ -28,7 +28,7 @@ neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical e
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality, 8k, HDR) cinematic portrait, accurate anatomy, realistic hands, expressive lighting
-Silverwind archer, sleek armor, moonlight edge light, fingers on bowstring, focused eyes
+Silverwind archer, sleek armor, beautiful face, large bust, moonlight edge light, one hand on bow with arrow knocked, other hand on bowstring drawing back arrow, focused eyes
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg> <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils
@@ -42,7 +42,7 @@ neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical e
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality, 8k, HDR) cinematic portrait, accurate anatomy, realistic hands, expressive lighting
-Twilight Oracle, half-shadow face, glowing irises, palm near cheek, tranquil aura
+Twilight Oracle, half-shadow face, bright glowing irises, tranquil aura
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg> <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils
@@ -63,7 +63,7 @@ neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical e
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality, 8k, HDR) cinematic portrait, accurate anatomy, realistic hands, expressive lighting
-Emerald Vanguard scout, hood drawn, dawn mist, bow lowered, calm breath
+Emerald Vanguard scout, hood drawn, beautiful smile, mysterious eyes, dawn mist, bow lowered, calm breath
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg> <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils

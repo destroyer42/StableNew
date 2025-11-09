@@ -1,10 +1,12 @@
 {
   "preset": "default",
   "selected_packs": [
-    "heroeHers_sdxl_pack.txt",
-    "heroes_sdxl_pack.txt",
     "Juggernaut_SDXL_MedievalRealism_Pack_Hybrid.txt",
-    "portraits.txt",
+    "Juggernaut_SDXL_MedievalRealism_Pack_V1.txt",
+    "Juggernaut_SDXL_MedievalRealism_Pack_V2.txt",
+    "Juggernaut_SDXL_MedievalRealism_Pack_V3.txt",
+    "Juggernaut_SDXL_MedievalRealism_Pack_V4.txt",
+    "Juggernaut_SDXL_MedievalRealism_Pack_V5.txt",
     "SDXL_characters_10.txt",
     "SDXL_characters_10_ALT.txt",
     "SDXL_heroes_10.txt",
@@ -59,14 +61,14 @@
     "upscale": {
       "upscaler": "R-ESRGAN 4x+",
       "upscaling_resize": 2.0,
-      "upscale_mode": "single",
+      "upscale_mode": "img2img",
       "steps": 17,
       "sampler_name": "DPM++ 2M",
       "scheduler": "Karras",
-      "denoising_strength": 0.25,
-      "gfpgan_visibility": 0.2,
-      "codeformer_visibility": 0.5,
-      "codeformer_weight": 0.5
+      "denoising_strength": 0.2,
+      "gfpgan_visibility": 0.15,
+      "codeformer_visibility": 0.2,
+      "codeformer_weight": 0.2
     },
     "api": {
       "base_url": "http://127.0.0.1:7860",

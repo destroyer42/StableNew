@@ -18,6 +18,7 @@ class PipelineControlsPanel(ttk.Frame):
         return {
             "txt2img_enabled": bool(self.txt2img_enabled.get()),
             "img2img_enabled": bool(self.img2img_enabled.get()),
+            "adetailer_enabled": bool(self.adetailer_enabled.get()),
             "upscale_enabled": bool(self.upscale_enabled.get()),
             "video_enabled": bool(self.video_enabled.get()),
             "loop_type": self.loop_type_var.get(),
@@ -34,6 +35,7 @@ class PipelineControlsPanel(ttk.Frame):
         return {
             "txt2img_enabled": bool(self.txt2img_enabled.get()),
             "img2img_enabled": bool(self.img2img_enabled.get()),
+            "adetailer_enabled": bool(self.adetailer_enabled.get()),
             "upscale_enabled": bool(self.upscale_enabled.get()),
             "video_enabled": bool(self.video_enabled.get()),
             "loop_type": self.loop_type_var.get(),
@@ -52,6 +54,8 @@ class PipelineControlsPanel(ttk.Frame):
                 self.txt2img_enabled.set(bool(state["txt2img_enabled"]))
             if "img2img_enabled" in state:
                 self.img2img_enabled.set(bool(state["img2img_enabled"]))
+            if "adetailer_enabled" in state:
+                self.adetailer_enabled.set(bool(state["adetailer_enabled"]))
             if "upscale_enabled" in state:
                 self.upscale_enabled.set(bool(state["upscale_enabled"]))
             if "video_enabled" in state:
@@ -108,6 +112,7 @@ class PipelineControlsPanel(ttk.Frame):
         # Stage toggles
         self.txt2img_enabled = tk.BooleanVar(value=bool(state.get("txt2img_enabled", True)))
         self.img2img_enabled = tk.BooleanVar(value=bool(state.get("img2img_enabled", True)))
+        self.adetailer_enabled = tk.BooleanVar(value=bool(state.get("adetailer_enabled", False)))
         self.upscale_enabled = tk.BooleanVar(value=bool(state.get("upscale_enabled", True)))
         self.video_enabled = tk.BooleanVar(value=bool(state.get("video_enabled", False)))
 
@@ -160,6 +165,14 @@ class PipelineControlsPanel(ttk.Frame):
             variable=self.img2img_enabled,
             style="Dark.TCheckbutton",
             command=lambda: log_toggle("img2img_enabled", self.img2img_enabled),
+        ).pack(anchor=tk.W, pady=1)
+
+        ttk.Checkbutton(
+            stages_frame,
+            text="🖌️ ADetailer",
+            variable=self.adetailer_enabled,
+            style="Dark.TCheckbutton",
+            command=lambda: log_toggle("adetailer_enabled", self.adetailer_enabled),
         ).pack(anchor=tk.W, pady=1)
 
         ttk.Checkbutton(

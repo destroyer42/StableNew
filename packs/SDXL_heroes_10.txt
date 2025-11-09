@@ -1,26 +1,26 @@
 ﻿<embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality, 8k, HDR) character portrait, natural skin, realistic hands, clean lighting, subtle pores
-young shieldmaiden, matte steel, cloak clasp, hand resting on rim, steady gaze, 3/4 angle
+young shieldmaiden, matte steel, cloak clasp, hand resting on shield, steady gaze, 3/4 angle
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg> <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality, 8k, HDR) character portrait, natural skin, realistic hands, clean lighting, subtle pores
-battle chaplain, book and mace, gentle rim light, fingers relaxed on spine, thoughtful eyes
+battle chaplain, mace with cross, gentle rim light, fingers relaxed on spine, thoughtful eyes
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:sdxl_cyberrealistic_simpleneg-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality, 8k, HDR) character portrait, natural skin, realistic hands, clean lighting, subtle pores
-archer captain, bracer lacing, believable grip, feathered cloak, soft backlight
+archer captain, bracer lacing, bow grasped in one hand at his side, feathered cloak, soft backlight
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg> <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-(masterpiece, best quality, 8k, HDR) full-body portrait of a **female knight**, silver armor with golden inlay, sun flare behind, standing on a castle parapet, sword raised high, wind-tossed hair
+(masterpiece, best quality, 8k, HDR) full-body portrait of a beautiful **female knight**, silver armor with golden inlay, sun flare behind, standing on a castle parapet, sword raised high above, wind-tossed hair
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45>
 neg: <embedding:ac_neg1> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg>
 neg: overexposure, cartoon style, muddy lighting, crooked horizon, uneven anatomy, plastic texture, glare, soft focus, deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils
@@ -32,19 +32,19 @@ neg: <embedding:ac_neg1> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embeddin
 neg: oversharpening, stiff pose, smudged background, bad foliage detail, metallic reflections, off-color greens, deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-(masterpiece, best quality, 8k, HDR) **female sorceress**, ornate staff glowing with violet fire, floating spell sigils, ancient runic circle, wind sweeping robes, moonlit ruins backdrop
+(masterpiece, best quality, 8k, HDR) **female sorceress**, ornate staff glowing with violet fire, floating spell sigils, ancient runic circle, wind sweeping robes, moonlit ruins backdrop, mischevious look and eyes, stunningly beautiful
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45>
 neg: <embedding:ac_neg1> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils, blurred glyphs, warped hands, symmetry errors, uneven glow, low-resolution runes, plastic fabric
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-(masterpiece, best quality, 8k, HDR) **male paladin**, kneeling before cathedral altar, armor glinting with stained glass reflections, holy sword resting on stone floor, divine light through window
+(masterpiece, best quality, 8k, HDR) **male paladin**, kneeling before cathedral altar, armor glinting with stained glass reflections, holy sword resting on stone floor, divine light through window shining on him as he glows
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45>
 neg: <embedding:ac_neg1> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils, overlighting, glare, ghosting, distorted face, uneven reflections, chaotic lighting
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-(masterpiece, best quality, 8k, HDR) **female rogue**, hood up, dual daggers, alley shadows, torchlight glimmer on blades, crouched in motion, flowing cloak edges
+(masterpiece, best quality, 8k, HDR) **female rogue**, hood up, dual daggers, alley shadows, scantily dressed, torchlight glimmer on blades, crouched in motion, flowing cloak edges, alluring smile, beautiful eyes, hyperrealistic
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45>
 neg: <embedding:ac_neg1> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils ,cartoon outlines, flat lighting, misplaced highlights, disconnected limbs, background blur artifact
@@ -56,7 +56,7 @@ neg: <embedding:ac_neg1> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embeddin
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils, muddy snow, exaggerated muscles, poor depth of field, smudged frost, missing weapon detail
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-(masterpiece, best quality, 8k, HDR) **female healer**, serene expression, standing in meadow, glowing hands, golden aura, gentle bokeh, calm light over her hair and robes
+(masterpiece, best quality, 8k, HDR) **female healer**, gorgeous, feminine, serene expression, standing over sick patient on bed, glowing hands placed above the patient's chest, golden aura, gentle bokeh, calm light over her hair and robes, light streaming from hands into patient's chest
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45>
 neg: <embedding:ac_neg1> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils, overexposed glow, messy hands, smudged robe detail, poor composition, unrealistic flowers
@@ -68,7 +68,7 @@ neg: <embedding:ac_neg1> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embeddin
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils, blurry skyline, grain noise, floating objects, flame halos, missing perspective depth
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-(masterpiece, best quality, 8k, HDR) **female archer**, high cliff overlook, golden sunset sky, drawn bow, hair swept by wind, detailed armor filigree, poised for shot
+(masterpiece, best quality, 8k, HDR) **female archer**, athletic and fit, high cliff overlook, golden sunset sky, drawn bow, hair swept by wind, detailed armor filigree, poised for shot
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45>
 neg: <embedding:ac_neg1> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, rubber skin, plastic speculars, face mush, double pupils, uneven sky tones, motion blur, twisted pose, soft edges, poor string alignment

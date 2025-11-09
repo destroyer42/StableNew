@@ -955,6 +955,7 @@ class Pipeline:
             "prompt": prompt,
             "txt2img": [],
             "img2img": [],
+            "adetailer": [],
             "upscaled": [],
             "summary": [],
         }
@@ -1017,6 +1018,22 @@ class Pipeline:
                 else:
                     last_image_path = txt2img_meta["path"]
 
+                # Step 2b: adetailer (optional detail enhancer)
+                if config.get("pipeline", {}).get("adetailer_enabled", False):
+                    adetailer_cfg = dict(config.get("adetailer", {}))
+                    txt_settings = config.get("txt2img", {})
+                    adetailer_cfg.setdefault("width", txt_settings.get("width", 512))
+                    adetailer_cfg.setdefault("height", txt_settings.get("height", 512))
+                    adetailer_meta = self.run_adetailer(
+                        Path(last_image_path),
+                        prompt,
+                        adetailer_cfg,
+                        pack_dir,
+                    )
+                    if adetailer_meta:
+                        results["adetailer"].append(adetailer_meta)
+                        last_image_path = adetailer_meta["path"]
+
                 # Step 3: Upscale (if enabled)
                 if config.get("pipeline", {}).get("upscale_enabled", True):
                     upscale_dir = pack_dir / "upscaled"
@@ -1049,6 +1066,8 @@ class Pipeline:
                     summary_entry["steps_completed"].append("txt2img")
                 if results["img2img"] and len(results["img2img"]) > batch_idx:
                     summary_entry["steps_completed"].append("img2img")
+                if results["adetailer"] and len(results["adetailer"]) > batch_idx:
+                    summary_entry["steps_completed"].append("adetailer")
                 if results["upscaled"] and len(results["upscaled"]) > batch_idx:
                     summary_entry["steps_completed"].append("upscaled")
 

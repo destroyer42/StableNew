@@ -69,6 +69,7 @@ The architecture emphasizes:
 
 - **Automated Workflow**: txt2img → img2img cleanup → upscale → video creation
 - **Flexible Stage Control**: Skip img2img or upscale stages as needed via configuration
+- **Optional ADetailer Pass**: Face/hand repair between img2img and upscale using YOLO/MediaPipe detection models
 - **SDXL Support**: Optimized presets and configurations for SDXL models
 - **Advanced Integrations**: Embeddings, LORAs, and custom model support
 - **Global NSFW Prevention**: Automatic negative prompt enhancement for all generations
@@ -80,16 +81,24 @@ Control pipeline stages by setting flags in your configuration:
 ```json
 {
   "pipeline": {
-    "img2img_enabled": false,  // Skip img2img cleanup stage
-    "upscale_enabled": true     // Keep upscale enabled
+    "img2img_enabled": false,    // Skip img2img cleanup stage
+    "adetailer_enabled": true,   // Run ADetailer face/hand fixer
+    "upscale_enabled": true      // Keep upscale enabled
   }
 }
 ```
 
 **Stage Combinations**
-- `txt2img → img2img → upscale` (all stages, default)
+- `txt2img → img2img → ADetailer → upscale` (all stages, default)
 - `txt2img → upscale` (skip img2img for faster results)
 - `txt2img → img2img` (skip upscale to save time)
+
+### Upscale modes and performance
+
+- **Single (Extras) mode**: Uses the WebUI Extras API for fast resizing. Ideal for quick output, no SD sampler settings involved.
+- **img2img mode**: Reruns Stable Diffusion at the upscaled resolution so it honors `steps`, `denoising_strength`, sampler, and scheduler from the Upscale tab. This is much heavier (e.g., a 2× upscale turns 1024² into 2048²) and can take several times longer than txt2img.
+- **Progress bars**: WebUI’s console still shows the tiled-upscaler progress (often `4/4` or `36/36`). That counter is the number of tiles, not our requested `steps`. Check the CLI log line `upscale(img2img) params => …` or the `*_upscale.json` manifest to confirm the real step count.
+- **Troubleshooting**: If img2img upscaling appears “stuck”, verify GPU VRAM, lower `upscaling_resize`, or temporarily switch back to Single mode.
 - `txt2img` only (fastest, just generation)
 
 ### User Interface
@@ -104,7 +113,10 @@ Control pipeline stages by setting flags in your configuration:
 - **Real-time State Feedback**: Status bar shows pipeline state (Idle/Running/Stopping/Error)
 - **Responsive Controls**: Stop button for graceful cancellation at any pipeline stage
 - **Advanced Prompt Editor**: Integrated editor with validation, model discovery, and real-time stats
+  - Reopening the editor while it is already visible now reloads whatever pack is currently selected in the main GUI
+- **ADetailer Panel**: Enable/disable targeted face & hand fixes with per-model prompts, confidence, steps, and denoise tuning
 - **Interactive Config**: Real-time configuration editing with pack-specific overrides
+- **Next Run Summaries**: Inline indicators beneath the configuration panel mirror the exact steps/samplers/denoise values that will be sent for txt2img, img2img, and upscale stages
 - **Pack Management**: Dynamic prompt pack selection with status indicators
 - **Configuration Override**: Apply current settings across multiple packs
 - **Smart Sampler Handling**: Proper sampler/scheduler separation (no more warnings!)

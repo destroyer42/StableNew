@@ -146,6 +146,18 @@ class ConfigManager:
                 "codeformer_visibility": 0.0,  # Face restoration alternative
                 "codeformer_weight": 0.5,  # CodeFormer fidelity
             },
+            "adetailer": {
+                "adetailer_enabled": False,
+                "adetailer_model": "face_yolov8n.pt",
+                "adetailer_confidence": 0.3,
+                "adetailer_mask_feather": 4,
+                "adetailer_sampler": "DPM++ 2M",
+                "adetailer_steps": 28,
+                "adetailer_denoise": 0.4,
+                "adetailer_cfg": 7.0,
+                "adetailer_prompt": "",
+                "adetailer_negative_prompt": "",
+            },
             "video": {"fps": 24, "codec": "libx264", "quality": "medium"},
             "api": {"base_url": "http://127.0.0.1:7860", "timeout": 300},
         }
