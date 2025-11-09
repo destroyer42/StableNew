@@ -24,6 +24,8 @@ class PreferencesManager:
         "loop_count": 1,
         "pack_mode": "selected",
         "images_per_prompt": 1,
+        "model_matrix": [],
+        "hypernetworks": [],
     }
 
     def __init__(self, path: str | Path | None = None):

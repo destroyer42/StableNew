@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Live “Next Run Summary” indicators beneath the configuration panel with automatic trace updates (`src/gui/main_window.py`).
 - GUI regression tests covering Advanced Prompt Editor hot-reload behavior and summary text (`tests/gui/test_editor_and_summary.py`).
 - ADetailer stage restored with a dedicated configuration panel, pipeline toggle, StructuredLogger folder, and orchestration logic (`src/gui/adetailer_config_panel.py`, `src/gui/main_window.py`, `src/gui/pipeline_controls_panel.py`, `src/pipeline/executor.py`).
+- Pipeline throughput optimizations: model/VAE caching + base64 read cache, plus regression test coverage (`tests/test_pipeline_throughput.py`).
 - **Stage Chooser Modal** (`src/gui/stage_chooser.py`):
   - Non-blocking per-image modal for choosing next pipeline stage
   - Options: img2img, ADetailer, upscale, or skip

@@ -5,12 +5,19 @@ import logging
 import re
 import time
 from datetime import datetime
+from functools import lru_cache
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..api import SDWebUIClient
 from ..utils import ConfigManager, StructuredLogger, load_image_to_base64, save_image_from_base64
+
+
+@lru_cache(maxsize=128)
+def _cached_image_base64(path_str: str) -> str | None:
+    """LRU cache for recently loaded images to cut down disk reads."""
+    return load_image_to_base64(Path(path_str))
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +37,39 @@ class Pipeline:
         self.logger = structured_logger
         self.config_manager = ConfigManager()  # For global negative prompt handling
         self.progress_controller = None
+        self._current_model: str | None = None
+        self._current_vae: str | None = None
 
     def set_progress_controller(self, controller: Any | None) -> None:
         """Attach a progress reporting controller."""
 
         self.progress_controller = controller
+
+    # ------------------------------------------------------------------
+    # Internal helpers for throughput improvements
+    # ------------------------------------------------------------------
+
+    def _ensure_model_and_vae(self, model_name: str | None, vae_name: str | None) -> None:
+        """Only call into WebUI when the requested weights change."""
+        try:
+            if model_name and model_name != self._current_model:
+                self.client.set_model(model_name)
+                self._current_model = model_name
+        except Exception:
+            self._current_model = None
+            raise
+
+        try:
+            if vae_name and vae_name != self._current_vae:
+                self.client.set_vae(vae_name)
+                self._current_vae = vae_name
+        except Exception:
+            self._current_vae = None
+            raise
+
+    def _load_image_base64(self, path: Path) -> str | None:
+        """Load images through the shared cache to avoid redundant disk IO."""
+        return _cached_image_base64(str(path))
 
     def run_upscale(
         self,
@@ -580,7 +615,7 @@ class Pipeline:
         logger.info(f"Starting ADetailer for: {input_image_path.name}")
 
         # Load input image
-        init_image = load_image_to_base64(input_image_path)
+        init_image = self._load_image_base64(input_image_path)
         if not init_image:
             logger.error("Failed to load input image")
             return None
@@ -1119,10 +1154,9 @@ class Pipeline:
 
             # Set model and VAE if specified
             model_name = txt2img_config.get("model") or txt2img_config.get("sd_model_checkpoint")
-            if model_name:
-                self.client.set_model(model_name)
-            if txt2img_config.get("vae"):
-                self.client.set_vae(txt2img_config["vae"])
+            vae_name = txt2img_config.get("vae")
+            if model_name or vae_name:
+                self._ensure_model_and_vae(model_name, vae_name)
 
             # Parse sampler configuration for this stage
             sampler_config = self._parse_sampler_config(txt2img_config)
@@ -1249,16 +1283,16 @@ class Pipeline:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             # Load input image as base64
-            input_image_b64 = load_image_to_base64(input_image_path)
+            input_image_b64 = self._load_image_base64(input_image_path)
             if not input_image_b64:
                 logger.error(f"Failed to load input image: {input_image_path}")
                 return None
 
             # Set model and VAE if specified
-            if config.get("model"):
-                self.client.set_model(config["model"])
-            if config.get("vae"):
-                self.client.set_vae(config["vae"])
+            model_name = config.get("model")
+            vae_name = config.get("vae")
+            if model_name or vae_name:
+                self._ensure_model_and_vae(model_name, vae_name)
 
             # Build img2img payload
             # Combine negative prompt with optional adjustments
@@ -1366,7 +1400,7 @@ class Pipeline:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             # Load input image as base64
-            input_image_b64 = load_image_to_base64(input_image_path)
+            input_image_b64 = self._load_image_base64(input_image_path)
             if not input_image_b64:
                 logger.error(f"Failed to load input image: {input_image_path}")
                 return None

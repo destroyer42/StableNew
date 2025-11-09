@@ -120,6 +120,7 @@ Control pipeline stages by setting flags in your configuration:
 - **Pack Management**: Dynamic prompt pack selection with status indicators
 - **Configuration Override**: Apply current settings across multiple packs
 - **Smart Sampler Handling**: Proper sampler/scheduler separation (no more warnings!)
+- **Throughput-aware caching**: Models/VAEs are only reloaded when they actually change, and repeated stages reuse cached image data to keep the pipeline flowing
 
 ### Enhanced Configuration Features
 
