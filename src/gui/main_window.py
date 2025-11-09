@@ -1740,6 +1740,10 @@ class StableNewGUI:
         config_snapshot = config_snapshot or {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
         pipeline_overrides = deepcopy(config_snapshot.get("pipeline", {}))
         api_overrides = deepcopy(config_snapshot.get("api", {}))
+        try:
+            preset_snapshot = self.preset_var.get()
+        except Exception:
+            preset_snapshot = "default"
 
         def resolve_config_for_pack(pack_file: Path) -> dict[str, Any]:
             """Return per-pack configuration honoring override mode."""
@@ -1750,7 +1754,7 @@ class StableNewGUI:
             if hasattr(self, "config_manager") and self.config_manager:
                 try:
                     pack_config = self.config_manager.ensure_pack_config(
-                        pack_file.name, self.preset_var.get()
+                        pack_file.name, preset_snapshot or "default"
                     )
                 except Exception as exc:
                     self.log_message(

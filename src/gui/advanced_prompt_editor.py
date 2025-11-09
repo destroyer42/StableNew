@@ -73,6 +73,11 @@ class AdvancedPromptEditor:
         """Open the advanced prompt pack editor"""
         if self.window and self.window.winfo_exists():
             self.window.lift()
+            if pack_path:
+                try:
+                    self._load_pack(Path(pack_path))
+                except Exception:
+                    pass
             return
 
         # Always use main Tk root as parent for Toplevel
@@ -106,7 +111,13 @@ class AdvancedPromptEditor:
         style.configure("Dark.TFrame", background="#2b2b2b")
         style.configure("Dark.TLabel", background="#2b2b2b", foreground="white")
         style.configure("Dark.TButton", background="#404040", foreground="white")
-        style.configure("Dark.TEntry", background="#3d3d3d", foreground="white")
+        style.configure(
+            "Dark.TEntry",
+            background="#3d3d3d",
+            fieldbackground="#3d3d3d",
+            foreground="white",
+            insertcolor="#ffffff",
+        )
         style.configure("Dark.TCombobox", background="#3d3d3d", foreground="white")
         style.configure("Dark.TNotebook", background="#2b2b2b")
         style.configure("Dark.TNotebook.Tab", background="#404040", foreground="white")

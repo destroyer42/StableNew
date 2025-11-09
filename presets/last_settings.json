@@ -1,10 +1,10 @@
 {
   "preset": "default",
   "selected_packs": [
-    "Abethkara.txt",
     "heroeHers_sdxl_pack.txt",
     "heroes_sdxl_pack.txt",
     "Juggernaut_SDXL_MedievalRealism_Pack_Hybrid.txt",
+    "portraits.txt",
     "SDXL_characters_10.txt",
     "SDXL_characters_10_ALT.txt",
     "SDXL_heroes_10.txt",
@@ -62,7 +62,7 @@
       "upscale_mode": "single",
       "steps": 17,
       "sampler_name": "DPM++ 2M",
-      "scheduler": "karras",
+      "scheduler": "Karras",
       "denoising_strength": 0.25,
       "gfpgan_visibility": 0.2,
       "codeformer_visibility": 0.5,
