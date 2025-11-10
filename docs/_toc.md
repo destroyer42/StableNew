@@ -9,7 +9,7 @@
 ### Architecture & Design
 - [ARCHITECTURE](../ARCHITECTURE.md) - System architecture, pipeline flow, and GUI state machine
 - [GUI Revamp Summary](GUI_REVAMP_SUMMARY.md) - GUI component architecture and refactoring details
-- [Refactor Plan](refactor_plan_main_window_gui_20251102_postAgent.md) - Detailed plan for main_window.py refactoring
+- [Sprint Summary (PR F–H)](SPRINT_SUMMARY_PR_F-H.md) - Recent UX polish and threading work
 
 ### Configuration & Testing
 - [Configuration Testing Guide](CONFIGURATION_TESTING_GUIDE.md) - Testing configuration changes and presets
@@ -53,10 +53,12 @@ StableNew/
 └── docs/
     ├── _toc.md                  # This file
     ├── GUI_REVAMP_SUMMARY.md    # GUI refactoring overview
-    ├── refactor_plan_main_window_gui_20251102_postAgent.md
     ├── CONFIGURATION_TESTING_GUIDE.md
     ├── PROJECT_REORGANIZATION_SUMMARY.md
     └── LAUNCHERS.md
+
+### Archived Records
+- `docs/archive/refactor_plan_main_window_gui_20251102_postAgent_OLD.md` — superseded refactor plan (kept for historical reference)
 ```
 
 ## Component Documentation

@@ -23,6 +23,7 @@ Everything is designed to be **reproducible, inspectable, and testable** — no 
   - [Core Pipeline](#core-pipeline)
   - [User Interface](#user-interface)
   - [Enhanced Configuration Features](#enhanced-configuration-features)
+  - [Randomization & Aesthetic Controls](#randomization--aesthetic-controls)
   - [Technical Features](#technical-features)
   - [Content Creation](#content-creation)
 - [Requirements](#requirements)
@@ -69,6 +70,7 @@ The architecture emphasizes:
 
 - **Automated Workflow**: txt2img → img2img cleanup → upscale → video creation
 - **Flexible Stage Control**: Skip img2img or upscale stages as needed via configuration
+- **Optional ADetailer Pass**: Face/hand repair between img2img and upscale using YOLO/MediaPipe detection models
 - **SDXL Support**: Optimized presets and configurations for SDXL models
 - **Advanced Integrations**: Embeddings, LORAs, and custom model support
 - **Global NSFW Prevention**: Automatic negative prompt enhancement for all generations
@@ -80,16 +82,24 @@ Control pipeline stages by setting flags in your configuration:
 ```json
 {
   "pipeline": {
-    "img2img_enabled": false,  // Skip img2img cleanup stage
-    "upscale_enabled": true     // Keep upscale enabled
+    "img2img_enabled": false,    // Skip img2img cleanup stage
+    "adetailer_enabled": true,   // Run ADetailer face/hand fixer
+    "upscale_enabled": true      // Keep upscale enabled
   }
 }
 ```
 
 **Stage Combinations**
-- `txt2img → img2img → upscale` (all stages, default)
+- `txt2img → img2img → ADetailer → upscale` (all stages, default)
 - `txt2img → upscale` (skip img2img for faster results)
 - `txt2img → img2img` (skip upscale to save time)
+
+### Upscale modes and performance
+
+- **Single (Extras) mode**: Uses the WebUI Extras API for fast resizing. Ideal for quick output, no SD sampler settings involved.
+- **img2img mode**: Reruns Stable Diffusion at the upscaled resolution so it honors `steps`, `denoising_strength`, sampler, and scheduler from the Upscale tab. This is much heavier (e.g., a 2× upscale turns 1024² into 2048²) and can take several times longer than txt2img.
+- **Progress bars**: WebUI’s console still shows the tiled-upscaler progress (often `4/4` or `36/36`). That counter is the number of tiles, not our requested `steps`. Check the CLI log line `upscale(img2img) params => …` or the `*_upscale.json` manifest to confirm the real step count.
+- **Troubleshooting**: If img2img upscaling appears “stuck”, verify GPU VRAM, lower `upscaling_resize`, or temporarily switch back to Single mode.
 - `txt2img` only (fastest, just generation)
 
 ### User Interface
@@ -97,35 +107,49 @@ Control pipeline stages by setting flags in your configuration:
 - **Modern GUI**: Dark-themed Tkinter interface with component-based architecture
 - **Component Architecture**: 
   - Prompt Pack Panel - Multi-select with custom list management
-  - Pipeline Controls Panel - Stage toggles, loop config, batch settings
-  - Config Panel - Enhanced tabs with validation and new features
+  - Pipeline Controls Panel - Loop config, batch settings, and API options
+  - Tabbed Config Center - Pipeline, img2img, ADetailer, Upscale, Randomization, and General tabs each with inline help and per-stage toggles
   - API Status Panel - Color-coded connection indicator
+- **Stage Chooser Modal**: After txt2img finishes you can pick img2img, ADetailer, upscale, or skip per image without blocking the Tk loop
+- **Randomization & Aesthetic Gradient Tab**: Prompt S/R, wildcards, prompt matrices, and the Aesthetic Gradient controls (script or fallback mode) all live in one place. Embedding lists refresh automatically from your WebUI extension folder so you can pick a gradient embedding, tweak weight/steps/lr, flip between script and prompt injection, and persist everything per preset/pack.
   - Log Panel - Thread-safe live logging with Python integration
 - **Real-time State Feedback**: Status bar shows pipeline state (Idle/Running/Stopping/Error)
 - **Responsive Controls**: Stop button for graceful cancellation at any pipeline stage
 - **Advanced Prompt Editor**: Integrated editor with validation, model discovery, and real-time stats
+  - Reopening the editor while it is already visible now reloads whatever pack is currently selected in the main GUI
+- **ADetailer Panel**: Enable/disable targeted face & hand fixes with per-model prompts, confidence, steps, and denoise tuning
 - **Interactive Config**: Real-time configuration editing with pack-specific overrides
+- **Next Run Summaries**: Inline indicators beneath the configuration panel mirror the exact steps/samplers/denoise values that will be sent for txt2img, img2img, and upscale stages
+- **Adaptive Hypernetworks**: Both txt2img and img2img tabs expose hypernetwork dropdowns plus strength sliders for quick weighting
 - **Pack Management**: Dynamic prompt pack selection with status indicators
 - **Configuration Override**: Apply current settings across multiple packs
 - **Smart Sampler Handling**: Proper sampler/scheduler separation (no more warnings!)
+- **Throughput-aware caching**: Models/VAEs are only reloaded when they actually change, and repeated stages reuse cached image data to keep the pipeline flowing
 
 ### Enhanced Configuration Features
 
-- **Hires Fix Steps**: Control second-pass steps independently with `hires_steps` parameter
-- **Expanded Dimensions**: Width/Height support up to 2260px with validation warnings
-- **Face Restoration**: Optional GFPGAN/CodeFormer integration
-  - Toggle-based UI with automatic control visibility
-  - Model selection (GFPGAN or CodeFormer)
-  - Adjustable restoration weight (0.0-1.0)
-- **Dimension Validation**: Real-time bounds checking with user-friendly warnings
+- **Hires Fix Steps**: Separate hires-fix step count with validation
+- **Face Restoration**: Toggleable GFPGAN/CodeFormer controls shared across stages
+- **Dimension Bounds**: Width/Height up to 2260px with inline warnings
+- **Config Panel API**: `get_config()`, `set_config()`, and `validate()` for automation
+
+### Randomization & Aesthetic Controls
+
+- **Prompt S/R Rules**: `search => optionA | optionB` syntax with random or round-robin selection
+- **Wildcards**: AUTOMATIC1111-style `__token__` replacements with random or sequential modes
+- **Prompt Matrix Slots**: `[[Slot]]` tokens can fan out all combinations or rotate per prompt with a safety cap
+- **Aesthetic Gradient**: Script mode feeds the WebUI extension (weight/steps/lr/slerp/embedding); fallback mode injects text + embedding tokens directly into prompts
+- **Persistent Presets**: Randomization + aesthetic settings are stored in presets, pack overrides, and preferences
 
 ### Technical Features
 
-- **API Integration**: Built-in readiness checks and auto-discovery for SD WebUI API
-- **Structured Logging**: JSON manifests per image and CSV rollup summaries
-- **UTF-8 Support**: Full international character support for prompts and filenames
-- **Modular Architecture**: Clean separation for easy maintenance and expansion
-- **Comprehensive Testing**: `pytest` suite with journey tests for full validation
+- **Structured Logger**: JSON manifest per image + CSV rollups per run
+- **Config Manager**: Default/preset/pack override resolution with validation
+- **State Manager**: GUI state transitions (IDLE → RUNNING → STOPPING) with cancel tokens
+- **Pipeline Controller**: Async execution with cooperative cancellation hooks
+- **Variant Scheduler**: Fan-out or rotate combinations of models/hypernetworks along with prompt randomization labels in the logs
+- **Prompt Randomizer Engine**: Applies Prompt S/R, wildcards, matrices, and aesthetic fallbacks before the pipeline, emitting labels for manifests/logs
+- **Tests**: 190+ pytest cases spanning GUI, pipeline, and integration journeys
 
 ### Content Creation
 

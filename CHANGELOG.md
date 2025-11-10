@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Regression tests for upscale “single” and “img2img” modes to ensure payload steps/denoise values stay in sync with the UI (`tests/pipeline/test_upscale_stage.py`).
+- README documentation covering upscale mode behavior, performance trade-offs, and the WebUI progress-bar discrepancy.
+- Integration test covering consecutive pipeline runs and preset snapshots (`tests/gui/test_pipeline_runs.py`).
+- Live “Next Run Summary” indicators beneath the configuration panel with automatic trace updates (`src/gui/main_window.py`).
+- Hypernetwork dropdowns now mirror the WebUI inventory with on-connect refresh plus executor-level enforcement/logging so per-stage selections are honored (`src/api/client.py`, `src/gui/main_window.py`, `src/gui/config_panel.py`, `src/pipeline/executor.py`).
+- Randomization tab with Prompt S/R, wildcard, and matrix editors plus parsing helpers and persistence hooks to prep Phase 3 prompt variation work (`src/gui/main_window.py`, `src/utils/config.py`, `tests/gui/test_randomization_parsing.py`).
+- Aesthetic Gradient controls with script/fallback modes, embedding refresh, and executor payload injection (including tests and docs) so runs can call the WebUI “Aesthetic embeddings” extension directly (`src/gui/main_window.py`, `src/utils/config.py`, `src/pipeline/executor.py`, `tests/pipeline/test_aesthetic_integration.py`, `README.md`).
+- Pipeline variant scheduler supporting fan-out or rotate-per-prompt execution of model × hypernetwork matrices, including a reusable planner module and regression tests (`src/gui/main_window.py`, `src/gui/pipeline_controls_panel.py`, `src/pipeline/variant_planner.py`, `tests/gui/test_pipeline_runs.py`, `tests/pipeline/test_variant_planner.py`).
+- GUI regression tests covering Advanced Prompt Editor hot-reload behavior and summary text (`tests/gui/test_editor_and_summary.py`).
+- ADetailer stage restored with a dedicated configuration panel, pipeline toggle, StructuredLogger folder, and orchestration logic (`src/gui/adetailer_config_panel.py`, `src/gui/main_window.py`, `src/gui/pipeline_controls_panel.py`, `src/pipeline/executor.py`).
+- Pipeline throughput optimizations: model/VAE caching + base64 read cache, plus regression test coverage (`tests/test_pipeline_throughput.py`).
+- Reorganized the central configuration UI into Pipeline/ADetailer/Randomization/General tabs with info boxes and embedded pipeline controls (`src/gui/main_window.py`).
+- Stage toggles now live at the top of their respective tabs, and txt2img/img2img gained hypernetwork dropdowns with strength sliders (`src/gui/config_panel.py`).
 - **Stage Chooser Modal** (`src/gui/stage_chooser.py`):
   - Non-blocking per-image modal for choosing next pipeline stage
   - Options: img2img, ADetailer, upscale, or skip

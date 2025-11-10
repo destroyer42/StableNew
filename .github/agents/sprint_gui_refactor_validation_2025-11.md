@@ -1,88 +1,254 @@
 ---
-name: gui_refactor_validation_agent.md
-description: Fixing the previously made changes
+name: stabilization-and-ux-agent.md
+description: addressing the findings of the audit
 ---
 
-# My Agent
+
 **Role**  
-You are a senior Python/Tk engineer maintaining the StableNew GUI application (A1111 automation: txt2img → img2img/ADetailer → upscale → video). Work occurs on the `postGemini` branch. All edits must keep the UI responsive, use cooperative cancel, preserve backwards compatibility, and pass all tests.
 
-**Stack**  
-Python 3.11 · Tkinter/ttk (+ ttkbootstrap optional) · threads + `queue.Queue` · FFmpeg (CLI) · requests · pytest · ruff · black · mypy · pre-commit · xvfb for headless GUI tests
+Agent: Stabilization & UX Reliability
 
----
+Purpose
 
-## Sprint Objectives (Nov 2025)
-1. Finish `main_window.py` integration with `StateManager`, `GUIState`, `PipelineController`, and `CancelToken` so **Stop works** and UI stays responsive.  
-2. Execute refactor plan: extract `PromptPackPanel`, `PipelineControlsPanel`, `ConfigPanel`, `APIStatusPanel`, `LogPanel` behind a Mediator (`StableNewGUI`).  
-3. Validate/fix untested GUI behaviors and regressions in Advanced Prompt Editor.  
-4. Complete missing features + config:
-   - HR second-pass steps (`hires_steps`)
-   - max size ≤ **2260** (warn on low VRAM)
-   - optional Face Restoration (GFPGAN/CodeFormer weights)
-   - **ADetailer** as optional stage (replace/parallel to img2img)
-   - **Per-image Stage Chooser** after txt2img (img2img / ADetailer / upscale / none + re-tune)
-   - Editor UX fixes (`status_text`, name prefixing, angle-brackets tolerance, Global Negative default shown/saved, Save-All overwrite/new combo)
-5. Resolve **all** test failures (including legacy logger/structured_logger) and bring CI green.  
-6. Update README/ARCHITECTURE and in-app **Help**.
+Execute a focused set of stability/UX PRs: enforce coverage threshold in CI, route archive log writes through the canonical proxy, introduce headless-safe dialogs.py and migrate direct dialog calls, and make API retries cancel-aware. Keep diffs small, safe, and well-tested.
 
----
+Scope / Files
 
-## Work Sequence (PR A–I)
+CI: .github/workflows/ci.yml
 
-| ID | Focus | Key Tests |
-|:--|:--|:--|
-| **A** | Extract `PromptPackPanel` | `tests/gui/test_prompt_pack_panel.py` |
-| **B** | Extract `PipelineControlsPanel` | `tests/gui/test_pipeline_controls_panel.py` |
-| **C** | Extract `ConfigPanel` **+** add `hires_steps`, 2260 bound, face restoration | `tests/gui/test_config_panel.py` |
-| **D** | `APIStatusPanel` + `LogPanel` (with logging handler) | `tests/gui/test_api_status_panel.py`, `tests/gui/test_log_panel.py` |
-| **E** | Coordinator wiring + **real Stop** (cooperative cancel) | GUI smoke tests (headless Tk) |
-| **F** | **Per-image Stage Chooser** (non-blocking modal) | `tests/gui/test_stage_chooser.py` |
-| **G** | Advanced Prompt Editor fixes | `tests/editor/test_advanced_prompt_editor_regressions.py` |
-| **H** | **ADetailer** stage integration | config schema + mocked API tests |
-| **I** | Fix legacy tests + Docs/CI polish | full `pytest -q` + CI |
+GUI: src/gui/main_window.py, src/gui/dialogs.py (new), any GUI file using messagebox/filedialog
 
----
+API client: src/api/client.py
 
-## Coding Standards
+Tests: tests/gui/**, existing suites; add/update minimal stubs only if needed
 
-- **No blocking calls** on Tk mainloop (`after()`, threads + queues only).  
-- **CancelToken** checked at every stage boundary and within long loops.  
-- **Type hints + docstrings** on all public methods.  
-- **Structured logging** (INFO/WARN/ERR) to Log Panel and file.  
-- **Backwards-compatible configs**: load old schemas; add defaults for new fields.  
-- **TDD**: each feature ships with unit + integration tests.  
-- **Docs updated** (README, ARCHITECTURE, CHANGELOG, Help dialog).
+
+Guardrails
+
+No behavior changes to pipeline logic or defaults.
+
+Tk main thread non-blocking (no join() in GUI/tests).
+
+Headless-safe: dialogs must no-op in CI; GUI tests skip cleanly if Tk/display missing.
+
+Small PRs with conventional commits and green CI.
+
+Use package imports (no sys.path hacks; no from … import *).
+
+Keep changes self-contained; do not introduce new dependencies.
+
+
+Success Criteria (Definition of Done)
+
+CI fails if coverage falls below the floor (initially 75%).
+
+Archive log viewer writes via self.add_log (fallback guarded).
+
+All direct messagebox/filedialog usages replaced with src.gui.dialogs wrappers; tests can stub them.
+
+_request() in src/api/client.py can abort between retries when cancel_token is set.
+
+pre-commit and pytest pass locally and in CI.
+
+
 
 ---
 
-## Definition of Done
+Plan of Execution (4 PRs, smallest first)
 
-- **Stop** works across all stages without freeze; state/progress bars accurate.  
-- **Editor** stable; name prefix applied; angle-bracket validation tolerant; global negative saved.  
-- **ADetailer** configurable and cancel-safe.  
-- **Per-image Stage Chooser** branches as expected; **non-blocking**.  
-- **CI** (ruff/black/mypy/pytest/pre-commit) passes on PRs to `postGemini` and `main`.
+PR #1 — CI coverage floor
+
+Change: Add --cov-fail-under=75 to pytest step in Linux/Xvfb job.
+
+File: .github/workflows/ci.yml
+
+Diff (conceptual):
+
+pytest --cov=src --cov-report=xml --cov-report=term-missing --cov-fail-under=75 -q
+
+
+Commit: ci: enforce coverage floor to prevent regressions
+
+PR #2 — Route archive log through proxy
+
+Change: In src/gui/main_window.py, replace any archive-viewer direct self.log_text writes with:
+
+_add = getattr(self, "add_log", None)
+if callable(_add):
+    _add(message, "INFO")
+elif getattr(self, "log_text", None) is not None:
+    self.log_text.config(state=tk.NORMAL)
+    self.log_text.insert(tk.END, message + "\n")
+    self.log_text.see(tk.END)
+    self.log_text.config(state=tk.DISABLED)
+
+Commit: fix(gui): route archive viewer logs through proxy
+
+PR #3 — Introduce dialogs wrapper & migrate calls
+
+Add: src/gui/dialogs.py (headless-safe wrappers)
+
+from __future__ import annotations
+import os
+try:
+    from tkinter import filedialog, messagebox  # type: ignore
+except Exception:
+    filedialog = None; messagebox = None
+
+def _headless() -> bool:
+    return (os.name != "nt" and not os.getenv("DISPLAY")) or messagebox is None or filedialog is None
+
+def show_error(title: str, message: str, **kw) -> None:
+    if not _headless(): messagebox.showerror(title, message, **kw)
+
+def show_warning(title: str, message: str, **kw) -> None:
+    if not _headless(): messagebox.showwarning(title, message, **kw)
+
+def show_info(title: str, message: str, **kw) -> None:
+    if not _headless(): messagebox.showinfo(title, message, **kw)
+
+def ask_open_filename(**kw) -> str:
+    return "" if _headless() else filedialog.askopenfilename(**kw)
+
+def ask_open_filenames(**kw) -> tuple[str, ...]:
+    return tuple() if _headless() else filedialog.askopenfilenames(**kw)
+
+def ask_save_as_filename(**kw) -> str:
+    return "" if _headless() else filedialog.asksaveasfilename(**kw)
+
+def ask_directory(**kw) -> str:
+    return "" if _headless() else filedialog.askdirectory(**kw)
+
+def show_pipeline_error(error: Exception, stage: str = "") -> None:
+    title = f"Pipeline Error{' - ' + stage if stage else ''}"
+    msg = f"{error}\n\nThe pipeline has been stopped.\nCheck the log panel for details.\n\nRecovery: Verify API connection and try again."
+    show_error(title, msg)
+
+Migrate: In GUI code, replace:
+
+from tkinter import messagebox, filedialog → from src.gui import dialogs
+
+messagebox.showerror(...) → dialogs.show_error(...)
+
+filedialog.askdirectory(...) → dialogs.ask_directory(...) …and so on for show_info, show_warning, ask_*.
+
+
+Tests (if needed): in tests/gui/conftest.py, autouse stub:
+
+@pytest.fixture(autouse=True)
+def stub_dialogs(monkeypatch):
+    from src.gui import dialogs
+    for name, ret in [
+        ("show_error", None), ("show_warning", None), ("show_info", None),
+        ("ask_open_filename", ""), ("ask_open_filenames", tuple()),
+        ("ask_save_as_filename", ""), ("ask_directory", "")
+    ]:
+        monkeypatch.setattr(dialogs, name, (lambda *a, **k: ret), raising=False)
+
+Commit: feat(gui): add dialog wrappers and migrate calls for testability
+
+PR #4 — Cancel-aware API retries (optional, fast)
+
+Change: In src/api/client.py _request(), accept cancel_token and abort between retries:
+
+def _request(self, method: str, endpoint: str, ..., backoff_factor: float|None=None, cancel_token=None):
+    for attempt in range(self.max_retries + 1):
+        try:
+            ...
+        except Exception:
+            if attempt < self.max_retries:
+                if cancel_token and getattr(cancel_token, "is_set", lambda: False)():
+                    raise
+                delay = self._calculate_backoff(attempt, backoff_factor)
+                time.sleep(delay)
+                continue
+            raise
+
+Wire cancel_token from callers as available. Commit: feat(api): make retries cancel-aware
+
 
 ---
 
-## Branch Policy & Commands
+How to Work (Agent Routine)
 
-- Target branch: **`postGemini`** (never commit directly to `main`).  
-- Create feature branches per task: `copilot/<short>`, `codex/<short>`.
+1) Branching
 
-**Before pushing a PR:**
-```
+Create a branch per PR from postGemini (or MajorRefactor if that’s the active integration branch):
+
+ci/coverage-floor-75
+
+fix/gui-archive-log-proxy
+
+feat/gui-dialog-wrappers-migration
+
+feat/api-cancel-aware-retries
+
+
+2) Local checks
+
 pre-commit run --all-files
 pytest -q
-```
-Open PRs against `postGemini` with tests and docs updated.
+pytest -k "gui or error or backoff" -q
+
+3) PR Titles & Body
+
+Use the commit messages above as PR titles.
+
+Body: 1–3 bullets (what changed, why, testing).
+
+
+4) Acceptance gates
+
+CI green (Linux: Xvfb; Windows as configured).
+
+No new flake/mypy/ruff violations.
+
+No behavior change to pipeline defaults.
+
+
 
 ---
 
-## Session Bridge (paste into Copilot/Codex at start)
+Reporting Format (post-run)
 
-> Use this agent file and the sprint objectives above.  
-> Target `postGemini` (or a feature branch off it).  
-> Keep Tk non-blocking, honor CancelToken, preserve config compatibility.  
-> Update tests and docs; run `pytest -q` and `pre-commit` before opening a PR.
+Return a concise markdown summary:
+
+# Stabilization & UX Reliability — PR Summary
+- PR #1 (CI coverage floor): merged ✔ | floor: 75%
+- PR #2 (archive log proxy): merged ✔ | touched: src/gui/main_window.py
+- PR #3 (dialogs wrapper+migration): open ⏳ | migrated N call sites
+- PR #4 (cancel-aware retries): merged ✔ | wired from controller: yes/no
+
+## Test results
+- pre-commit: passed
+- pytest: ### passed, ### skipped, ### failed (list failures if any)
+
+## Notes/Risks
+- [itemized]
+
+
+---
+
+Quick Commands (Windows-friendly)
+
+:: after each PR
+pre-commit run --all-files
+pytest -q
+git add -A
+git commit -m "..."
+git push -u origin <branch>
+
+
+---
+
+Out of Scope
+
+Major UI redesigns (beyond dialog indirection & log proxy).
+
+Business-logic changes, parameter defaults, or model selection.
+
+New dependencies or build steps.
+
+
+
+---

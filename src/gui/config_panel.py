@@ -10,6 +10,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any, Iterable
 
+from .adetailer_config_panel import ADetailerConfigPanel
+
 logger = logging.getLogger(__name__)
 
 # Constants for dimension bounds
@@ -54,12 +56,46 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_widgets: dict[str, tk.Widget] = {}
         self.img2img_widgets: dict[str, tk.Widget] = {}
         self.upscale_widgets: dict[str, tk.Widget] = {}
+        self.adetailer_panel: ADetailerConfigPanel | None = None
 
         # Face restoration widgets (for show/hide)
         self.face_restoration_widgets: list[tk.Widget] = []
+        self._scheduler_options = [
+            "Normal",
+            "Karras",
+            "Exponential",
+            "Polyexponential",
+            "SGM Uniform",
+            "Simple",
+            "DDIM Uniform",
+            "Beta",
+            "Linear",
+            "Cosine",
+        ]
 
         # Build UI
         self._build_ui()
+
+    def _normalize_scheduler_value(self, value: str | None) -> str:
+        mapping = {
+            "normal": "Normal",
+            "karras": "Karras",
+            "exponential": "Exponential",
+            "polyexponential": "Polyexponential",
+            "sgm_uniform": "SGM Uniform",
+            "sgm uniform": "SGM Uniform",
+            "simple": "Simple",
+            "ddim_uniform": "DDIM Uniform",
+            "ddim uniform": "DDIM Uniform",
+            "beta": "Beta",
+            "linear": "Linear",
+            "cosine": "Cosine",
+        }
+        if not value:
+            return "Normal"
+        normalized = str(value).strip()
+        return mapping.get(normalized.lower(), normalized)
+
 
     def _build_ui(self):
         """Build the panel UI."""
@@ -86,6 +122,7 @@ class ConfigPanel(ttk.Frame):
         # Create individual tabs
         self._build_txt2img_tab()
         self._build_img2img_tab()
+        self._build_adetailer_tab()
         self._build_upscale_tab()
         self._build_api_tab()
 
@@ -108,9 +145,15 @@ class ConfigPanel(ttk.Frame):
         tab = ttk.Frame(self.notebook, style="Dark.TFrame")
         self.notebook.add(tab, text="🎨 txt2img")
 
-        # Create scrollable container
-        canvas = tk.Canvas(tab, bg="#2b2b2b", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=canvas.yview)
+        toggle_var = getattr(self.coordinator, "txt2img_enabled", None)
+        self._add_stage_toggle(tab, "Enable txt2img stage", toggle_var)
+        ttk.Separator(tab, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=(0, 5))
+
+        container = ttk.Frame(tab, style="Dark.TFrame")
+        container.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(container, bg="#2b2b2b", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas, style="Dark.TFrame")
 
         scrollable_frame.bind(
@@ -129,31 +172,31 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_vars["width"] = tk.IntVar(value=512)
         self.txt2img_vars["height"] = tk.IntVar(value=512)
         self.txt2img_vars["sampler_name"] = tk.StringVar(value="Euler a")
-        self.txt2img_vars["scheduler"] = tk.StringVar(value="normal")
+        self.txt2img_vars["scheduler"] = tk.StringVar(value="Normal")
         self.txt2img_vars["seed"] = tk.IntVar(value=-1)
         self.txt2img_vars["clip_skip"] = tk.IntVar(value=2)
         self.txt2img_vars["model"] = tk.StringVar(value="")
         self.txt2img_vars["vae"] = tk.StringVar(value="")
         self.txt2img_vars["negative_prompt"] = tk.StringVar(value="")
+        self.txt2img_vars["hypernetwork"] = tk.StringVar(value=self._get_hypernetwork_options()[0])
+        self.txt2img_vars["hypernetwork_strength"] = tk.DoubleVar(value=1.0)
 
         # Hires fix
         self.txt2img_vars["enable_hr"] = tk.BooleanVar(value=False)
         self.txt2img_vars["hr_scale"] = tk.DoubleVar(value=2.0)
         self.txt2img_vars["hr_upscaler"] = tk.StringVar(value="Latent")
         self.txt2img_vars["denoising_strength"] = tk.DoubleVar(value=0.7)
-        self.txt2img_vars["hires_steps"] = tk.IntVar(value=0)  # NEW: hires_steps
+        self.txt2img_vars["hires_steps"] = tk.IntVar(value=0)
 
-        # Face restoration (NEW)
+        # Face restoration
         self.txt2img_vars["face_restoration_enabled"] = tk.BooleanVar(value=False)
         self.txt2img_vars["face_restoration_model"] = tk.StringVar(value="GFPGAN")
         self.txt2img_vars["face_restoration_weight"] = tk.DoubleVar(value=0.5)
 
-        # Basic settings section
         basic_frame = ttk.LabelFrame(scrollable_frame, text="Basic Settings", padding=10)
         basic_frame.pack(fill=tk.X, padx=10, pady=5)
 
         row = 0
-        # Steps
         ttk.Label(basic_frame, text="Steps:").grid(row=row, column=0, sticky=tk.W, pady=2)
         steps_spin = ttk.Spinbox(
             basic_frame, from_=1, to=150, textvariable=self.txt2img_vars["steps"], width=15
@@ -162,7 +205,6 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_widgets["steps"] = steps_spin
         row += 1
 
-        # CFG Scale
         ttk.Label(basic_frame, text="CFG Scale:").grid(row=row, column=0, sticky=tk.W, pady=2)
         cfg_spin = ttk.Spinbox(
             basic_frame,
@@ -174,7 +216,6 @@ class ConfigPanel(ttk.Frame):
         )
         cfg_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.txt2img_widgets["cfg_scale"] = cfg_spin
-        row += 1
 
         # Dimensions section with bounds warning
         dim_frame = ttk.LabelFrame(scrollable_frame, text="Image Dimensions", padding=10)
@@ -238,7 +279,7 @@ class ConfigPanel(ttk.Frame):
         scheduler_combo = ttk.Combobox(
             sampler_frame,
             textvariable=self.txt2img_vars["scheduler"],
-            values=["normal", "karras", "exponential", "sgm_uniform"],
+            values=self._scheduler_options,
             state="readonly",
             width=13,
         )
@@ -269,6 +310,8 @@ class ConfigPanel(ttk.Frame):
         vae_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.txt2img_widgets["vae"] = vae_combo
         row += 1
+
+        self._build_hypernetwork_section(scrollable_frame, self.txt2img_vars, "txt2img")
 
         # Hires fix section
         hires_frame = ttk.LabelFrame(scrollable_frame, text="Hires Fix", padding=10)
@@ -391,23 +434,44 @@ class ConfigPanel(ttk.Frame):
         tab = ttk.Frame(self.notebook, style="Dark.TFrame")
         self.notebook.add(tab, text="🧹 img2img")
 
+        toggle_var = getattr(self.coordinator, "img2img_enabled", None)
+        self._add_stage_toggle(tab, "Enable img2img stage", toggle_var)
+        ttk.Separator(tab, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=(0, 5))
+
+        container = ttk.Frame(tab, style="Dark.TFrame")
+        container.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(container, bg="#2b2b2b")
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, style="Dark.TFrame")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollable_frame.bind(
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
         # Initialize variables
         self.img2img_vars["steps"] = tk.IntVar(value=15)
         self.img2img_vars["denoising_strength"] = tk.DoubleVar(value=0.3)
         self.img2img_vars["cfg_scale"] = tk.DoubleVar(value=7.0)
         self.img2img_vars["sampler_name"] = tk.StringVar(value="Euler a")
-        self.img2img_vars["scheduler"] = tk.StringVar(value="normal")
+        self.img2img_vars["scheduler"] = tk.StringVar(value="Normal")
         self.img2img_vars["seed"] = tk.IntVar(value=-1)
         self.img2img_vars["clip_skip"] = tk.IntVar(value=2)
         self.img2img_vars["model"] = tk.StringVar(value="")
         self.img2img_vars["vae"] = tk.StringVar(value="")
-        # Optional prompt adjustments to append during img2img stage
+        self.img2img_vars["hypernetwork"] = tk.StringVar(value=self._get_hypernetwork_options()[0])
+        self.img2img_vars["hypernetwork_strength"] = tk.DoubleVar(value=1.0)
         self.img2img_vars["prompt_adjust"] = tk.StringVar(value="")
-        # Optional negative adjustments to append to negative prompt during img2img
         self.img2img_vars["negative_adjust"] = tk.StringVar(value="")
 
         # Basic settings
-        basic_frame = ttk.LabelFrame(tab, text="img2img Settings", padding=10)
+        basic_frame = ttk.LabelFrame(scrollable_frame, text="img2img Settings", padding=10)
         basic_frame.pack(fill=tk.X, padx=10, pady=10)
 
         row = 0
@@ -461,7 +525,7 @@ class ConfigPanel(ttk.Frame):
         img_scheduler_combo = ttk.Combobox(
             basic_frame,
             textvariable=self.img2img_vars["scheduler"],
-            values=["normal", "karras", "exponential", "sgm_uniform"],
+            values=self._scheduler_options,
             state="readonly",
             width=15,
         )
@@ -493,6 +557,8 @@ class ConfigPanel(ttk.Frame):
         self.img2img_widgets["vae"] = img_vae_combo
         row += 1
 
+        self._build_hypernetwork_section(scrollable_frame, self.img2img_vars, "img2img")
+
         # Prompt adjustments (appended to positive prompt during img2img)
         ttk.Label(basic_frame, text="Prompt Adjust:").grid(row=row, column=0, sticky=tk.W, pady=2)
         img_prompt_adjust = ttk.Entry(
@@ -515,10 +581,32 @@ class ConfigPanel(ttk.Frame):
         self.img2img_widgets["negative_adjust"] = img_neg_adjust
         row += 1
 
+    def _build_adetailer_tab(self):
+        """Build ADetailer configuration tab inside the pipeline notebook."""
+        tab = ttk.Frame(self.notebook, style="Dark.TFrame")
+        self.notebook.add(tab, text="🖌️ ADetailer")
+
+        toggle_var = getattr(self.coordinator, "adetailer_enabled", None)
+        self._add_stage_toggle(tab, "Enable ADetailer stage", toggle_var)
+
+        container = ttk.Frame(tab, style="Dark.TFrame")
+        container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.adetailer_panel = ADetailerConfigPanel(container)
+        self.adetailer_panel.frame.configure(style="Dark.TFrame")
+        self.adetailer_panel.frame.pack(fill=tk.BOTH, expand=True)
+
     def _build_upscale_tab(self):
         """Build upscale configuration tab."""
         tab = ttk.Frame(self.notebook, style="Dark.TFrame")
         self.notebook.add(tab, text="📈 Upscale")
+
+        toggle_var = getattr(self.coordinator, "upscale_enabled", None)
+        self._add_stage_toggle(tab, "Enable upscale stage", toggle_var)
+        ttk.Separator(tab, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=(0, 5))
+
+        container = ttk.Frame(tab, style="Dark.TFrame")
+        container.pack(fill=tk.BOTH, expand=True)
 
         # Initialize variables
         self.upscale_vars["upscaler"] = tk.StringVar(value="R-ESRGAN 4x+")
@@ -526,14 +614,14 @@ class ConfigPanel(ttk.Frame):
         self.upscale_vars["upscale_mode"] = tk.StringVar(value="single")
         self.upscale_vars["steps"] = tk.IntVar(value=20)  # Used when Upscale runs via img2img
         self.upscale_vars["sampler_name"] = tk.StringVar(value="Euler a")
-        self.upscale_vars["scheduler"] = tk.StringVar(value="normal")
+        self.upscale_vars["scheduler"] = tk.StringVar(value="Normal")
         self.upscale_vars["denoising_strength"] = tk.DoubleVar(value=0.2)
         self.upscale_vars["gfpgan_visibility"] = tk.DoubleVar(value=0.0)
         self.upscale_vars["codeformer_visibility"] = tk.DoubleVar(value=0.0)
         self.upscale_vars["codeformer_weight"] = tk.DoubleVar(value=0.5)
 
         # Settings
-        settings_frame = ttk.LabelFrame(tab, text="Upscale Settings", padding=10)
+        settings_frame = ttk.LabelFrame(container, text="Upscale Settings", padding=10)
         settings_frame.pack(fill=tk.X, padx=10, pady=10)
 
         row = 0
@@ -616,7 +704,7 @@ class ConfigPanel(ttk.Frame):
         up_scheduler_combo = ttk.Combobox(
             settings_frame,
             textvariable=self.upscale_vars["scheduler"],
-            values=["normal", "karras", "exponential", "sgm_uniform"],
+            values=self._scheduler_options,
             state="readonly",
             width=15,
         )
@@ -751,7 +839,7 @@ class ConfigPanel(ttk.Frame):
                 "width": 512,
                 "height": 512,
                 "sampler_name": "Euler a",
-                "scheduler": "normal",
+                "scheduler": "Normal",
                 "seed": -1,
                 "clip_skip": 2,
                 "model": "",
@@ -771,7 +859,7 @@ class ConfigPanel(ttk.Frame):
                 "denoising_strength": 0.3,
                 "cfg_scale": 7.0,
                 "sampler_name": "Euler a",
-                "scheduler": "normal",
+                "scheduler": "Normal",
                 "seed": -1,
                 "clip_skip": 2,
                 "model": "",
@@ -819,6 +907,15 @@ class ConfigPanel(ttk.Frame):
         for key, var in self.api_vars.items():
             config["api"][key] = var.get()
 
+        # Normalize scheduler casing before returning
+        for section in ("txt2img", "img2img", "upscale"):
+            sec = config.get(section)
+            if isinstance(sec, dict) and "scheduler" in sec:
+                try:
+                    sec["scheduler"] = self._normalize_scheduler_value(sec.get("scheduler"))
+                except Exception:
+                    pass
+
         return config
 
     def _ensure_save_indicator(self) -> None:
@@ -833,6 +930,81 @@ class ConfigPanel(ttk.Frame):
             self._save_indicator.pack(side=tk.LEFT, padx=(8, 0))
         except Exception:
             pass
+
+    def _add_stage_toggle(self, parent: tk.Widget, label: str, variable: tk.BooleanVar | None) -> None:
+        """Add a stage enable checkbox to the provided container."""
+        if not isinstance(variable, tk.BooleanVar):
+            return
+        frame = ttk.Frame(parent, style="Dark.TFrame")
+        frame.pack(fill=tk.X, padx=10, pady=(5, 4))
+        ttk.Checkbutton(
+            frame,
+            text=label,
+            variable=variable,
+            style="Dark.TCheckbutton",
+        ).pack(anchor=tk.W)
+
+    def _build_hypernetwork_section(
+        self, parent: tk.Widget, var_dict: dict[str, tk.Variable], stage_name: str
+    ) -> None:
+        """Shared hypernetwork dropdown + strength slider."""
+        options = self._get_hypernetwork_options()
+        if "hypernetwork" not in var_dict:
+            var_dict["hypernetwork"] = tk.StringVar(value=options[0])
+        if "hypernetwork_strength" not in var_dict:
+            var_dict["hypernetwork_strength"] = tk.DoubleVar(value=1.0)
+
+        frame = ttk.LabelFrame(parent, text="Hypernetwork", padding=10)
+        frame.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Label(frame, text="Hypernetwork:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        combo = ttk.Combobox(
+            frame,
+            textvariable=var_dict["hypernetwork"],
+            values=options,
+            state="readonly",
+            width=25,
+        )
+        combo.grid(row=0, column=1, sticky=tk.W, pady=2)
+
+        widget_store = {
+            "txt2img": self.txt2img_widgets,
+            "img2img": self.img2img_widgets,
+        }.get(stage_name)
+        if widget_store is not None:
+            widget_store["hypernetwork"] = combo
+
+        ttk.Label(frame, text="Strength:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        value_label = ttk.Label(frame, text=f"{var_dict['hypernetwork_strength'].get():.2f}")
+        value_label.grid(row=1, column=2, sticky=tk.W, padx=(6, 0))
+        slider = ttk.Scale(
+            frame,
+            from_=0.0,
+            to=2.0,
+            orient=tk.HORIZONTAL,
+            variable=var_dict["hypernetwork_strength"],
+            length=180,
+        )
+        slider.grid(row=1, column=1, sticky=tk.W, pady=2)
+
+        def _sync_label(*_):
+            value_label.config(text=f"{var_dict['hypernetwork_strength'].get():.2f}")
+
+        var_dict["hypernetwork_strength"].trace_add("write", lambda *_: _sync_label())
+
+    def _get_hypernetwork_options(self) -> list[str]:
+        """Fetch available hypernetworks from the coordinator/pipeline."""
+        options: list[str] = []
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is not None:
+            possible = []
+            for attr in ("available_hypernetworks", "hypernetworks"):
+                value = getattr(coordinator, attr, None)
+                if isinstance(value, (list, tuple, set)):
+                    possible.extend(value)
+            if possible:
+                options = sorted({str(item) for item in possible if item})
+        return options or ["None"]
 
     def show_save_indicator(self, text: str = "Saved", duration_ms: int = 2000) -> None:
         """Show a transient indicator next to the Save button with color coding."""
@@ -892,18 +1064,24 @@ class ConfigPanel(ttk.Frame):
         if "txt2img" in config:
             for key, value in config["txt2img"].items():
                 if key in self.txt2img_vars:
+                    if key == "scheduler":
+                        value = self._normalize_scheduler_value(value)
                     self.txt2img_vars[key].set(value)
 
         # Set img2img config
         if "img2img" in config:
             for key, value in config["img2img"].items():
                 if key in self.img2img_vars:
+                    if key == "scheduler":
+                        value = self._normalize_scheduler_value(value)
                     self.img2img_vars[key].set(value)
 
         # Set upscale config
         if "upscale" in config:
             for key, value in config["upscale"].items():
                 if key in self.upscale_vars:
+                    if key == "scheduler":
+                        value = self._normalize_scheduler_value(value)
                     self.upscale_vars[key].set(value)
 
         # Set API config
@@ -1030,5 +1208,26 @@ class ConfigPanel(ttk.Frame):
 
     def set_scheduler_options(self, schedulers: Iterable[str]) -> None:
         """Update scheduler dropdowns."""
-        self._set_combobox_values(self.txt2img_widgets.get("scheduler"), schedulers)
-        self._set_combobox_values(self.img2img_widgets.get("scheduler"), schedulers)
+        normalized = [
+            self._normalize_scheduler_value(s) for s in schedulers or [] if s is not None
+        ]
+        if not normalized:
+            normalized = list(self._scheduler_options)
+        self._set_combobox_values(self.txt2img_widgets.get("scheduler"), normalized)
+        self._set_combobox_values(self.img2img_widgets.get("scheduler"), normalized)
+        self._set_combobox_values(self.upscale_widgets.get("scheduler"), normalized)
+
+    def set_hypernetwork_options(self, hypernets: Iterable[str]) -> None:
+        """Update hypernetwork dropdowns for txt2img/img2img."""
+
+        cleaned: list[str] = []
+        for entry in hypernets or []:
+            if entry is None:
+                continue
+            text = str(entry).strip()
+            if text and text not in cleaned:
+                cleaned.append(text)
+        if "None" not in cleaned:
+            cleaned.insert(0, "None")
+        self._set_combobox_values(self.txt2img_widgets.get("hypernetwork"), cleaned)
+        self._set_combobox_values(self.img2img_widgets.get("hypernetwork"), cleaned)

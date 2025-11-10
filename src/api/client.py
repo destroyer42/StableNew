@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import random
 import time
-from typing import Any
+from typing import Any, Set
 import json
 
 import requests
@@ -42,6 +42,7 @@ class SDWebUIClient:
         self.backoff_factor = max(0.0, backoff_factor)
         self.max_backoff = max(0.0, max_backoff)
         self.jitter = max(0.0, jitter)
+        self._option_keys: Set[str] | None = None
 
     def _sleep(self, duration: float) -> None:
         """Sleep helper that can be overridden in tests."""
@@ -116,6 +117,33 @@ class SDWebUIClient:
             )
 
         return None
+
+    def _option_supports(self, key: str) -> bool:
+        """Return True if the API advertises the given /options key."""
+
+        keys = self._ensure_option_keys()
+        return key in keys
+
+    def _ensure_option_keys(self) -> Set[str]:
+        """Fetch and cache the option keys from the API."""
+
+        if self._option_keys is not None:
+            return self._option_keys
+
+        response = self._perform_request("get", "/sdapi/v1/options", timeout=10)
+        if response is None:
+            self._option_keys = set()
+            return self._option_keys
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.warning(f"Failed to parse options metadata: {exc}")
+            self._option_keys = set()
+            return self._option_keys
+
+        self._option_keys = set(data.keys())
+        return self._option_keys
 
     def check_api_ready(self, max_retries: int = 5, retry_delay: float = 2.0) -> bool:
         """
@@ -421,6 +449,28 @@ class SDWebUIClient:
         logger.info("Retrieved %s upscalers", len(data))
         return data
 
+    def get_hypernetworks(self) -> list[dict[str, Any]]:
+        """
+        Get list of available hypernetworks.
+
+        Returns:
+            List of hypernetwork metadata dictionaries
+        """
+
+        response = self._perform_request("get", "/sdapi/v1/hypernetworks", timeout=10)
+        if response is None:
+            logger.warning("Failed to retrieve hypernetworks from API")
+            return []
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.error(f"Failed to parse hypernetworks response: {exc}")
+            return []
+
+        logger.info("Retrieved %s hypernetworks", len(data))
+        return data
+
     def get_schedulers(self) -> list[str]:
         """
         Get list of available schedulers.
@@ -511,6 +561,48 @@ class SDWebUIClient:
             return False
 
         logger.info(f"Set VAE to: {vae_name}")
+        return True
+
+    def set_hypernetwork(self, name: str | None, strength: float | None = None) -> bool:
+        """
+        Set the active hypernetwork (or clear it) and optional strength.
+
+        Args:
+            name: Hypernetwork name. Use None/"None" to disable.
+            strength: Optional blend strength (0.0-2.0). When omitted, WebUI default is used.
+
+        Returns:
+            True if successful
+        """
+
+        hyper_name = "None" if not name or str(name).strip().lower() in {"", "none"} else str(name)
+        payload: dict[str, Any] = {"sd_hypernetwork": hyper_name}
+
+        if strength is not None:
+            if self._option_supports("sd_hypernetwork_strength"):
+                clamped = max(0.0, min(2.0, float(strength)))
+                payload["sd_hypernetwork_strength"] = clamped
+            else:
+                logger.info("Hypernetwork strength option not supported by API; skipping strength set")
+
+        response = self._perform_request(
+            "post",
+            "/sdapi/v1/options",
+            json=payload,
+            timeout=10,
+        )
+
+        if response is None:
+            return False
+
+        if hyper_name == "None":
+            logger.info("Cleared active hypernetwork")
+        else:
+            logger.info(
+                "Set hypernetwork to %s (strength=%s)",
+                hyper_name,
+                payload.get("sd_hypernetwork_strength", "default"),
+            )
         return True
 
     def get_models_old(self) -> list[dict[str, Any]]:

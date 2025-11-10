@@ -2,6 +2,7 @@
 
 import json
 import logging
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +39,7 @@ class ConfigManager:
 
         try:
             with open(preset_path, encoding="utf-8") as f:
-                preset = json.load(f)
+                preset = self._merge_config_with_defaults(json.load(f))
             logger.info(f"Loaded preset: {name}")
             return preset
         except Exception as e:
@@ -58,8 +59,9 @@ class ConfigManager:
         """
         preset_path = self.presets_dir / f"{name}.json"
         try:
+            merged = self._merge_config_with_defaults(config)
             with open(preset_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
+                json.dump(merged, f, indent=2, ensure_ascii=False)
             logger.info(f"Saved preset: {name}")
             return True
         except Exception as e:
@@ -119,6 +121,8 @@ class ConfigManager:
                 "clip_skip": 2,  # CLIP layers to skip
                 "model": "",  # SD model checkpoint (empty = use current)
                 "vae": "",  # VAE model (empty = use model default)
+                "hypernetwork": "None",
+                "hypernetwork_strength": 1.0,
                 "styles": [],  # Style names to apply
             },
             "img2img": {
@@ -131,6 +135,8 @@ class ConfigManager:
                 "clip_skip": 2,
                 "model": "",  # SD model checkpoint (empty = use current)
                 "vae": "",  # VAE model (empty = use model default)
+                "hypernetwork": "None",
+                "hypernetwork_strength": 1.0,
                 "prompt_adjust": "",
                 "negative_adjust": "",
             },
@@ -141,13 +147,60 @@ class ConfigManager:
                 "denoising_strength": 0.35,  # For img2img-based upscaling
                 "steps": 20,
                 "sampler_name": "Euler a",
-                "scheduler": "normal",
+                "scheduler": "Normal",
                 "gfpgan_visibility": 0.0,  # Face restoration strength
                 "codeformer_visibility": 0.0,  # Face restoration alternative
                 "codeformer_weight": 0.5,  # CodeFormer fidelity
             },
+            "adetailer": {
+                "adetailer_enabled": False,
+                "adetailer_model": "face_yolov8n.pt",
+                "adetailer_confidence": 0.3,
+                "adetailer_mask_feather": 4,
+                "adetailer_sampler": "DPM++ 2M",
+                "adetailer_steps": 28,
+                "adetailer_denoise": 0.4,
+                "adetailer_cfg": 7.0,
+                "adetailer_prompt": "",
+                "adetailer_negative_prompt": "",
+            },
             "video": {"fps": 24, "codec": "libx264", "quality": "medium"},
             "api": {"base_url": "http://127.0.0.1:7860", "timeout": 300},
+            "randomization": {
+                "enabled": False,
+                "prompt_sr": {
+                    "enabled": False,
+                    "mode": "random",
+                    "rules": [],
+                    "raw_text": "",
+                },
+                "wildcards": {
+                    "enabled": False,
+                    "mode": "random",
+                    "tokens": [],
+                    "raw_text": "",
+                },
+                "matrix": {
+                    "enabled": False,
+                    "mode": "fanout",
+                    "limit": 8,
+                    "slots": [],
+                    "raw_text": "",
+                },
+            },
+            "aesthetic": {
+                "enabled": False,
+                "mode": "script",
+                "weight": 0.9,
+                "steps": 5,
+                "learning_rate": 0.0001,
+                "slerp": False,
+                "slerp_angle": 0.1,
+                "embedding": "None",
+                "text": "",
+                "text_is_negative": False,
+                "fallback_prompt": "",
+            },
         }
 
     def resolve_config(
@@ -336,7 +389,7 @@ class ConfigManager:
         Returns:
             Pack configuration
         """
-        config = self.get_pack_config(pack_name)
+        config = self._merge_config_with_defaults(self.get_pack_config(pack_name))
 
         if not config:
             # Create pack config from preset defaults
@@ -346,11 +399,11 @@ class ConfigManager:
                 logger.info(
                     f"Created pack config for '{pack_name}' based on preset '{preset_name}'"
                 )
-                return preset_config
+                return self._merge_config_with_defaults(preset_config)
             else:
                 logger.warning(f"Failed to create pack config - preset '{preset_name}' not found")
 
-        return config
+        return self._merge_config_with_defaults(config)
 
     def add_global_negative(self, negative_prompt: str) -> str:
         """
@@ -370,3 +423,16 @@ class ConfigManager:
         if negative_prompt:
             return f"{negative_prompt}, {global_neg}"
         return global_neg
+
+    def _merge_config_with_defaults(self, config: dict[str, Any] | None) -> dict[str, Any]:
+        base = self.get_default_config()
+        return self._deep_merge_dicts(base, config or {})
+
+    def _deep_merge_dicts(self, base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+        merged = deepcopy(base)
+        for key, value in (overrides or {}).items():
+            if isinstance(merged.get(key), dict) and isinstance(value, dict):
+                merged[key] = self._deep_merge_dicts(merged.get(key, {}), value)
+            else:
+                merged[key] = value
+        return merged

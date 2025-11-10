@@ -71,6 +71,7 @@ class StructuredLogger:
         # Create traditional pipeline subdirectories within pack
         (pack_dir / "txt2img").mkdir(exist_ok=True)
         (pack_dir / "img2img").mkdir(exist_ok=True)
+        (pack_dir / "adetailer").mkdir(exist_ok=True)
         (pack_dir / "upscaled").mkdir(exist_ok=True)
         (pack_dir / "video").mkdir(exist_ok=True)
         (pack_dir / "manifests").mkdir(exist_ok=True)

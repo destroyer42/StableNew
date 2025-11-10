@@ -21,7 +21,7 @@
     "steps": 17,
     "denoising_strength": 0.3,
     "sampler_name": "DPM++ 2M Karras",
-    "scheduler": "normal",
+    "scheduler": "Normal",
     "cfg_scale": 7.0,
     "seed": -1,
     "clip_skip": 2,

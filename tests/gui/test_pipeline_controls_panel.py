@@ -56,6 +56,7 @@ class TestPipelineControlsPanel(unittest.TestCase):
         self.assertEqual(settings["loop_count"], 1)
         self.assertEqual(settings["pack_mode"], "selected")
         self.assertEqual(settings["images_per_prompt"], 1)
+        self.assertEqual(settings["variant_mode"], "fanout")
 
     def test_toggle_stages(self):
         """Test toggling stage checkboxes."""
@@ -170,6 +171,9 @@ class TestPipelineControlsPanel(unittest.TestCase):
             "loop_count",
             "pack_mode",
             "images_per_prompt",
+            "model_matrix",
+            "hypernetworks",
+            "variant_mode",
         ]
         for key in required_keys:
             self.assertIn(key, settings)
@@ -239,6 +243,23 @@ class TestPipelineControlsPanel(unittest.TestCase):
         self.assertEqual(settings["loop_count"], 3)
         self.assertEqual(settings["pack_mode"], "all")
         self.assertEqual(settings["images_per_prompt"], 2)
+
+    def test_variant_matrix_parsing(self):
+        panel = PipelineControlsPanel(self.root)
+        panel.model_matrix_var.set("modelA, modelB")
+        panel.hypernetworks_var.set("HN1:0.5, HN2")
+        panel.variant_mode_var.set("rotate")
+
+        settings = panel.get_settings()
+        self.assertEqual(settings["model_matrix"], ["modelA", "modelB"])
+        self.assertEqual(
+            settings["hypernetworks"],
+            [
+                {"name": "HN1", "strength": 0.5},
+                {"name": "HN2", "strength": 1.0},
+            ],
+        )
+        self.assertEqual(settings["variant_mode"], "rotate")
 
 
 if __name__ == "__main__":

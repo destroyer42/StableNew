@@ -5,12 +5,19 @@ import logging
 import re
 import time
 from datetime import datetime
+from functools import lru_cache
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..api import SDWebUIClient
 from ..utils import ConfigManager, StructuredLogger, load_image_to_base64, save_image_from_base64
+
+
+@lru_cache(maxsize=128)
+def _cached_image_base64(path_str: str) -> str | None:
+    """LRU cache for recently loaded images to cut down disk reads."""
+    return load_image_to_base64(Path(path_str))
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +37,81 @@ class Pipeline:
         self.logger = structured_logger
         self.config_manager = ConfigManager()  # For global negative prompt handling
         self.progress_controller = None
+        self._current_model: str | None = None
+        self._current_vae: str | None = None
+        self._current_hypernetwork: str | None = None
+        self._current_hn_strength: float | None = None
 
     def set_progress_controller(self, controller: Any | None) -> None:
         """Attach a progress reporting controller."""
 
         self.progress_controller = controller
+
+    # ------------------------------------------------------------------
+    # Internal helpers for throughput improvements
+    # ------------------------------------------------------------------
+
+    def _ensure_model_and_vae(self, model_name: str | None, vae_name: str | None) -> None:
+        """Only call into WebUI when the requested weights change."""
+        try:
+            if model_name and model_name != self._current_model:
+                self.client.set_model(model_name)
+                self._current_model = model_name
+        except Exception:
+            self._current_model = None
+            raise
+
+        try:
+            if vae_name and vae_name != self._current_vae:
+                self.client.set_vae(vae_name)
+                self._current_vae = vae_name
+        except Exception:
+            self._current_vae = None
+            raise
+
+    def _ensure_hypernetwork(self, name: str | None, strength: float | None) -> None:
+        """
+        Ensure the requested hypernetwork (and optional strength) is active.
+
+        Args:
+            name: Hypernetwork name or None/"None" to disable.
+            strength: Optional strength override.
+        """
+
+        normalized = None
+        if isinstance(name, str) and name.strip():
+            candidate = name.strip()
+            if candidate.lower() != "none":
+                normalized = candidate
+
+        target_strength = float(strength) if strength is not None else None
+
+        if (
+            normalized == self._current_hypernetwork
+            and (
+                (target_strength is None and self._current_hn_strength is None)
+                or (
+                    target_strength is not None
+                    and self._current_hn_strength is not None
+                    and abs(self._current_hn_strength - target_strength) < 1e-3
+                )
+            )
+        ):
+            return
+
+        try:
+            self.client.set_hypernetwork(normalized, target_strength)
+            self._current_hypernetwork = normalized
+            self._current_hn_strength = target_strength
+        except Exception:
+            # Reset cached state so future attempts are not skipped
+            self._current_hypernetwork = None
+            self._current_hn_strength = None
+            raise
+
+    def _load_image_base64(self, path: Path) -> str | None:
+        """Load images through the shared cache to avoid redundant disk IO."""
+        return _cached_image_base64(str(path))
 
     def run_upscale(
         self,
@@ -134,6 +211,123 @@ class Pipeline:
             pass
 
         return cfg
+
+    def _apply_aesthetic_to_payload(
+        self, payload: dict[str, Any], full_config: dict[str, Any]
+    ) -> tuple[str, str]:
+        """Attach aesthetic gradient script data or fallback prompts to the payload."""
+
+        prompt = payload.get("prompt", "")
+        negative = payload.get("negative_prompt", "")
+
+        aesthetic_cfg = (full_config or {}).get("aesthetic", {})
+        if not aesthetic_cfg.get("enabled"):
+            return prompt, negative
+
+        mode = aesthetic_cfg.get("mode", "script")
+        if mode == "script":
+            script_args = self._build_aesthetic_script_args(aesthetic_cfg)
+            if script_args:
+                scripts = payload.setdefault("alwayson_scripts", {})
+                scripts["Aesthetic embeddings"] = {"args": script_args}
+            else:
+                mode = "prompt"
+
+        def append_phrase(base: str, addition: str) -> str:
+            addition = (addition or "").strip()
+            if not addition:
+                return base
+            return f"{base}, {addition}" if base else addition
+
+        if mode == "prompt":
+            text = aesthetic_cfg.get("text", "").strip()
+            if text:
+                if aesthetic_cfg.get("text_is_negative"):
+                    negative = append_phrase(negative, text)
+                else:
+                    prompt = append_phrase(prompt, text)
+
+            fallback = aesthetic_cfg.get("fallback_prompt", "").strip()
+            if fallback:
+                prompt = append_phrase(prompt, fallback)
+
+            embedding = aesthetic_cfg.get("embedding")
+            if embedding and embedding != "None":
+                prompt = append_phrase(prompt, f"<embedding:{embedding}>")
+
+        return prompt, negative
+
+    def _build_aesthetic_script_args(self, cfg: dict[str, Any]) -> list[Any] | None:
+        """Construct Always-on script args for the Aesthetic Gradient extension."""
+
+        try:
+            weight = float(cfg.get("weight", 0.9))
+        except (TypeError, ValueError):
+            weight = 0.9
+        try:
+            steps = int(cfg.get("steps", 5))
+        except (TypeError, ValueError):
+            steps = 5
+        try:
+            learning_rate = float(cfg.get("learning_rate", 0.0001))
+        except (TypeError, ValueError):
+            learning_rate = 0.0001
+        slerp = bool(cfg.get("slerp", False))
+        embedding = cfg.get("embedding", "None") or "None"
+        text = cfg.get("text", "")
+        try:
+            angle = float(cfg.get("slerp_angle", 0.1))
+        except (TypeError, ValueError):
+            angle = 0.1
+        text_negative = bool(cfg.get("text_is_negative", False))
+
+        return [weight, steps, f"{learning_rate}", slerp, embedding, text, angle, text_negative]
+
+    def _annotate_active_variant(
+        self,
+        config: dict[str, Any],
+        variant_index: int,
+        variant_label: str | None,
+    ) -> None:
+        """Record the active variant inside the pipeline config for downstream consumers."""
+
+        pipeline_cfg = config.setdefault("pipeline", {})
+        if variant_label or variant_index:
+            pipeline_cfg["active_variant"] = {
+                "index": variant_index,
+                "label": variant_label,
+            }
+        else:
+            pipeline_cfg.pop("active_variant", None)
+
+    @staticmethod
+    def _tag_variant_metadata(
+        metadata: dict[str, Any] | None,
+        variant_index: int,
+        variant_label: str | None,
+    ) -> dict[str, Any] | None:
+        """Attach variant context to stage metadata dictionaries."""
+
+        if not isinstance(metadata, dict):
+            return metadata
+        metadata["variant"] = {
+            "index": variant_index,
+            "label": variant_label,
+        }
+        return metadata
+
+    @staticmethod
+    def _build_variant_suffix(variant_index: int, variant_label: str | None) -> str:
+        """Return a filesystem-safe suffix for the active variant."""
+
+        slug = ""
+        if variant_label:
+            slug = re.sub(r"[^A-Za-z0-9]+", "-", variant_label).strip("-").lower()
+        if slug:
+            return f"_{slug}"
+        if variant_index:
+            return f"_v{variant_index + 1:02d}"
+        return ""
 
     def _parse_sampler_config(self, config: dict[str, Any]) -> dict[str, str]:
         """
@@ -580,7 +774,7 @@ class Pipeline:
         logger.info(f"Starting ADetailer for: {input_image_path.name}")
 
         # Load input image
-        init_image = load_image_to_base64(input_image_path)
+        init_image = self._load_image_base64(input_image_path)
         if not init_image:
             logger.error("Failed to load input image")
             return None
@@ -924,6 +1118,8 @@ class Pipeline:
         run_dir: Path,
         prompt_index: int = 0,
         batch_size: int = 1,
+        variant_index: int = 0,
+        variant_label: str | None = None,
     ) -> dict[str, Any]:
         """
         Run pipeline for a single prompt from a pack with new directory structure.
@@ -935,6 +1131,8 @@ class Pipeline:
             run_dir: Main session run directory
             prompt_index: Index of prompt within pack
             batch_size: Number of images to generate
+            variant_index: Index of the active model/hypernetwork variant (0-based)
+            variant_label: Human readable label for the active variant
 
         Returns:
             Pipeline results for this prompt
@@ -955,12 +1153,14 @@ class Pipeline:
             "prompt": prompt,
             "txt2img": [],
             "img2img": [],
+            "adetailer": [],
             "upscaled": [],
             "summary": [],
         }
 
         # Normalize config for this run (disable conflicting hires, normalize scheduler casing)
         config = self._normalize_config_for_pipeline(config)
+        self._annotate_active_variant(config, variant_index, variant_label)
 
         # Emit a concise summary of stage parameters for this pack
         try:
@@ -984,7 +1184,8 @@ class Pipeline:
             # Calculate global image number for this pack
             image_number = (prompt_index * batch_size) + batch_idx + 1
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            image_name = f"{image_number:03d}_{timestamp}"
+            variant_suffix = self._build_variant_suffix(variant_index, variant_label)
+            image_name = f"{image_number:03d}_{timestamp}{variant_suffix}"
 
             # Step 1: txt2img
             txt2img_dir = pack_dir / "txt2img"
@@ -997,6 +1198,7 @@ class Pipeline:
             )
 
             if txt2img_meta:
+                txt2img_meta = self._tag_variant_metadata(txt2img_meta, variant_index, variant_label)
                 results["txt2img"].append(txt2img_meta)
 
                 # Step 2: img2img cleanup (if enabled)
@@ -1008,14 +1210,37 @@ class Pipeline:
                         config.get("img2img", {}),
                         img2img_dir,
                         image_name,  # Use same base name
+                        config,
                     )
                     if img2img_meta:
+                        img2img_meta = self._tag_variant_metadata(
+                            img2img_meta, variant_index, variant_label
+                        )
                         results["img2img"].append(img2img_meta)
                         last_image_path = img2img_meta["path"]
                     else:
                         last_image_path = txt2img_meta["path"]
                 else:
                     last_image_path = txt2img_meta["path"]
+
+                # Step 2b: adetailer (optional detail enhancer)
+                if config.get("pipeline", {}).get("adetailer_enabled", False):
+                    adetailer_cfg = dict(config.get("adetailer", {}))
+                    txt_settings = config.get("txt2img", {})
+                    adetailer_cfg.setdefault("width", txt_settings.get("width", 512))
+                    adetailer_cfg.setdefault("height", txt_settings.get("height", 512))
+                    adetailer_meta = self.run_adetailer(
+                        Path(last_image_path),
+                        prompt,
+                        adetailer_cfg,
+                        pack_dir,
+                    )
+                    if adetailer_meta:
+                        adetailer_meta = self._tag_variant_metadata(
+                            adetailer_meta, variant_index, variant_label
+                        )
+                        results["adetailer"].append(adetailer_meta)
+                        last_image_path = adetailer_meta["path"]
 
                 # Step 3: Upscale (if enabled)
                 if config.get("pipeline", {}).get("upscale_enabled", True):
@@ -1027,6 +1252,9 @@ class Pipeline:
                         image_name,  # Use same base name
                     )
                     if upscaled_meta:
+                        upscaled_meta = self._tag_variant_metadata(
+                            upscaled_meta, variant_index, variant_label
+                        )
                         results["upscaled"].append(upscaled_meta)
                         final_image_path = upscaled_meta["path"]
                     else:
@@ -1043,12 +1271,18 @@ class Pipeline:
                     "prompt": prompt,
                     "final_image": final_image_path,
                     "steps_completed": [],
+                    "variant": {
+                        "index": variant_index,
+                        "label": variant_label,
+                    },
                 }
 
                 if txt2img_meta:
                     summary_entry["steps_completed"].append("txt2img")
                 if results["img2img"] and len(results["img2img"]) > batch_idx:
                     summary_entry["steps_completed"].append("img2img")
+                if results["adetailer"] and len(results["adetailer"]) > batch_idx:
+                    summary_entry["steps_completed"].append("adetailer")
                 if results["upscaled"] and len(results["upscaled"]) > batch_idx:
                     summary_entry["steps_completed"].append("upscaled")
 
@@ -1100,10 +1334,14 @@ class Pipeline:
 
             # Set model and VAE if specified
             model_name = txt2img_config.get("model") or txt2img_config.get("sd_model_checkpoint")
-            if model_name:
-                self.client.set_model(model_name)
-            if txt2img_config.get("vae"):
-                self.client.set_vae(txt2img_config["vae"])
+            vae_name = txt2img_config.get("vae")
+            if model_name or vae_name:
+                self._ensure_model_and_vae(model_name, vae_name)
+
+            self._ensure_hypernetwork(
+                txt2img_config.get("hypernetwork"),
+                txt2img_config.get("hypernetwork_strength"),
+            )
 
             # Parse sampler configuration for this stage
             sampler_config = self._parse_sampler_config(txt2img_config)
@@ -1144,6 +1382,10 @@ class Pipeline:
                     "denoising_strength": txt2img_config.get("denoising_strength", 0.7),
                 }
             )
+
+            prompt_after, negative_after = self._apply_aesthetic_to_payload(payload, config)
+            payload["prompt"] = prompt_after
+            payload["negative_prompt"] = negative_after
 
             # Add styles if specified
             if txt2img_config.get("styles"):
@@ -1211,6 +1453,7 @@ class Pipeline:
         config: dict[str, Any],
         output_dir: Path,
         image_name: str,
+        full_config: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         """
         Run img2img stage for image cleanup/refinement.
@@ -1230,16 +1473,21 @@ class Pipeline:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             # Load input image as base64
-            input_image_b64 = load_image_to_base64(input_image_path)
+            input_image_b64 = self._load_image_base64(input_image_path)
             if not input_image_b64:
                 logger.error(f"Failed to load input image: {input_image_path}")
                 return None
 
             # Set model and VAE if specified
-            if config.get("model"):
-                self.client.set_model(config["model"])
-            if config.get("vae"):
-                self.client.set_vae(config["vae"])
+            model_name = config.get("model")
+            vae_name = config.get("vae")
+            if model_name or vae_name:
+                self._ensure_model_and_vae(model_name, vae_name)
+
+            self._ensure_hypernetwork(
+                config.get("hypernetwork"),
+                config.get("hypernetwork_strength"),
+            )
 
             # Build img2img payload
             # Combine negative prompt with optional adjustments
@@ -1263,6 +1511,12 @@ class Pipeline:
                 "batch_size": 1,
                 "n_iter": 1,
             }
+
+            prompt_after, negative_after = self._apply_aesthetic_to_payload(
+                payload, full_config or {"aesthetic": {}}
+            )
+            payload["prompt"] = prompt_after
+            payload["negative_prompt"] = negative_after
 
             # Log key parameters at INFO to correlate with WebUI progress
             try:
@@ -1347,7 +1601,7 @@ class Pipeline:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             # Load input image as base64
-            input_image_b64 = load_image_to_base64(input_image_path)
+            input_image_b64 = self._load_image_base64(input_image_path)
             if not input_image_b64:
                 logger.error(f"Failed to load input image: {input_image_path}")
                 return None

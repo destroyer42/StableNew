@@ -3,6 +3,7 @@ Pipeline Controls Panel - UI component for configuring pipeline execution.
 """
 
 import logging
+import re
 import tkinter as tk
 from tkinter import ttk
 from typing import Any
@@ -15,15 +16,29 @@ class PipelineControlsPanel(ttk.Frame):
         """
         Return current toggles and loop/batch settings as a dictionary.
         """
+        try:
+            loop_count = int(self.loop_count_var.get())
+        except ValueError:
+            loop_count = 1
+
+        try:
+            images_per_prompt = int(self.images_per_prompt_var.get())
+        except ValueError:
+            images_per_prompt = 1
+
         return {
             "txt2img_enabled": bool(self.txt2img_enabled.get()),
             "img2img_enabled": bool(self.img2img_enabled.get()),
+            "adetailer_enabled": bool(self.adetailer_enabled.get()),
             "upscale_enabled": bool(self.upscale_enabled.get()),
             "video_enabled": bool(self.video_enabled.get()),
             "loop_type": self.loop_type_var.get(),
-            "loop_count": int(self.loop_count_var.get()),
+            "loop_count": loop_count,
             "pack_mode": self.pack_mode_var.get(),
-            "images_per_prompt": int(self.images_per_prompt_var.get()),
+            "images_per_prompt": images_per_prompt,
+            "model_matrix": self._parse_model_matrix(self.model_matrix_var.get()),
+            "hypernetworks": self._parse_hypernetworks(self.hypernetworks_var.get()),
+            "variant_mode": str(self.variant_mode_var.get()).strip().lower() or "fanout",
         }
 
     def get_state(self) -> dict:
@@ -34,12 +49,16 @@ class PipelineControlsPanel(ttk.Frame):
         return {
             "txt2img_enabled": bool(self.txt2img_enabled.get()),
             "img2img_enabled": bool(self.img2img_enabled.get()),
+            "adetailer_enabled": bool(self.adetailer_enabled.get()),
             "upscale_enabled": bool(self.upscale_enabled.get()),
             "video_enabled": bool(self.video_enabled.get()),
             "loop_type": self.loop_type_var.get(),
             "loop_count": int(self.loop_count_var.get()),
             "pack_mode": self.pack_mode_var.get(),
             "images_per_prompt": int(self.images_per_prompt_var.get()),
+            "model_matrix": self._parse_model_matrix(self.model_matrix_var.get()),
+            "hypernetworks": self._parse_hypernetworks(self.hypernetworks_var.get()),
+            "variant_mode": str(self.variant_mode_var.get()),
         }
 
     def set_state(self, state: dict) -> None:
@@ -52,6 +71,8 @@ class PipelineControlsPanel(ttk.Frame):
                 self.txt2img_enabled.set(bool(state["txt2img_enabled"]))
             if "img2img_enabled" in state:
                 self.img2img_enabled.set(bool(state["img2img_enabled"]))
+            if "adetailer_enabled" in state:
+                self.adetailer_enabled.set(bool(state["adetailer_enabled"]))
             if "upscale_enabled" in state:
                 self.upscale_enabled.set(bool(state["upscale_enabled"]))
             if "video_enabled" in state:
@@ -64,6 +85,12 @@ class PipelineControlsPanel(ttk.Frame):
                 self.pack_mode_var.set(str(state["pack_mode"]))
             if "images_per_prompt" in state:
                 self.images_per_prompt_var.set(int(state["images_per_prompt"]))
+            if "model_matrix" in state:
+                self._set_model_matrix_display(state["model_matrix"])
+            if "hypernetworks" in state:
+                self._set_hypernetwork_display(state["hypernetworks"])
+            if "variant_mode" in state:
+                self.variant_mode_var.set(str(state["variant_mode"]))
         except Exception as e:
             logger.warning(f"PipelineControlsPanel: Failed to restore state: {e}")
 
@@ -71,7 +98,6 @@ class PipelineControlsPanel(ttk.Frame):
     A UI panel for pipeline execution controls.
 
     This panel handles:
-    - Stage enable/disable toggles (txt2img, img2img, upscale, video)
     - Loop configuration (single/stages/pipeline)
     - Loop count settings
     - Batch configuration (pack mode selection)
@@ -81,7 +107,11 @@ class PipelineControlsPanel(ttk.Frame):
     """
 
     def __init__(
-        self, parent: tk.Widget, initial_state: dict[str, Any] | None = None, **kwargs
+        self,
+        parent: tk.Widget,
+        initial_state: dict[str, Any] | None = None,
+        stage_vars: dict[str, tk.BooleanVar] | None = None,
+        **kwargs,
     ):
         """
         Initialize the PipelineControlsPanel.
@@ -89,11 +119,13 @@ class PipelineControlsPanel(ttk.Frame):
         Args:
             parent: Parent widget
             initial_state: Optional dictionary used to pre-populate control values
+            stage_vars: Optional mapping of existing stage BooleanVars
             **kwargs: Additional frame options
         """
         super().__init__(parent, **kwargs)
         self.parent = parent
         self._initial_state = initial_state or {}
+        self._stage_vars = stage_vars or {}
 
         # Initialize control variables
         self._init_variables()
@@ -106,10 +138,21 @@ class PipelineControlsPanel(ttk.Frame):
         state = self._initial_state
 
         # Stage toggles
-        self.txt2img_enabled = tk.BooleanVar(value=bool(state.get("txt2img_enabled", True)))
-        self.img2img_enabled = tk.BooleanVar(value=bool(state.get("img2img_enabled", True)))
-        self.upscale_enabled = tk.BooleanVar(value=bool(state.get("upscale_enabled", True)))
-        self.video_enabled = tk.BooleanVar(value=bool(state.get("video_enabled", False)))
+        self.txt2img_enabled = self._stage_vars.get("txt2img") or tk.BooleanVar(
+            value=bool(state.get("txt2img_enabled", True))
+        )
+        self.img2img_enabled = self._stage_vars.get("img2img") or tk.BooleanVar(
+            value=bool(state.get("img2img_enabled", True))
+        )
+        self.adetailer_enabled = self._stage_vars.get("adetailer") or tk.BooleanVar(
+            value=bool(state.get("adetailer_enabled", False))
+        )
+        self.upscale_enabled = self._stage_vars.get("upscale") or tk.BooleanVar(
+            value=bool(state.get("upscale_enabled", True))
+        )
+        self.video_enabled = self._stage_vars.get("video") or tk.BooleanVar(
+            value=bool(state.get("video_enabled", False))
+        )
 
         # Loop configuration
         self.loop_type_var = tk.StringVar(value=str(state.get("loop_type", "single")))
@@ -120,6 +163,22 @@ class PipelineControlsPanel(ttk.Frame):
         self.images_per_prompt_var = tk.StringVar(
             value=str(state.get("images_per_prompt", 1))
         )
+        matrix_state = state.get("model_matrix", [])
+        if isinstance(matrix_state, list):
+            matrix_display = ", ".join(matrix_state)
+        else:
+            matrix_display = str(matrix_state)
+        self.model_matrix_var = tk.StringVar(value=matrix_display)
+
+        hyper_state = state.get("hypernetworks", [])
+        if isinstance(hyper_state, list):
+            hyper_display = ", ".join(
+                f"{item.get('name')}:{item.get('strength', 1.0)}" for item in hyper_state if item
+            )
+        else:
+            hyper_display = str(hyper_state)
+        self.hypernetworks_var = tk.StringVar(value=hyper_display)
+        self.variant_mode_var = tk.StringVar(value=str(state.get("variant_mode", "fanout")))
 
     def _build_ui(self):
         """Build the panel UI."""
@@ -129,54 +188,12 @@ class PipelineControlsPanel(ttk.Frame):
         )
         pipeline_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Stage selection - compact
-        self._build_stage_toggles(pipeline_frame)
-
         # Loop configuration - compact
         self._build_loop_config(pipeline_frame)
 
         # Batch configuration - compact
         self._build_batch_config(pipeline_frame)
-
-    def _build_stage_toggles(self, parent):
-        """Build stage enable/disable toggles with logging."""
-        stages_frame = ttk.LabelFrame(parent, text="Stages", style="Dark.TFrame", padding=5)
-        stages_frame.pack(fill=tk.X, pady=(0, 5))
-
-        def log_toggle(name, var):
-            logger.info(f"PipelineControlsPanel: {name} set to {var.get()}")
-
-        ttk.Checkbutton(
-            stages_frame,
-            text="🎨 txt2img",
-            variable=self.txt2img_enabled,
-            style="Dark.TCheckbutton",
-            command=lambda: log_toggle("txt2img_enabled", self.txt2img_enabled),
-        ).pack(anchor=tk.W, pady=1)
-
-        ttk.Checkbutton(
-            stages_frame,
-            text="🧹 img2img",
-            variable=self.img2img_enabled,
-            style="Dark.TCheckbutton",
-            command=lambda: log_toggle("img2img_enabled", self.img2img_enabled),
-        ).pack(anchor=tk.W, pady=1)
-
-        ttk.Checkbutton(
-            stages_frame,
-            text="📈 Upscale",
-            variable=self.upscale_enabled,
-            style="Dark.TCheckbutton",
-            command=lambda: log_toggle("upscale_enabled", self.upscale_enabled),
-        ).pack(anchor=tk.W, pady=1)
-
-        ttk.Checkbutton(
-            stages_frame,
-            text="🎬 Video",
-            variable=self.video_enabled,
-            style="Dark.TCheckbutton",
-            command=lambda: log_toggle("video_enabled", self.video_enabled),
-        ).pack(anchor=tk.W, pady=1)
+        self._build_variant_config(pipeline_frame)
 
     def _build_loop_config(self, parent):
         """Build loop configuration controls with logging."""
@@ -290,36 +307,50 @@ class PipelineControlsPanel(ttk.Frame):
         )
         images_spin.pack(side=tk.LEFT, padx=2)
 
-    def get_settings(self) -> dict[str, Any]:
-        """
-        Get current pipeline control settings.
+    def _build_variant_config(self, parent):
+        """Build controls for model/hypernetwork combinations."""
+        variant_frame = ttk.LabelFrame(
+            parent, text="Model Matrix & Hypernets", style="Dark.TFrame", padding=5
+        )
+        variant_frame.pack(fill=tk.X, pady=(0, 5))
 
-        Returns:
-            Dictionary containing all pipeline control settings
-        """
-        try:
-            loop_count = int(self.loop_count_var.get())
-        except ValueError:
-            loop_count = 1
+        ttk.Label(
+            variant_frame,
+            text="Model checkpoints (comma/newline separated):",
+            style="Dark.TLabel",
+        ).pack(anchor=tk.W, pady=(0, 2))
+        ttk.Entry(variant_frame, textvariable=self.model_matrix_var, width=40).pack(
+            fill=tk.X, pady=(0, 4)
+        )
 
-        try:
-            images_per_prompt = int(self.images_per_prompt_var.get())
-        except ValueError:
-            images_per_prompt = 1
+        ttk.Label(
+            variant_frame,
+            text="Hypernetworks (name:strength, separated by commas):",
+            style="Dark.TLabel",
+        ).pack(anchor=tk.W, pady=(4, 2))
+        ttk.Entry(variant_frame, textvariable=self.hypernetworks_var, width=40).pack(
+            fill=tk.X
+        )
 
-        return {
-            # Stage toggles
-            "txt2img_enabled": self.txt2img_enabled.get(),
-            "img2img_enabled": self.img2img_enabled.get(),
-            "upscale_enabled": self.upscale_enabled.get(),
-            "video_enabled": self.video_enabled.get(),
-            # Loop configuration
-            "loop_type": self.loop_type_var.get(),
-            "loop_count": loop_count,
-            # Batch configuration
-            "pack_mode": self.pack_mode_var.get(),
-            "images_per_prompt": images_per_prompt,
-        }
+        mode_frame = ttk.Frame(variant_frame, style="Dark.TFrame")
+        mode_frame.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(mode_frame, text="Variant strategy:", style="Dark.TLabel").pack(
+            anchor=tk.W
+        )
+        ttk.Radiobutton(
+            mode_frame,
+            text="Fan-out (run every combo)",
+            variable=self.variant_mode_var,
+            value="fanout",
+            style="Dark.TRadiobutton",
+        ).pack(anchor=tk.W, pady=(2, 0))
+        ttk.Radiobutton(
+            mode_frame,
+            text="Rotate per prompt",
+            variable=self.variant_mode_var,
+            value="rotate",
+            style="Dark.TRadiobutton",
+        ).pack(anchor=tk.W, pady=(2, 0))
 
     def set_settings(self, settings: dict[str, Any]):
         """
@@ -346,3 +377,60 @@ class PipelineControlsPanel(ttk.Frame):
             self.pack_mode_var.set(settings["pack_mode"])
         if "images_per_prompt" in settings:
             self.images_per_prompt_var.set(str(settings["images_per_prompt"]))
+        if "model_matrix" in settings:
+            self._set_model_matrix_display(settings["model_matrix"])
+        if "hypernetworks" in settings:
+            self._set_hypernetwork_display(settings["hypernetworks"])
+        if "variant_mode" in settings:
+            self.variant_mode_var.set(str(settings["variant_mode"]))
+
+    # ------------------------------------------------------------------
+    # Parsing helpers
+    # ------------------------------------------------------------------
+
+    def _parse_model_matrix(self, raw: str) -> list[str]:
+        if not raw:
+            return []
+        values: list[str] = []
+        for chunk in re.split(r"[\n,]+", raw):
+            sanitized = chunk.strip()
+            if sanitized:
+                values.append(sanitized)
+        return values
+
+    def _parse_hypernetworks(self, raw: str) -> list[dict[str, Any]]:
+        if not raw:
+            return []
+        entries: list[dict[str, Any]] = []
+        for chunk in re.split(r"[\n,]+", raw):
+            sanitized = chunk.strip()
+            if not sanitized:
+                continue
+            if ":" in sanitized:
+                name, strength = sanitized.split(":", 1)
+                try:
+                    weight = float(strength.strip())
+                except ValueError:
+                    weight = 1.0
+                entries.append({"name": name.strip(), "strength": weight})
+            else:
+                entries.append({"name": sanitized, "strength": 1.0})
+        return entries
+
+    def _set_model_matrix_display(self, value):
+        if isinstance(value, list):
+            self.model_matrix_var.set(", ".join(value))
+        else:
+            self.model_matrix_var.set(str(value))
+
+    def _set_hypernetwork_display(self, value):
+        if isinstance(value, list):
+            self.hypernetworks_var.set(
+                ", ".join(
+                    f"{item.get('name')}:{item.get('strength', 1.0)}"
+                    for item in value
+                    if item and item.get("name")
+                )
+            )
+        else:
+            self.hypernetworks_var.set(str(value))

@@ -6,6 +6,7 @@ import logging
 import subprocess
 import sys
 import threading
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,9 @@ from tkinter import filedialog, messagebox, ttk, scrolledtext
 
 from ..api import SDWebUIClient
 from ..pipeline import Pipeline, VideoCreator
+from ..pipeline.variant_planner import apply_variant_to_config, build_variant_plan
 from ..utils import ConfigManager, PreferencesManager, StructuredLogger, setup_logging
+from ..utils.randomizer import PromptRandomizer, PromptVariant
 from ..utils.file_io import get_prompt_packs, read_prompt_pack
 from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
 from .advanced_prompt_editor import AdvancedPromptEditor
@@ -27,6 +30,7 @@ from .log_panel import LogPanel, TkinterLogHandler
 from .pipeline_controls_panel import PipelineControlsPanel
 from .prompt_pack_list_manager import PromptPackListManager
 from .prompt_pack_panel import PromptPackPanel
+from .tooltip import Tooltip
 from .state import CancellationError, GUIState, StateManager
 
 logger = logging.getLogger(__name__)
@@ -39,7 +43,7 @@ class StableNewGUI:
         """Initialize GUI"""
         self.root = tk.Tk()
         self.root.title("StableNew - Stable Diffusion WebUI Automation")
-        self.root.geometry("1200x800+100+50")  # Added positioning to ensure it appears on screen
+        self.root.geometry("1200x1000+100+50")  # Increased height to surface all controls/logs
         self.root.configure(bg="#2b2b2b")
 
         # Ensure window is visible and on top
@@ -60,6 +64,7 @@ class StableNewGUI:
         self.client = None
         self.pipeline = None
         self.video_creator = VideoCreator()
+        self.available_hypernetworks: list[str] = ["None"]
 
         # Initialize state management and controller
         self.state_manager = StateManager()
@@ -149,6 +154,7 @@ class StableNewGUI:
         # Initialize other GUI variables that are used before UI building
         self.txt2img_enabled = tk.BooleanVar(value=True)
         self.img2img_enabled = tk.BooleanVar(value=True)
+        self.adetailer_enabled = tk.BooleanVar(value=False)
         self.upscale_enabled = tk.BooleanVar(value=True)
         self.video_enabled = tk.BooleanVar(value=False)
         self.loop_type_var = tk.StringVar(value="single")
@@ -157,6 +163,18 @@ class StableNewGUI:
         self.images_per_prompt_var = tk.StringVar(value="1")
         # Override: apply current GUI config to all selected packs when enabled
         self.override_pack_var = tk.BooleanVar(value=False)
+        # Randomization & Aesthetic controls (populated when tab builds)
+        self.randomization_vars: dict[str, tk.Variable] = {}
+        self.randomization_widgets: dict[str, tk.Widget] = {}
+        self.aesthetic_vars: dict[str, tk.Variable] = {}
+        self.aesthetic_widgets: dict[str, tk.Widget] = {}
+        self.aesthetic_embedding_var = tk.StringVar(value="None")
+        (
+            self.aesthetic_script_available,
+            self.aesthetic_extension_root,
+        ) = self._detect_aesthetic_extension_root()
+        self.aesthetic_embeddings: list[str] = ["None"]
+        self.aesthetic_status_var = tk.StringVar(value="")
         # Force status error label in tests when pipeline error occurs
         self._force_error_status = False
 
@@ -390,9 +408,13 @@ class StableNewGUI:
         # Compact top frame for API status
         self._build_api_status_frame(main_frame)
 
+        # Main content + log splitter so the bottom panel stays visible
+        vertical_split = ttk.Panedwindow(main_frame, orient=tk.VERTICAL)
+        vertical_split.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+
         # Main content frame - optimized layout
-        content_frame = ttk.Frame(main_frame, style="Dark.TFrame")
-        content_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        content_frame = ttk.Frame(vertical_split, style="Dark.TFrame")
+        vertical_split.add(content_frame, weight=4)
 
         # Configure grid for better space utilization
         content_frame.columnconfigure(0, weight=0, minsize=200)  # Left: compact packs
@@ -406,8 +428,10 @@ class StableNewGUI:
         # Right panel - Configuration and pipeline controls (moved up)
         self._build_config_pipeline_panel(content_frame)
 
-        # Bottom frame - Compact log and action buttons
-        self._build_bottom_panel(main_frame)
+        # Bottom frame - Compact log and action buttons (resizable split)
+        bottom_shell = ttk.Frame(vertical_split, style="Dark.TFrame")
+        vertical_split.add(bottom_shell, weight=3)
+        self._build_bottom_panel(bottom_shell)
 
         # Status bar - at the very bottom
         self._build_status_bar(main_frame)
@@ -438,9 +462,17 @@ class StableNewGUI:
 
         # Check API button - compact
         self.check_api_btn = ttk.Button(
-            api_frame, text="🔄", command=self._check_api_connection, style="Dark.TButton", width=3
+            api_frame,
+            text="Check API",
+            command=self._check_api_connection,
+            style="Dark.TButton",
+            width=10,
         )
         self.check_api_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(
+            self.check_api_btn,
+            "Validate the WebUI API connection using the URL above. Refreshes model/vae lists when successful.",
+        )
 
         # Status indicator panel
         self.api_status_panel = APIStatusPanel(api_frame, coordinator=self, style="Dark.TFrame")
@@ -467,41 +499,974 @@ class StableNewGUI:
         self.packs_listbox = self.prompt_pack_panel.packs_listbox
 
     def _build_config_pipeline_panel(self, parent):
-        """Build configuration and pipeline control panel with grid layout"""
-        # Center and right panels using grid
+        """Build tabbed configuration and pipeline panels."""
         center_panel = ttk.Frame(parent, style="Dark.TFrame")
         center_panel.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
+        center_panel.columnconfigure(0, weight=1)
+        center_panel.rowconfigure(0, weight=1)
 
-        right_panel = ttk.Frame(parent, style="Dark.TFrame")
-        right_panel.grid(row=0, column=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+        notebook = ttk.Notebook(center_panel, style="Dark.TNotebook")
+        notebook.grid(row=0, column=0, sticky="nsew")
+        self.config_notebook = notebook
 
-        # Override controls header (placed above configuration panel)
+        pipeline_tab = ttk.Frame(notebook, style="Dark.TFrame")
+        randomization_tab = ttk.Frame(notebook, style="Dark.TFrame")
+        general_tab = ttk.Frame(notebook, style="Dark.TFrame")
+
+        notebook.add(pipeline_tab, text="Pipeline")
+        notebook.add(randomization_tab, text="Randomization")
+        notebook.add(general_tab, text="General")
+
+        # Pipeline tab content
+        self._build_info_box(
+            pipeline_tab,
+            "Pipeline Overview",
+            "Configure txt2img, img2img, and upscale behavior for the next run. "
+            "Use override mode to apply these settings to every selected pack.",
+        ).pack(fill=tk.X, padx=10, pady=(10, 4))
+
         try:
-            override_header = ttk.Frame(center_panel, style="Dark.TFrame")
-            override_header.pack(fill=tk.X, pady=(0, 4))
-            ttk.Checkbutton(
+            override_header = ttk.Frame(pipeline_tab, style="Dark.TFrame")
+            override_header.pack(fill=tk.X, padx=10, pady=(0, 4))
+            override_checkbox = ttk.Checkbutton(
                 override_header,
                 text="Override pack settings with current config",
                 variable=self.override_pack_var,
                 style="Dark.TCheckbutton",
                 command=self._on_override_changed,
-            ).pack(side=tk.LEFT)
+            )
+            override_checkbox.pack(side=tk.LEFT)
+            self._attach_tooltip(
+                override_checkbox,
+                "When enabled, the visible configuration is applied to every selected pack. Disable to use each pack's saved config.",
+            )
         except Exception:
             pass
 
-        # Unified configuration panel in center
-        self.config_panel = ConfigPanel(center_panel, coordinator=self, style="Dark.TFrame")
-        self.config_panel.pack(fill=tk.BOTH, expand=True)
+        self.config_panel = ConfigPanel(pipeline_tab, coordinator=self, style="Dark.TFrame")
+        self.config_panel.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
-        # Expose config panel variable dictionaries for legacy helpers
         self.txt2img_vars = self.config_panel.txt2img_vars
         self.img2img_vars = self.config_panel.img2img_vars
         self.upscale_vars = self.config_panel.upscale_vars
         self.api_vars = self.config_panel.api_vars
         self.config_status_label = self.config_panel.config_status_label
+        self.adetailer_panel = getattr(self.config_panel, "adetailer_panel", None)
 
-        # Pipeline controls in right panel
-        self._build_pipeline_controls_panel(right_panel)
+        try:
+            summary_frame = ttk.LabelFrame(
+                pipeline_tab, text="Next Run Summary", style="Dark.TFrame", padding=5
+            )
+            summary_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+            self.txt2img_summary_var = getattr(self, "txt2img_summary_var", tk.StringVar(value=""))
+            self.img2img_summary_var = getattr(self, "img2img_summary_var", tk.StringVar(value=""))
+            self.upscale_summary_var = getattr(self, "upscale_summary_var", tk.StringVar(value=""))
+
+            for var in (
+                self.txt2img_summary_var,
+                self.img2img_summary_var,
+                self.upscale_summary_var,
+            ):
+                ttk.Label(
+                    summary_frame,
+                    textvariable=var,
+                    style="Dark.TLabel",
+                    font=("Consolas", 9),
+                ).pack(anchor=tk.W, pady=1)
+
+            self._attach_summary_traces()
+            self._update_live_config_summary()
+        except Exception:
+            pass
+
+        # Randomization tab content
+        self._build_randomization_tab(randomization_tab)
+
+        # General tab with pipeline controls, API settings, and sidebar actions
+        general_split = ttk.Frame(general_tab, style="Dark.TFrame")
+        general_split.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 10))
+
+        general_scroll_container, general_body = self._create_scrollable_container(general_split)
+        general_scroll_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        sidebar = ttk.Frame(general_split, style="Dark.TFrame", width=220)
+        sidebar.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+
+        self._build_info_box(
+            general_body,
+            "General Settings",
+            "Manage batch size, looping behavior, and API connectivity. "
+            "These settings apply to every run regardless of prompt pack.",
+        ).pack(fill=tk.X, pady=(0, 6))
+
+        video_frame = ttk.Frame(general_body, style="Dark.TFrame")
+        video_frame.pack(fill=tk.X, pady=(0, 4))
+        ttk.Checkbutton(
+            video_frame,
+            text="Enable video stage",
+            variable=self.video_enabled,
+            style="Dark.TCheckbutton",
+        ).pack(anchor=tk.W)
+
+        self._build_pipeline_controls_panel(general_body)
+
+        api_frame = ttk.LabelFrame(
+            general_body, text="API Configuration", style="Dark.TFrame", padding=8
+        )
+        api_frame.pack(fill=tk.X, pady=(10, 10))
+        ttk.Label(api_frame, text="Base URL:", style="Dark.TLabel").grid(row=0, column=0, sticky=tk.W, pady=2)
+        ttk.Entry(
+            api_frame,
+            textvariable=self.api_vars.get("base_url"),
+            style="Dark.TEntry",
+            width=32,
+        ).grid(row=0, column=1, sticky=tk.W, pady=2, padx=(5, 0))
+
+        ttk.Label(api_frame, text="Timeout (s):", style="Dark.TLabel").grid(
+            row=1, column=0, sticky=tk.W, pady=2
+        )
+        ttk.Spinbox(
+            api_frame,
+            from_=10,
+            to=600,
+            textvariable=self.api_vars.get("timeout"),
+            width=8,
+        ).grid(row=1, column=1, sticky=tk.W, pady=2, padx=(5, 0))
+
+        for child in api_frame.winfo_children():
+            child.configure(style="Dark.TLabel")
+
+        # Sidebar actions & utilities
+        actions_box = ttk.LabelFrame(sidebar, text="Pipeline Actions", style="Dark.TFrame", padding=8)
+        actions_box.pack(fill=tk.X, pady=(0, 10))
+
+        def add_action_button(parent, text, command, tooltip, style="Dark.TButton"):
+            btn = ttk.Button(parent, text=text, command=command, style=style)
+            btn.pack(fill=tk.X, pady=4)
+            self._attach_tooltip(btn, tooltip)
+            return btn
+
+        add_action_button(
+            actions_box,
+            "Run Full Pipeline",
+            self._run_full_pipeline,
+            "Process every highlighted pack sequentially using the current configuration. Override mode applies when enabled.",
+            style="Accent.TButton",
+        )
+        add_action_button(
+            actions_box,
+            "txt2img Only",
+            self._run_txt2img_only,
+            "Generate txt2img outputs for the selected pack(s) only.",
+        )
+        add_action_button(
+            actions_box,
+            "Upscale Only",
+            self._run_upscale_only,
+            "Run only the upscale stage for the currently selected outputs (skips txt2img/img2img).",
+        )
+        add_action_button(
+            actions_box,
+            "Create Video",
+            self._create_video,
+            "Combine rendered images into a video file.",
+        )
+
+        utility_box = ttk.LabelFrame(sidebar, text="Utilities", style="Dark.TFrame", padding=8)
+        utility_box.pack(fill=tk.X)
+        add_action_button(
+            utility_box,
+            "Open Output Folder",
+            self._open_output_folder,
+            "Open the output directory in your system file browser.",
+        )
+        add_action_button(
+            utility_box,
+            "Stop Pipeline",
+            self._stop_execution,
+            "Request cancellation of the pipeline run. The current stage finishes before stopping.",
+            style="Danger.TButton",
+        )
+        add_action_button(
+            utility_box,
+            "Exit StableNew",
+            self._graceful_exit,
+            "Gracefully stop background work and close StableNew.",
+            style="Danger.TButton",
+        )
+
+    def _build_randomization_tab(self, parent: tk.Widget) -> None:
+        """Build the randomization tab UI and data bindings."""
+
+        container, body = self._create_scrollable_container(parent)
+        container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 10))
+
+        self._build_info_box(
+            body,
+            "Prompt Randomization & Aesthetic Tools",
+            "Enable randomized prompt variations using AUTOMATIC1111-style syntax. "
+            "Combine Prompt S/R rules, wildcard tokens, matrices, and optional aesthetic gradients.",
+        ).pack(fill=tk.X, padx=10, pady=(0, 6))
+
+        self.randomization_vars = {
+            "enabled": tk.BooleanVar(value=False),
+            "prompt_sr_enabled": tk.BooleanVar(value=False),
+            "prompt_sr_mode": tk.StringVar(value="random"),
+            "wildcards_enabled": tk.BooleanVar(value=False),
+            "wildcard_mode": tk.StringVar(value="random"),
+            "matrix_enabled": tk.BooleanVar(value=False),
+            "matrix_mode": tk.StringVar(value="fanout"),
+            "matrix_limit": tk.IntVar(value=8),
+        }
+        self.randomization_widgets = {}
+
+        self.aesthetic_vars = {
+            "enabled": tk.BooleanVar(value=False),
+            "mode": tk.StringVar(value="script" if self.aesthetic_script_available else "prompt"),
+            "weight": tk.DoubleVar(value=0.9),
+            "steps": tk.IntVar(value=5),
+            "learning_rate": tk.StringVar(value="0.0001"),
+            "slerp": tk.BooleanVar(value=False),
+            "slerp_angle": tk.DoubleVar(value=0.1),
+            "text": tk.StringVar(value=""),
+            "text_is_negative": tk.BooleanVar(value=False),
+            "fallback_prompt": tk.StringVar(value=""),
+        }
+        self.aesthetic_widgets = {"all": [], "script": [], "prompt": []}
+
+        master_frame = ttk.Frame(body, style="Dark.TFrame")
+        master_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
+        ttk.Checkbutton(
+            master_frame,
+            text="Enable randomization for the next run",
+            variable=self.randomization_vars["enabled"],
+            style="Dark.TCheckbutton",
+            command=self._update_randomization_states,
+        ).pack(side=tk.LEFT)
+
+        ttk.Label(
+            master_frame,
+            text="Randomization expands prompts before the pipeline starts, so counts multiply per stage.",
+            style="Dark.TLabel",
+            wraplength=600,
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
+        # Prompt S/R section
+        sr_frame = ttk.LabelFrame(body, text="Prompt S/R", style="Dark.TFrame", padding=10)
+        sr_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
+
+        sr_header = ttk.Frame(sr_frame, style="Dark.TFrame")
+        sr_header.pack(fill=tk.X)
+        ttk.Checkbutton(
+            sr_header,
+            text="Enable Prompt S/R replacements",
+            variable=self.randomization_vars["prompt_sr_enabled"],
+            style="Dark.TCheckbutton",
+            command=self._update_randomization_states,
+        ).pack(side=tk.LEFT)
+
+        sr_mode_frame = ttk.Frame(sr_frame, style="Dark.TFrame")
+        sr_mode_frame.pack(fill=tk.X, pady=(4, 2))
+        ttk.Label(sr_mode_frame, text="Selection mode:", style="Dark.TLabel").pack(side=tk.LEFT)
+        ttk.Radiobutton(
+            sr_mode_frame,
+            text="Random per prompt",
+            variable=self.randomization_vars["prompt_sr_mode"],
+            value="random",
+            style="Dark.TRadiobutton",
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Radiobutton(
+            sr_mode_frame,
+            text="Round robin",
+            variable=self.randomization_vars["prompt_sr_mode"],
+            value="round_robin",
+            style="Dark.TRadiobutton",
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
+        ttk.Label(
+            sr_frame,
+            text="Format: search term => replacement A | replacement B. One rule per line. "
+            "Matches are case-sensitive and apply before wildcard/matrix expansion.",
+            style="Dark.TLabel",
+            wraplength=700,
+        ).pack(fill=tk.X, pady=(2, 4))
+
+        sr_text = scrolledtext.ScrolledText(sr_frame, height=6, wrap=tk.WORD)
+        sr_text.pack(fill=tk.BOTH, expand=True)
+        self.randomization_widgets["prompt_sr_text"] = sr_text
+        self._enable_mousewheel(sr_text)
+
+        # Wildcards section
+        wildcard_frame = ttk.LabelFrame(
+            body, text="Wildcards (__token__ syntax)", style="Dark.TFrame", padding=10
+        )
+        wildcard_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
+
+        wildcard_header = ttk.Frame(wildcard_frame, style="Dark.TFrame")
+        wildcard_header.pack(fill=tk.X)
+        ttk.Checkbutton(
+            wildcard_header,
+            text="Enable wildcard replacements",
+            variable=self.randomization_vars["wildcards_enabled"],
+            style="Dark.TCheckbutton",
+            command=self._update_randomization_states,
+        ).pack(side=tk.LEFT)
+
+        ttk.Label(
+            wildcard_frame,
+            text="Use __token__ in your prompts (same as AUTOMATIC1111 wildcards). "
+            "Provide values below using token: option1 | option2.",
+            style="Dark.TLabel",
+            wraplength=700,
+        ).pack(fill=tk.X, pady=(4, 4))
+
+        wildcard_mode_frame = ttk.Frame(wildcard_frame, style="Dark.TFrame")
+        wildcard_mode_frame.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(wildcard_mode_frame, text="Selection mode:", style="Dark.TLabel").pack(side=tk.LEFT)
+        ttk.Radiobutton(
+            wildcard_mode_frame,
+            text="Random per prompt",
+            variable=self.randomization_vars["wildcard_mode"],
+            value="random",
+            style="Dark.TRadiobutton",
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Radiobutton(
+            wildcard_mode_frame,
+            text="Sequential (loop through values)",
+            variable=self.randomization_vars["wildcard_mode"],
+            value="sequential",
+            style="Dark.TRadiobutton",
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
+        wildcard_text = scrolledtext.ScrolledText(wildcard_frame, height=6, wrap=tk.WORD)
+        wildcard_text.pack(fill=tk.BOTH, expand=True)
+        self.randomization_widgets["wildcard_text"] = wildcard_text
+        self._enable_mousewheel(wildcard_text)
+
+        # Prompt matrix section
+        matrix_frame = ttk.LabelFrame(
+            body, text="Prompt Matrix ([[Slot]] syntax)", style="Dark.TFrame", padding=10
+        )
+        matrix_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
+
+        matrix_header = ttk.Frame(matrix_frame, style="Dark.TFrame")
+        matrix_header.pack(fill=tk.X)
+        ttk.Checkbutton(
+            matrix_header,
+            text="Enable prompt matrix expansion",
+            variable=self.randomization_vars["matrix_enabled"],
+            style="Dark.TCheckbutton",
+            command=self._update_randomization_states,
+        ).pack(side=tk.LEFT)
+
+        matrix_mode_frame = ttk.Frame(matrix_frame, style="Dark.TFrame")
+        matrix_mode_frame.pack(fill=tk.X, pady=(4, 2))
+        ttk.Label(matrix_mode_frame, text="Expansion mode:", style="Dark.TLabel").pack(side=tk.LEFT)
+        ttk.Radiobutton(
+            matrix_mode_frame,
+            text="Fan-out (all combos)",
+            variable=self.randomization_vars["matrix_mode"],
+            value="fanout",
+            style="Dark.TRadiobutton",
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Radiobutton(
+            matrix_mode_frame,
+            text="Rotate per prompt",
+            variable=self.randomization_vars["matrix_mode"],
+            value="rotate",
+            style="Dark.TRadiobutton",
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
+        limit_frame = ttk.Frame(matrix_frame, style="Dark.TFrame")
+        limit_frame.pack(fill=tk.X, pady=(2, 4))
+        ttk.Label(limit_frame, text="Combination cap:", style="Dark.TLabel").pack(side=tk.LEFT)
+        ttk.Spinbox(
+            limit_frame,
+            from_=1,
+            to=64,
+            width=5,
+            textvariable=self.randomization_vars["matrix_limit"],
+        ).pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Label(
+            limit_frame,
+            text="(prevents runaway combinations when many slots are defined)",
+            style="Dark.TLabel",
+        ).pack(side=tk.LEFT, padx=(6, 0))
+
+        ttk.Label(
+            matrix_frame,
+            text="Add [[Slot Name]] markers to your prompt. Define each slot below as Slot Name: option1 | option2.",
+            style="Dark.TLabel",
+            wraplength=700,
+        ).pack(fill=tk.X, pady=(2, 4))
+
+        matrix_text = scrolledtext.ScrolledText(matrix_frame, height=6, wrap=tk.WORD)
+        matrix_text.pack(fill=tk.BOTH, expand=True)
+        self.randomization_widgets["matrix_text"] = matrix_text
+        self._enable_mousewheel(matrix_text)
+
+        # Aesthetic gradient section
+        aesthetic_frame = ttk.LabelFrame(
+            body, text="Aesthetic Gradient", style="Dark.TFrame", padding=10
+        )
+        aesthetic_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        aesthetic_header = ttk.Frame(aesthetic_frame, style="Dark.TFrame")
+        aesthetic_header.pack(fill=tk.X)
+        ttk.Checkbutton(
+            aesthetic_header,
+            text="Enable aesthetic gradient adjustments",
+            variable=self.aesthetic_vars["enabled"],
+            style="Dark.TCheckbutton",
+            command=self._update_aesthetic_states,
+        ).pack(side=tk.LEFT)
+
+        ttk.Label(
+            aesthetic_header,
+            textvariable=self.aesthetic_status_var,
+            style="Dark.TLabel",
+            wraplength=400,
+        ).pack(side=tk.LEFT, padx=(12, 0))
+
+        mode_frame = ttk.Frame(aesthetic_frame, style="Dark.TFrame")
+        mode_frame.pack(fill=tk.X, pady=(6, 4))
+        ttk.Label(mode_frame, text="Mode:", style="Dark.TLabel").pack(side=tk.LEFT)
+        script_radio = ttk.Radiobutton(
+            mode_frame,
+            text="Use Aesthetic Gradient script",
+            variable=self.aesthetic_vars["mode"],
+            value="script",
+            style="Dark.TRadiobutton",
+            state=tk.NORMAL if self.aesthetic_script_available else tk.DISABLED,
+            command=self._update_aesthetic_states,
+        )
+        script_radio.pack(side=tk.LEFT, padx=(6, 0))
+        prompt_radio = ttk.Radiobutton(
+            mode_frame,
+            text="Fallback prompt / embedding",
+            variable=self.aesthetic_vars["mode"],
+            value="prompt",
+            style="Dark.TRadiobutton",
+            command=self._update_aesthetic_states,
+        )
+        prompt_radio.pack(side=tk.LEFT, padx=(6, 0))
+        self.aesthetic_widgets["all"].extend([script_radio, prompt_radio])
+
+        embedding_row = ttk.Frame(aesthetic_frame, style="Dark.TFrame")
+        embedding_row.pack(fill=tk.X, pady=(2, 4))
+        ttk.Label(embedding_row, text="Embedding:", style="Dark.TLabel", width=14).pack(side=tk.LEFT)
+        self.aesthetic_embedding_combo = ttk.Combobox(
+            embedding_row,
+            textvariable=self.aesthetic_embedding_var,
+            state="readonly",
+            width=24,
+            values=self.aesthetic_embeddings,
+        )
+        self.aesthetic_embedding_combo.pack(side=tk.LEFT, padx=(4, 0))
+        refresh_btn = ttk.Button(
+            embedding_row, text="Refresh", command=self._refresh_aesthetic_embeddings, width=8
+        )
+        refresh_btn.pack(side=tk.LEFT, padx=(6, 0))
+        self.aesthetic_widgets["all"].extend([self.aesthetic_embedding_combo, refresh_btn])
+
+        script_box = ttk.LabelFrame(
+            aesthetic_frame, text="Script Parameters", style="Dark.TFrame", padding=6
+        )
+        script_box.pack(fill=tk.X, pady=(4, 4))
+
+        weight_row = ttk.Frame(script_box, style="Dark.TFrame")
+        weight_row.pack(fill=tk.X, pady=2)
+        ttk.Label(weight_row, text="Weight:", style="Dark.TLabel", width=14).pack(side=tk.LEFT)
+        weight_slider = EnhancedSlider(
+            weight_row,
+            from_=0.0,
+            to=1.0,
+            resolution=0.01,
+            variable=self.aesthetic_vars["weight"],
+            width=140,
+        )
+        weight_slider.pack(side=tk.LEFT, padx=(4, 10))
+
+        steps_row = ttk.Frame(script_box, style="Dark.TFrame")
+        steps_row.pack(fill=tk.X, pady=2)
+        ttk.Label(steps_row, text="Steps:", style="Dark.TLabel", width=14).pack(side=tk.LEFT)
+        steps_slider = EnhancedSlider(
+            steps_row,
+            from_=0,
+            to=50,
+            resolution=1,
+            variable=self.aesthetic_vars["steps"],
+            width=140,
+        )
+        steps_slider.pack(side=tk.LEFT, padx=(4, 10))
+
+        lr_row = ttk.Frame(script_box, style="Dark.TFrame")
+        lr_row.pack(fill=tk.X, pady=2)
+        ttk.Label(lr_row, text="Learning rate:", style="Dark.TLabel", width=14).pack(side=tk.LEFT)
+        lr_entry = ttk.Entry(lr_row, textvariable=self.aesthetic_vars["learning_rate"], width=12)
+        lr_entry.pack(side=tk.LEFT, padx=(4, 10))
+
+        slerp_row = ttk.Frame(script_box, style="Dark.TFrame")
+        slerp_row.pack(fill=tk.X, pady=2)
+        slerp_check = ttk.Checkbutton(
+            slerp_row,
+            text="Enable slerp interpolation",
+            variable=self.aesthetic_vars["slerp"],
+            style="Dark.TCheckbutton",
+            command=self._update_aesthetic_states,
+        )
+        slerp_check.pack(side=tk.LEFT)
+        ttk.Label(slerp_row, text="Angle:", style="Dark.TLabel", width=8).pack(side=tk.LEFT, padx=(10, 0))
+        slerp_angle_slider = EnhancedSlider(
+            slerp_row,
+            from_=0.0,
+            to=1.0,
+            resolution=0.01,
+            variable=self.aesthetic_vars["slerp_angle"],
+            width=120,
+        )
+        slerp_angle_slider.pack(side=tk.LEFT, padx=(4, 0))
+
+        text_row = ttk.Frame(script_box, style="Dark.TFrame")
+        text_row.pack(fill=tk.X, pady=2)
+        ttk.Label(text_row, text="Text prompt:", style="Dark.TLabel", width=14).pack(side=tk.LEFT)
+        text_entry = ttk.Entry(text_row, textvariable=self.aesthetic_vars["text"])
+        text_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
+        text_neg_check = ttk.Checkbutton(
+            text_row,
+            text="Apply as negative text",
+            variable=self.aesthetic_vars["text_is_negative"],
+            style="Dark.TCheckbutton",
+        )
+        text_neg_check.pack(side=tk.LEFT, padx=(6, 0))
+
+        self.aesthetic_widgets["script"].extend(
+            [
+                weight_slider,
+                steps_slider,
+                lr_entry,
+                slerp_check,
+                slerp_angle_slider,
+                text_entry,
+                text_neg_check,
+            ]
+        )
+
+        prompt_box = ttk.LabelFrame(
+            aesthetic_frame, text="Fallback Prompt Injection", style="Dark.TFrame", padding=6
+        )
+        prompt_box.pack(fill=tk.X, pady=(4, 0))
+
+        ttk.Label(
+            prompt_box,
+            text="Optional phrase appended to the positive prompt when using fallback mode.",
+            style="Dark.TLabel",
+            wraplength=700,
+        ).pack(fill=tk.X, pady=(0, 4))
+        fallback_entry = ttk.Entry(prompt_box, textvariable=self.aesthetic_vars["fallback_prompt"])
+        fallback_entry.pack(fill=tk.X, padx=2)
+
+        self.aesthetic_widgets["prompt"].append(fallback_entry)
+        self.aesthetic_widgets["all"].append(fallback_entry)
+        self.aesthetic_widgets["all"].extend(
+            [weight_slider, steps_slider, lr_entry, slerp_check, slerp_angle_slider, text_entry, text_neg_check]
+        )
+
+        for key in ("enabled", "prompt_sr_enabled", "wildcards_enabled", "matrix_enabled"):
+            try:
+                self.randomization_vars[key].trace_add("write", lambda *_: self._update_randomization_states())
+            except Exception:
+                pass
+
+        try:
+            self.aesthetic_vars["enabled"].trace_add("write", lambda *_: self._update_aesthetic_states())
+            self.aesthetic_vars["mode"].trace_add("write", lambda *_: self._update_aesthetic_states())
+            self.aesthetic_vars["slerp"].trace_add("write", lambda *_: self._update_aesthetic_states())
+        except Exception:
+            pass
+
+        self._update_randomization_states()
+        self._refresh_aesthetic_embeddings()
+        self._update_aesthetic_states()
+
+    def _update_randomization_states(self) -> None:
+        """Enable/disable randomization widgets based on current toggles."""
+
+        vars_dict = getattr(self, "randomization_vars", None)
+        widgets = getattr(self, "randomization_widgets", None)
+        if not vars_dict or not widgets:
+            return
+
+        master = bool(vars_dict.get("enabled", tk.BooleanVar(value=False)).get())
+        section_enabled = {
+            "prompt_sr_text": master and bool(vars_dict.get("prompt_sr_enabled", tk.BooleanVar()).get()),
+            "wildcard_text": master and bool(vars_dict.get("wildcards_enabled", tk.BooleanVar()).get()),
+            "matrix_text": master and bool(vars_dict.get("matrix_enabled", tk.BooleanVar()).get()),
+        }
+
+        for key, widget in widgets.items():
+            if widget is None:
+                continue
+            state = tk.NORMAL if section_enabled.get(key, master) else tk.DISABLED
+            try:
+                widget.configure(state=state)
+            except tk.TclError:
+                pass
+
+    def _get_randomization_text(self, key: str) -> str:
+        """Return trimmed contents of a randomization text widget."""
+
+        widget = self.randomization_widgets.get(key)
+        if widget is None:
+            return ""
+        try:
+            current_state = widget["state"]
+        except (tk.TclError, KeyError):
+            current_state = tk.NORMAL
+
+        try:
+            if current_state == tk.DISABLED:
+                widget.configure(state=tk.NORMAL)
+                value = widget.get("1.0", tk.END)
+                widget.configure(state=tk.DISABLED)
+            else:
+                value = widget.get("1.0", tk.END)
+        except tk.TclError:
+            value = ""
+        return value.strip()
+
+    def _set_randomization_text(self, key: str, value: str) -> None:
+        """Populate a randomization text widget with new content."""
+
+        widget = self.randomization_widgets.get(key)
+        if widget is None:
+            return
+        try:
+            current_state = widget["state"]
+        except (tk.TclError, KeyError):
+            current_state = tk.NORMAL
+
+        try:
+            widget.configure(state=tk.NORMAL)
+            widget.delete("1.0", tk.END)
+            if value:
+                widget.insert(tk.END, value)
+        except tk.TclError:
+            pass
+        finally:
+            try:
+                widget.configure(state=current_state)
+            except tk.TclError:
+                pass
+
+    def _update_aesthetic_states(self) -> None:
+        """Enable/disable aesthetic widgets based on mode and availability."""
+
+        vars_dict = getattr(self, "aesthetic_vars", None)
+        widgets = getattr(self, "aesthetic_widgets", None)
+        if not vars_dict or not widgets:
+            return
+
+        enabled = bool(vars_dict.get("enabled", tk.BooleanVar(value=False)).get())
+        mode = vars_dict.get("mode", tk.StringVar(value="prompt")).get()
+        if mode == "script" and not self.aesthetic_script_available:
+            mode = "prompt"
+            vars_dict["mode"].set("prompt")
+
+        def set_state(target_widgets: list[tk.Widget], active: bool) -> None:
+            for widget in target_widgets:
+                if widget is None:
+                    continue
+                state = tk.NORMAL if active else tk.DISABLED
+                try:
+                    widget.configure(state=state)
+                except (tk.TclError, AttributeError):
+                    if hasattr(widget, "configure_state"):
+                        try:
+                            widget.configure_state("normal" if active else "disabled")
+                        except Exception:
+                            continue
+
+        set_state(widgets.get("all", []), enabled)
+        set_state(widgets.get("script", []), enabled and mode == "script")
+        set_state(widgets.get("prompt", []), enabled and mode == "prompt")
+
+        if self.aesthetic_script_available:
+            status = "Aesthetic extension detected"
+        else:
+            status = "Extension not detected – fallback mode only"
+        if len(self.aesthetic_embeddings) <= 1:
+            status += " (no embeddings found)"
+        self.aesthetic_status_var.set(status)
+
+    def _detect_aesthetic_extension_root(self):
+        """Locate the Aesthetic Gradient extension directory if present."""
+
+        candidates = []
+        env_root = os.environ.get("WEBUI_ROOT")
+        if env_root:
+            candidates.append(Path(env_root))
+        candidates.append(Path.home() / "stable-diffusion-webui")
+        repo_candidate = Path(__file__).resolve().parents[3] / "stable-diffusion-webui"
+        candidates.append(repo_candidate)
+        local_candidate = Path("..") / "stable-diffusion-webui"
+        candidates.append(local_candidate.resolve())
+
+        seen: set[str] = set()
+        for root in candidates:
+            if not root:
+                continue
+            root = Path(root)
+            key = str(root).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            ext_dir = root / "extensions" / "stable-diffusion-webui-aesthetic-gradients-master"
+            if ext_dir.exists():
+                return True, ext_dir
+        return False, None
+
+    def _refresh_aesthetic_embeddings(self, *_):
+        """Reload available aesthetic embedding names from disk."""
+
+        embeddings = ["None"]
+        if self.aesthetic_extension_root:
+            embed_dir = self.aesthetic_extension_root / "aesthetic_embeddings"
+            if embed_dir.exists():
+                for file in sorted(embed_dir.glob("*.pt")):
+                    embeddings.append(file.stem)
+        self.aesthetic_embeddings = sorted(dict.fromkeys(embeddings), key=lambda name: (name != "None", name.lower()))
+
+        if self.aesthetic_embedding_var.get() not in self.aesthetic_embeddings:
+            self.aesthetic_embedding_var.set("None")
+
+        if hasattr(self, "aesthetic_embedding_combo"):
+            try:
+                self.aesthetic_embedding_combo["values"] = self.aesthetic_embeddings
+            except Exception:
+                pass
+
+        if self.aesthetic_script_available:
+            status = "Aesthetic extension detected"
+        else:
+            status = "Extension not detected – fallback mode only"
+        if len(self.aesthetic_embeddings) <= 1:
+            status += " (no embeddings found)"
+        self.aesthetic_status_var.set(status)
+
+    def _collect_randomization_config(self) -> dict[str, Any]:
+        """Collect randomization settings into a serializable dict."""
+
+        vars_dict = getattr(self, "randomization_vars", None)
+        if not vars_dict:
+            return {}
+
+        sr_text = self._get_randomization_text("prompt_sr_text")
+        wildcard_text = self._get_randomization_text("wildcard_text")
+        matrix_text = self._get_randomization_text("matrix_text")
+
+        return {
+            "enabled": bool(vars_dict["enabled"].get()),
+            "prompt_sr": {
+                "enabled": bool(vars_dict["prompt_sr_enabled"].get()),
+                "mode": vars_dict["prompt_sr_mode"].get(),
+                "rules": self._parse_prompt_sr_rules(sr_text),
+                "raw_text": sr_text,
+            },
+            "wildcards": {
+                "enabled": bool(vars_dict["wildcards_enabled"].get()),
+                "mode": vars_dict["wildcard_mode"].get(),
+                "tokens": self._parse_token_lines(wildcard_text),
+                "raw_text": wildcard_text,
+            },
+            "matrix": {
+                "enabled": bool(vars_dict["matrix_enabled"].get()),
+                "mode": vars_dict["matrix_mode"].get(),
+                "limit": int(vars_dict["matrix_limit"].get() or 0),
+                "slots": self._parse_matrix_lines(matrix_text),
+                "raw_text": matrix_text,
+            },
+        }
+
+    def _load_randomization_config(self, config: dict[str, Any]) -> None:
+        """Populate randomization UI from configuration values."""
+
+        vars_dict = getattr(self, "randomization_vars", None)
+        if not vars_dict:
+            return
+
+        data = (config or {}).get("randomization", {})
+        vars_dict["enabled"].set(bool(data.get("enabled", False)))
+
+        sr = data.get("prompt_sr", {})
+        vars_dict["prompt_sr_enabled"].set(bool(sr.get("enabled", False)))
+        vars_dict["prompt_sr_mode"].set(sr.get("mode", "random"))
+        sr_text = sr.get("raw_text") or self._format_prompt_sr_rules(sr.get("rules", []))
+        self._set_randomization_text("prompt_sr_text", sr_text)
+
+        wildcards = data.get("wildcards", {})
+        vars_dict["wildcards_enabled"].set(bool(wildcards.get("enabled", False)))
+        vars_dict["wildcard_mode"].set(wildcards.get("mode", "random"))
+        wildcard_text = wildcards.get("raw_text") or self._format_token_lines(wildcards.get("tokens", []))
+        self._set_randomization_text("wildcard_text", wildcard_text)
+
+        matrix = data.get("matrix", {})
+        vars_dict["matrix_enabled"].set(bool(matrix.get("enabled", False)))
+        vars_dict["matrix_mode"].set(matrix.get("mode", "fanout"))
+        vars_dict["matrix_limit"].set(int(matrix.get("limit", 8)))
+        matrix_text = matrix.get("raw_text") or self._format_matrix_lines(matrix.get("slots", []))
+        self._set_randomization_text("matrix_text", matrix_text)
+
+        self._update_randomization_states()
+
+    def _collect_aesthetic_config(self) -> dict[str, Any]:
+        """Collect aesthetic gradient settings."""
+
+        vars_dict = getattr(self, "aesthetic_vars", None)
+        if not vars_dict:
+            return {}
+
+        mode = vars_dict["mode"].get()
+        if mode == "script" and not self.aesthetic_script_available:
+            mode = "prompt"
+
+        def _safe_float(value: Any, default: float) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
+        config = {
+            "enabled": bool(vars_dict["enabled"].get()),
+            "mode": mode,
+            "weight": _safe_float(vars_dict["weight"].get(), 0.9),
+            "steps": int(vars_dict["steps"].get() or 0),
+            "learning_rate": _safe_float(vars_dict["learning_rate"].get(), 0.0001),
+            "slerp": bool(vars_dict["slerp"].get()),
+            "slerp_angle": _safe_float(vars_dict["slerp_angle"].get(), 0.1),
+            "embedding": self.aesthetic_embedding_var.get() or "None",
+            "text": vars_dict["text"].get().strip(),
+            "text_is_negative": bool(vars_dict["text_is_negative"].get()),
+            "fallback_prompt": vars_dict["fallback_prompt"].get().strip(),
+        }
+        return config
+
+    def _load_aesthetic_config(self, config: dict[str, Any]) -> None:
+        """Populate aesthetic gradient UI from stored configuration."""
+
+        vars_dict = getattr(self, "aesthetic_vars", None)
+        if not vars_dict:
+            return
+
+        data = (config or {}).get("aesthetic", {})
+        vars_dict["enabled"].set(bool(data.get("enabled", False)))
+        desired_mode = data.get("mode", "script")
+        if desired_mode == "script" and not self.aesthetic_script_available:
+            desired_mode = "prompt"
+        vars_dict["mode"].set(desired_mode)
+        vars_dict["weight"].set(float(data.get("weight", 0.9)))
+        vars_dict["steps"].set(int(data.get("steps", 5)))
+        vars_dict["learning_rate"].set(str(data.get("learning_rate", 0.0001)))
+        vars_dict["slerp"].set(bool(data.get("slerp", False)))
+        vars_dict["slerp_angle"].set(float(data.get("slerp_angle", 0.1)))
+        vars_dict["text"].set(data.get("text", ""))
+        vars_dict["text_is_negative"].set(bool(data.get("text_is_negative", False)))
+        vars_dict["fallback_prompt"].set(data.get("fallback_prompt", ""))
+
+        embedding = data.get("embedding", "None") or "None"
+        if embedding not in self.aesthetic_embeddings:
+            embedding = "None"
+        self.aesthetic_embedding_var.set(embedding)
+        self._update_aesthetic_states()
+
+    @staticmethod
+    def _parse_prompt_sr_rules(text: str) -> list[dict[str, Any]]:
+        """Parse Prompt S/R rule definitions."""
+
+        rules: list[dict[str, Any]] = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=>" not in line:
+                continue
+            search, replacements = line.split("=>", 1)
+            search = search.strip()
+            replacement_values = [item.strip() for item in replacements.split("|") if item.strip()]
+            if search and replacement_values:
+                rules.append({"search": search, "replacements": replacement_values})
+        return rules
+
+    @staticmethod
+    def _format_prompt_sr_rules(rules: list[dict[str, Any]]) -> str:
+        """Format Prompt S/R rules back into editable text."""
+
+        lines: list[str] = []
+        for entry in rules or []:
+            search = entry.get("search", "")
+            replacements = entry.get("replacements", [])
+            if not search or not replacements:
+                continue
+            lines.append(f"{search} => {' | '.join(replacements)}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _parse_token_lines(text: str) -> list[dict[str, Any]]:
+        """Parse wildcard token definitions."""
+
+        tokens: list[dict[str, Any]] = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or ":" not in line:
+                continue
+            token, values = line.split(":", 1)
+            base_name = token.strip().strip("_")
+            value_list = [item.strip() for item in values.split("|") if item.strip()]
+            if base_name and value_list:
+                tokens.append({"token": f"__{base_name}__", "values": value_list})
+        return tokens
+
+    @staticmethod
+    def _format_token_lines(tokens: list[dict[str, Any]]) -> str:
+        """Format wildcard tokens back into editable text."""
+
+        lines: list[str] = []
+        for token in tokens or []:
+            name = token.get("token", "")
+            values = token.get("values", [])
+            if not name or not values:
+                continue
+            stripped_name = name.strip("_") if name.startswith("__") and name.endswith("__") else name
+            lines.append(f"{stripped_name}: {' | '.join(values)}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _parse_matrix_lines(text: str) -> list[dict[str, Any]]:
+        """Parse matrix slot definitions."""
+
+        slots: list[dict[str, Any]] = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or ":" not in line:
+                continue
+            slot, values = line.split(":", 1)
+            slot_name = slot.strip()
+            value_list = [item.strip() for item in values.split("|") if item.strip()]
+            if slot_name and value_list:
+                slots.append({"name": slot_name, "values": value_list})
+        return slots
+
+    @staticmethod
+    def _format_matrix_lines(slots: list[dict[str, Any]]) -> str:
+        """Format matrix slots back into editable text."""
+
+        lines: list[str] = []
+        for slot in slots or []:
+            name = slot.get("name", "")
+            values = slot.get("values", [])
+            if not name or not values:
+                continue
+            lines.append(f"{name}: {' | '.join(values)}")
+        return "\n".join(lines)
 
     def _build_pipeline_controls_panel(self, parent):
         """Build compact pipeline controls panel using PipelineControlsPanel component, with state restore."""
@@ -521,8 +1486,19 @@ class StableNewGUI:
         )
 
         # Create the PipelineControlsPanel component
+        stage_vars = {
+            "txt2img": self.txt2img_enabled,
+            "img2img": self.img2img_enabled,
+            "adetailer": self.adetailer_enabled,
+            "upscale": self.upscale_enabled,
+            "video": self.video_enabled,
+        }
+
         self.pipeline_controls_panel = PipelineControlsPanel(
-            parent, initial_state=initial_state, style="Dark.TFrame"
+            parent,
+            initial_state=initial_state,
+            stage_vars=stage_vars,
+            style="Dark.TFrame",
         )
         self.pipeline_controls_panel.pack(fill=tk.BOTH, expand=True)
         # Restore previous state if available
@@ -531,10 +1507,7 @@ class StableNewGUI:
                 self.pipeline_controls_panel.set_state(prev_state)
             except Exception as e:
                 logger.warning(f"Failed to restore PipelineControlsPanel state: {e}")
-        # Store references to variables for backward compatibility
-        self.txt2img_enabled = self.pipeline_controls_panel.txt2img_enabled
-        self.img2img_enabled = self.pipeline_controls_panel.img2img_enabled
-        self.upscale_enabled = self.pipeline_controls_panel.upscale_enabled
+        # Keep shared references for non-stage settings
         self.video_enabled = self.pipeline_controls_panel.video_enabled
         self.loop_type_var = self.pipeline_controls_panel.loop_type_var
         self.loop_count_var = self.pipeline_controls_panel.loop_count_var
@@ -577,31 +1550,53 @@ class StableNewGUI:
         config_buttons = ttk.Frame(config_frame, style="Dark.TFrame")
         config_buttons.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5, 10))
 
-        ttk.Button(
+        save_all_btn = ttk.Button(
             config_buttons,
-            text="� Save All Changes",
+            text="Save All Changes",
             command=self._save_all_config,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
-            config_buttons, text="↺ Reset All", command=self._reset_all_config, style="Dark.TButton"
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
+        )
+        save_all_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self._attach_tooltip(
+            save_all_btn,
+            "Write every visible setting to the current preset/override so multi-pack runs stay consistent.",
+        )
+
+        reset_all_btn = ttk.Button(
+            config_buttons, text="Reset All", command=self._reset_all_config, style="Dark.TButton"
+        )
+        reset_all_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self._attach_tooltip(
+            reset_all_btn,
+            "Revert the form back to the base preset. Does not touch pack-specific files.",
+        )
+
+        save_pack_btn = ttk.Button(
             config_buttons,
-            text="💾 Save Pack Config",
+            text="Save Pack Config",
             command=self._save_current_pack_config,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 5))
+        )
+        save_pack_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self._attach_tooltip(
+            save_pack_btn,
+            "Stores the current values into the highlighted pack's JSON. Available only when a single pack is selected and override is off.",
+        )
 
         # Auto-apply toggle and top save indicator
         try:
             self.auto_apply_var = tk.BooleanVar(value=False)
-            ttk.Checkbutton(
+            auto_apply_check = ttk.Checkbutton(
                 config_buttons,
                 text="Auto-apply on change",
                 variable=self.auto_apply_var,
                 style="Dark.TCheckbutton",
-            ).pack(side=tk.LEFT, padx=(10, 5))
+            )
+            auto_apply_check.pack(side=tk.LEFT, padx=(10, 5))
+            self._attach_tooltip(
+                auto_apply_check,
+                "Immediately save edits to the active pack/preset whenever a field changes. Helpful for rapid tweaking.",
+            )
 
             self.top_save_indicator_var = tk.StringVar(value="")
             self.top_save_indicator = ttk.Label(
@@ -626,12 +1621,17 @@ class StableNewGUI:
         self.preset_dropdown.pack(side=tk.LEFT)
         self.preset_dropdown.bind("<<ComboboxSelected>>", self._on_preset_changed)
 
-        ttk.Button(
+        save_override_btn = ttk.Button(
             config_buttons,
-            text="� Save as Override Preset",
+            text="Save as Override Preset",
             command=self._save_override_preset,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT)
+        )
+        save_override_btn.pack(side=tk.LEFT)
+        self._attach_tooltip(
+            save_override_btn,
+            "Capture the current settings as a reusable preset that can be applied to future packs.",
+        )
 
     def _build_pipeline_controls_tab(self, notebook):
         """Build pipeline execution controls tab"""
@@ -796,56 +1796,84 @@ class StableNewGUI:
 
         self.run_pipeline_btn = ttk.Button(
             main_buttons,
-            text="🚀 Run Full Pipeline",
+            text="Run Full Pipeline",
             command=self._run_full_pipeline,
             style="Accent.TButton",
         )  # Blue accent for primary action
         self.run_pipeline_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(
+            self.run_pipeline_btn,
+            "Process every highlighted pack sequentially using the current configuration. Override mode applies when enabled.",
+        )
 
-        ttk.Button(
+        txt2img_only_btn = ttk.Button(
             main_buttons,
-            text="🎨 txt2img Only",
+            text="txt2img Only",
             command=self._run_txt2img_only,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(
+        )
+        txt2img_only_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(
+            txt2img_only_btn,
+            "Generate txt2img outputs for the selected pack(s) only.",
+        )
+
+        upscale_only_btn = ttk.Button(
             main_buttons,
-            text="📈 Upscale Only",
+            text="Upscale Only",
             command=self._run_upscale_only,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(
-            main_buttons, text="🎬 Create Video", command=self._create_video, style="Dark.TButton"
-        ).pack(side=tk.LEFT, padx=(0, 10))
+        )
+        upscale_only_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(
+            upscale_only_btn,
+            "Run only the upscale stage for the currently selected outputs (skips txt2img/img2img).",
+        )
+
+        create_video_btn = ttk.Button(
+            main_buttons, text="Create Video", command=self._create_video, style="Dark.TButton"
+        )
+        create_video_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(create_video_btn, "Combine rendered images into a video file.")
 
         # Utility buttons
         util_buttons = ttk.Frame(actions_frame, style="Dark.TFrame")
         util_buttons.pack(side=tk.RIGHT)
 
-        ttk.Button(
+        open_output_btn = ttk.Button(
             util_buttons,
-            text="📁 Open Output",
+            text="Open Output",
             command=self._open_output_folder,
             style="Dark.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(
-            util_buttons, text="🛑 Stop", command=self._stop_execution, style="Danger.TButton"
-        ).pack(
-            side=tk.LEFT, padx=(0, 10)
-        )  # Red accent for stop
-        ttk.Button(
-            util_buttons, text="❌ Exit", command=self._graceful_exit, style="Danger.TButton"
-        ).pack(
-            side=tk.LEFT
-        )  # Red accent for exit
+        )
+        open_output_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(open_output_btn, "Open the output directory in your system file browser.")
+
+        stop_btn = ttk.Button(
+            util_buttons, text="Stop", command=self._stop_execution, style="Danger.TButton"
+        )
+        stop_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self._attach_tooltip(
+            stop_btn,
+            "Request cancellation of the pipeline run. The current stage finishes before stopping.",
+        )
+
+        exit_btn = ttk.Button(
+            util_buttons, text="Exit", command=self._graceful_exit, style="Danger.TButton"
+        )
+        exit_btn.pack(side=tk.LEFT)
+        self._attach_tooltip(exit_btn, "Gracefully stop background work and close StableNew.")
+
 
         # Reparent early log panel to bottom_frame
         # (log_panel was created early in __init__ to avoid AttributeError)
         # Create log panel directly with bottom_frame as parent
-        self.log_panel = LogPanel(bottom_frame, coordinator=self, height=6, style="Dark.TFrame")
+        self.log_panel = LogPanel(bottom_frame, coordinator=self, height=18, style="Dark.TFrame")
         self.log_panel.pack(fill=tk.BOTH, expand=True)
         self.add_log = self.log_panel.append
         self.log_text = getattr(self.log_panel, "log_text", None)
+        if self.log_text is not None:
+            self._enable_mousewheel(self.log_text)
 
         # Attach logging handler to redirect standard logging to GUI
         if not hasattr(self, "gui_log_handler"):
@@ -1223,6 +2251,7 @@ class StableNewGUI:
                     # Perform API calls in worker thread
                     self._refresh_models_async()
                     self._refresh_vae_models_async()
+                    self._refresh_hypernetworks_async()
                     self._refresh_upscalers_async()
                     self._refresh_schedulers_async()
                 except Exception as exc:
@@ -1505,6 +2534,22 @@ class StableNewGUI:
             except Exception:
                 pass
 
+        if hasattr(self, "adetailer_panel") and self.adetailer_panel is not None:
+            try:
+                config["adetailer"] = self.adetailer_panel.get_config()
+            except Exception:
+                pass
+
+        try:
+            config["randomization"] = self._collect_randomization_config()
+        except Exception:
+            config["randomization"] = {}
+
+        try:
+            config["aesthetic"] = self._collect_aesthetic_config()
+        except Exception:
+            config["aesthetic"] = {}
+
         return config
     def _attach_summary_traces(self) -> None:
         """Attach change traces to update live summaries."""
@@ -1627,6 +2672,62 @@ class StableNewGUI:
         else:
             logger.info(message)
 
+    def _attach_tooltip(self, widget: tk.Widget, text: str, delay: int = 1500) -> None:
+        """Attach a tooltip to a widget if possible."""
+        try:
+            Tooltip(widget, text, delay=delay)
+        except Exception:
+            pass
+
+    def _enable_mousewheel(self, widget: tk.Widget) -> None:
+        """Enable cross-platform mousewheel scrolling for a widget that supports yview."""
+
+        def _on_mousewheel(event):
+            delta = event.delta
+            if not delta and getattr(event, "num", None) in (4, 5):
+                delta = 120 if event.num == 4 else -120
+            step = int(-1 * (delta / 120))
+            try:
+                widget.yview_scroll(step, "units")
+            except Exception:
+                return
+            return "break"
+
+        def _bind(_event):
+            widget.bind_all("<MouseWheel>", _on_mousewheel)
+            widget.bind_all("<Button-4>", _on_mousewheel)
+            widget.bind_all("<Button-5>", _on_mousewheel)
+
+        def _unbind(_event):
+            widget.unbind_all("<MouseWheel>")
+            widget.unbind_all("<Button-4>")
+            widget.unbind_all("<Button-5>")
+
+        widget.bind("<Enter>", _bind, add="+")
+        widget.bind("<Leave>", _unbind, add="+")
+
+    def _create_scrollable_container(self, parent: tk.Widget):
+        """
+        Return (container_frame, scrollable_frame) where scrollable_frame grows inside a canvas with vertical scrollbar.
+        Caller is responsible for packing the container.
+        """
+
+        container = ttk.Frame(parent, style="Dark.TFrame")
+        canvas = tk.Canvas(container, bg="#2b2b2b", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, style="Dark.TFrame")
+
+        scrollable_frame.bind(
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._enable_mousewheel(canvas)
+        return container, scrollable_frame
+
     def _run_full_pipeline(self):
         """Run the complete pipeline"""
         if not self.api_connected:
@@ -1642,7 +2743,15 @@ class StableNewGUI:
             self.log_message("No prompt packs selected", "WARNING")
             return
 
-        self.log_message("▶️ Starting pipeline execution...", "INFO")
+        pack_summary = ", ".join(pack.name for pack in selected_packs)
+        self.log_message(
+            f"▶️ Starting pipeline execution for {len(selected_packs)} pack(s): {pack_summary}",
+            "INFO",
+        )
+        try:
+            override_mode = bool(self.override_pack_var.get())
+        except Exception:
+            override_mode = False
 
         # Snapshot Tk-backed values on the main thread (thread-safe)
         try:
@@ -1653,13 +2762,54 @@ class StableNewGUI:
             batch_size_snapshot = int(self.images_per_prompt_var.get())
         except Exception:
             batch_size_snapshot = 1
+
+        config_snapshot = config_snapshot or {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        pipeline_overrides = deepcopy(config_snapshot.get("pipeline", {}))
+        api_overrides = deepcopy(config_snapshot.get("api", {}))
+        try:
+            preset_snapshot = self.preset_var.get()
+        except Exception:
+            preset_snapshot = "default"
+
+        def resolve_config_for_pack(pack_file: Path) -> dict[str, Any]:
+            """Return per-pack configuration honoring override mode."""
+            if override_mode:
+                return deepcopy(config_snapshot)
+
+            pack_config: dict[str, Any] = {}
+            if hasattr(self, "config_manager") and self.config_manager:
+                try:
+                    pack_config = self.config_manager.ensure_pack_config(
+                        pack_file.name, preset_snapshot or "default"
+                    )
+                except Exception as exc:
+                self.log_message(
+                    f"⚠️ Failed to load config for {pack_file.name}: {exc}. Using current form values.",
+                    "WARNING",
+                )
+
+            merged = deepcopy(pack_config) if pack_config else {}
+            if pipeline_overrides:
+                merged.setdefault("pipeline", {}).update(pipeline_overrides)
+            if api_overrides:
+                merged.setdefault("api", {}).update(api_overrides)
+            # Always honor runtime-only sections from the current form (they are not stored per-pack)
+            for runtime_key in ("randomization", "aesthetic"):
+                snapshot_section = deepcopy(config_snapshot.get(runtime_key)) if config_snapshot else None
+                if snapshot_section:
+                    merged[runtime_key] = snapshot_section
+
+            if merged:
+                return merged
+            return deepcopy(config_snapshot)
+
         def pipeline_func():
             cancel = self.controller.cancel_token
             session_run_dir = self.structured_logger.create_run_directory()
             self.log_message(f"📁 Session directory: {session_run_dir.name}", "INFO")
 
             total_generated = 0
-            for pack_file in selected_packs:
+            for pack_file in list(selected_packs):
                 if cancel.is_cancelled():
                     raise CancellationError("User cancelled before pack start")
                 self.log_message(f"📦 Processing pack: {pack_file.name}", "INFO")
@@ -1667,38 +2817,107 @@ class StableNewGUI:
                 if not prompts:
                     self.log_message(f"No prompts found in {pack_file.name}", "WARNING")
                     continue
-                config = config_snapshot
+                config = resolve_config_for_pack(pack_file)
+                config_mode = "override" if override_mode else "pack"
+                self.log_message(
+                    f"⚙️ Using {config_mode} configuration for {pack_file.name}", "INFO"
+                )
+                randomizer = PromptRandomizer(config.get("randomization", {}))
+                variant_plan = build_variant_plan(config)
+                if variant_plan.active:
+                    self.log_message(
+                        f"🎛️ Variant plan ({variant_plan.mode}) with {len(variant_plan.variants)} combo(s)",
+                        "INFO",
+                    )
                 batch_size = batch_size_snapshot
-
-
+                rotate_cursor = 0
+                prompt_run_index = 0
 
                 for i, prompt_data in enumerate(prompts):
                     if cancel.is_cancelled():
                         raise CancellationError("User cancelled during prompt loop")
+                    prompt_text = prompt_data.get("positive", "")
                     self.log_message(
-                        f"📝 Prompt {i+1}/{len(prompts)}: {prompt_data['positive'][:50]}...",
+                        f"📝 Prompt {i+1}/{len(prompts)}: {prompt_text[:50]}...",
                         "INFO",
                     )
-                    result = self.pipeline.run_pack_pipeline(
-                        pack_name=pack_file.stem,
-                        prompt=prompt_data.get("positive", ""),
-                        config=config,
-                        run_dir=session_run_dir,
-                        prompt_index=i,
-                        batch_size=batch_size,
-                    )
-                    if cancel.is_cancelled():
-                        raise CancellationError("User cancelled after pack stage")
-                    if result and result.get("summary"):
-                        gen = len(result["summary"])
-                        total_generated += gen
-                        self.log_message(
-                            f"✅ Generated {gen} image(s) for prompt {i+1}", "SUCCESS"
-                        )
-                    else:
-                        self.log_message(
-                            f"❌ Failed to generate images for prompt {i+1}", "ERROR"
-                        )
+
+                    randomized_variants = randomizer.generate(prompt_text)
+                    if not randomized_variants:
+                        randomized_variants = [PromptVariant(text=prompt_text, label=None)]
+
+                    for random_variant in randomized_variants:
+                        random_label = random_variant.label
+                        variant_prompt_text = random_variant.text
+                        if random_label:
+                            self.log_message(f"🎲 Randomization: {random_label}", "INFO")
+
+                        if variant_plan.active and variant_plan.variants:
+                            if variant_plan.mode == "fanout":
+                                variants_to_run = variant_plan.variants
+                            else:
+                                variant = variant_plan.variants[
+                                    rotate_cursor % len(variant_plan.variants)
+                                ]
+                                variants_to_run = [variant]
+                                rotate_cursor += 1
+                        else:
+                            variants_to_run = [None]
+
+                        for variant in variants_to_run:
+                            if cancel.is_cancelled():
+                                raise CancellationError("User cancelled during prompt loop")
+
+                            stage_variant_label = None
+                            variant_index = 0
+                            if variant is not None:
+                                stage_variant_label = variant.label
+                                variant_index = variant.index
+                                self.log_message(
+                                    f"🎭 Variant {variant.index + 1}/{len(variant_plan.variants)}: {stage_variant_label}",
+                                    "INFO",
+                                )
+
+                            effective_config = apply_variant_to_config(config, variant)
+                            result = self.pipeline.run_pack_pipeline(
+                                pack_name=pack_file.stem,
+                                prompt=variant_prompt_text,
+                                config=effective_config,
+                                run_dir=session_run_dir,
+                                prompt_index=prompt_run_index,
+                                batch_size=batch_size,
+                                variant_index=variant_index,
+                                variant_label=stage_variant_label,
+                            )
+                            prompt_run_index += 1
+
+                            if cancel.is_cancelled():
+                                raise CancellationError("User cancelled after pack stage")
+
+                            if result and result.get("summary"):
+                                gen = len(result["summary"])
+                                total_generated += gen
+                                suffix_parts = []
+                                if random_label:
+                                    suffix_parts.append(f"random: {random_label}")
+                                if stage_variant_label:
+                                    suffix_parts.append(f"variant {variant_index + 1}")
+                                suffix = f" ({'; '.join(suffix_parts)})" if suffix_parts else ""
+                                self.log_message(
+                                    f"✅ Generated {gen} image(s) for prompt {i+1}{suffix}",
+                                    "SUCCESS",
+                                )
+                            else:
+                                suffix_parts = []
+                                if random_label:
+                                    suffix_parts.append(f"random: {random_label}")
+                                if stage_variant_label:
+                                    suffix_parts.append(f"variant {variant_index + 1}")
+                                suffix = f" ({'; '.join(suffix_parts)})" if suffix_parts else ""
+                                self.log_message(
+                                    f"❌ Failed to generate images for prompt {i+1}{suffix}",
+                                    "ERROR",
+                                )
                 self.log_message(f"✅ Completed pack '{pack_file.stem}'", "SUCCESS")
             return {"images_generated": total_generated, "output_dir": str(session_run_dir)}
 
@@ -1941,21 +3160,44 @@ class StableNewGUI:
         threading.Thread(target=video_thread, daemon=True).start()
 
     def _get_selected_packs(self) -> list[Path]:
-        """Get list of selected prompt pack files"""
-        selected_indices = self.packs_listbox.curselection()
-        if not selected_indices:
-            return []
+        """Resolve the currently selected prompt packs in UI order."""
+        pack_names: list[str] = []
+
+        if getattr(self, "selected_packs", None):
+            pack_names = list(dict.fromkeys(self.selected_packs))
+        elif hasattr(self, "prompt_pack_panel") and hasattr(
+            self.prompt_pack_panel, "get_selected_packs"
+        ):
+            try:
+                pack_names = list(self.prompt_pack_panel.get_selected_packs())
+            except Exception:
+                pack_names = []
+
+        if not pack_names and hasattr(self, "packs_listbox"):
+            try:
+                selected_indices = self.packs_listbox.curselection()
+                pack_names = [self.packs_listbox.get(i) for i in selected_indices]
+            except Exception:
+                pack_names = []
 
         packs_dir = Path("packs")
-        selected_packs = []
-
-        for index in selected_indices:
-            pack_name = self.packs_listbox.get(index)
+        resolved: list[Path] = []
+        for pack_name in pack_names:
             pack_path = packs_dir / pack_name
             if pack_path.exists():
-                selected_packs.append(pack_path)
+                resolved.append(pack_path)
+            else:
+                self.log_message(f"⚠️ Pack not found on disk: {pack_path}", "WARNING")
 
-        return selected_packs
+        return resolved
+
+    def _build_info_box(self, parent, title: str, text: str):
+        """Reusable helper for informational sections within tabs."""
+        frame = ttk.LabelFrame(parent, text=title, style="Dark.TFrame", padding=6)
+        ttk.Label(frame, text=text, style="Dark.TLabel", wraplength=520, justify=tk.LEFT).pack(
+            fill=tk.X
+        )
+        return frame
 
     def _open_output_folder(self):
         """Open the output folder"""
@@ -2480,6 +3722,9 @@ class StableNewGUI:
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+        self._enable_mousewheel(canvas)
+        self._enable_mousewheel(canvas)
+        self._enable_mousewheel(canvas)
 
         # Live summary for next run (txt2img)
         try:
@@ -3162,6 +4407,10 @@ class StableNewGUI:
         try:
             if hasattr(self, "config_panel"):
                 self.config_panel.set_config(config)
+            if hasattr(self, "adetailer_panel") and self.adetailer_panel:
+                self.adetailer_panel.set_config(config.get("adetailer", {}))
+            self._load_randomization_config(config)
+            self._load_aesthetic_config(config)
         except Exception as e:
             self.log_message(f"Error loading config into forms: {e}", "ERROR")
 
@@ -3702,6 +4951,50 @@ class StableNewGUI:
                 0,
                 lambda err=exc: messagebox.showerror("Error", f"Failed to refresh models: {err}"),
             )
+
+    def _refresh_hypernetworks_async(self):
+        """Refresh available hypernetworks (thread-safe)."""
+
+        if self.client is None:
+            self.root.after(
+                0, lambda: messagebox.showerror("Error", "API client not connected")
+            )
+            return
+
+        def worker():
+            try:
+                entries = self.client.get_hypernetworks()
+                names = ["None"]
+                for entry in entries:
+                    name = ""
+                    if isinstance(entry, dict):
+                        name = entry.get("name") or entry.get("title") or ""
+                    else:
+                        name = str(entry)
+                    name = name.strip()
+                    if name and name not in names:
+                        names.append(name)
+
+                self.available_hypernetworks = names
+
+                def update_widgets():
+                    if hasattr(self, "config_panel"):
+                        try:
+                            self.config_panel.set_hypernetwork_options(names)
+                        except Exception:
+                            pass
+
+                self.root.after(0, update_widgets)
+                self._add_log_message(f"🔄 Loaded {len(names) - 1} hypernetwork(s)")
+            except Exception as exc:  # pragma: no cover - Tk loop dispatch
+                self.root.after(
+                    0,
+                    lambda err=exc: messagebox.showerror(
+                        "Error", f"Failed to refresh hypernetworks: {err}"
+                    ),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _refresh_vae_models(self):
         """Refresh the list of available VAE models (main thread version)"""

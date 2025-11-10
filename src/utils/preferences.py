@@ -17,12 +17,16 @@ class PreferencesManager:
     _DEFAULT_PIPELINE_CONTROLS: dict[str, Any] = {
         "txt2img_enabled": True,
         "img2img_enabled": True,
+        "adetailer_enabled": False,
         "upscale_enabled": True,
         "video_enabled": False,
         "loop_type": "single",
         "loop_count": 1,
         "pack_mode": "selected",
         "images_per_prompt": 1,
+        "model_matrix": [],
+        "hypernetworks": [],
+        "variant_mode": "fanout",
     }
 
     def __init__(self, path: str | Path | None = None):

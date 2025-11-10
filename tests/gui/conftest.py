@@ -5,6 +5,8 @@ import tkinter as tk
 
 import pytest
 
+from src.gui.main_window import StableNewGUI
+
 
 _shared_root: tk.Tk | None = None
 
@@ -91,3 +93,28 @@ def wait_until(pred, timeout=5.0, step=0.02):
             return True
         time.sleep(step)
     return False
+
+
+@pytest.fixture
+def minimal_gui_app(monkeypatch, tk_root):
+    """Provide a lightweight StableNewGUI with heavy side effects stubbed out."""
+
+    def _noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(StableNewGUI, "_initialize_ui_state", _noop)
+    monkeypatch.setattr(StableNewGUI, "_launch_webui", _noop)
+    monkeypatch.setattr("src.gui.main_window.messagebox.showerror", _noop)
+    monkeypatch.setattr("src.gui.main_window.messagebox.showinfo", _noop)
+    monkeypatch.setattr("src.gui.main_window.tk.Tk", lambda: tk_root)
+
+    app = StableNewGUI()
+    app.api_connected = True
+    yield app
+
+    # Cleanup widgets created inside the shared root so tests do not leak windows
+    for child in list(tk_root.winfo_children()):
+        try:
+            child.destroy()
+        except Exception:
+            pass

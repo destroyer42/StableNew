@@ -9,6 +9,7 @@ from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 
 from ..utils.file_io import get_prompt_packs
+from .tooltip import Tooltip
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,13 @@ class PromptPackPanel(ttk.Frame):
         # Poll at a small interval to avoid saturating Tk's idle loop
         self.after(150, self._watch_selection_change)
 
+    def _attach_tooltip(self, widget: tk.Widget, text: str, delay: int = 1500) -> None:
+        """Best-effort tooltip attachment that won't crash headless tests."""
+        try:
+            Tooltip(widget, text, delay=delay)
+        except Exception:
+            pass
+
     def _watch_selection_change(self) -> None:
         """Detect selection changes even when set programmatically and notify."""
         try:
@@ -126,21 +134,38 @@ class PromptPackPanel(ttk.Frame):
         btn_frame = ttk.Frame(list_mgmt_frame, style="Dark.TFrame")
         btn_frame.pack(side=tk.LEFT, padx=(3, 0))
 
-        ttk.Button(
+        load_btn = ttk.Button(
             btn_frame, text="📁", command=self._load_pack_list, style="Dark.TButton", width=3
-        ).grid(row=0, column=0, padx=1)
+        )
+        load_btn.grid(row=0, column=0, padx=1)
+        self._attach_tooltip(
+            load_btn,
+            "Apply the packs stored in the selected list. Current selection is replaced.",
+        )
 
-        ttk.Button(
+        save_btn = ttk.Button(
             btn_frame, text="💾", command=self._save_pack_list, style="Dark.TButton", width=3
-        ).grid(row=0, column=1, padx=1)
+        )
+        save_btn.grid(row=0, column=1, padx=1)
+        self._attach_tooltip(
+            save_btn,
+            "Save the currently highlighted packs as a reusable list for future runs.",
+        )
 
-        ttk.Button(
+        edit_btn = ttk.Button(
             btn_frame, text="✏️", command=self._edit_pack_list, style="Dark.TButton", width=3
-        ).grid(row=0, column=2, padx=1)
+        )
+        edit_btn.grid(row=0, column=2, padx=1)
+        self._attach_tooltip(
+            edit_btn,
+            "Load the saved list into the selector so you can adjust it before saving again.",
+        )
 
-        ttk.Button(
+        delete_btn = ttk.Button(
             btn_frame, text="🗑️", command=self._delete_pack_list, style="Dark.TButton", width=3
-        ).grid(row=0, column=3, padx=1)
+        )
+        delete_btn.grid(row=0, column=3, padx=1)
+        self._attach_tooltip(delete_btn, "Remove the saved list entry (does not delete pack files).")
 
     def _build_packs_listbox(self, parent):
         """Build the packs listbox with scrollbar."""
@@ -171,6 +196,10 @@ class PromptPackPanel(ttk.Frame):
         )
         self.packs_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.packs_listbox.yview)
+        self._attach_tooltip(
+            self.packs_listbox,
+            "Ctrl/Cmd-click or Shift-click to select multiple packs. Selection persists even when focus changes.",
+        )
 
         # Bind selection events
         self.packs_listbox.bind("<<ListboxSelect>>", self._on_pack_selection_changed)
@@ -180,20 +209,30 @@ class PromptPackPanel(ttk.Frame):
         pack_buttons_frame = ttk.Frame(parent, style="Dark.TFrame")
         pack_buttons_frame.pack(pady=(10, 0))
 
-        ttk.Button(
+        refresh_btn = ttk.Button(
             pack_buttons_frame,
             text="🔄 Refresh Packs",
             command=lambda: self.refresh_packs(silent=False),
             style="Dark.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 5))
+        )
+        refresh_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self._attach_tooltip(
+            refresh_btn,
+            "Rescan the packs folder and keep any current selection when possible.",
+        )
 
         if self._on_advanced_editor:
-            ttk.Button(
+            editor_btn = ttk.Button(
                 pack_buttons_frame,
                 text="✏️ Advanced Editor",
                 command=self._on_advanced_editor,
                 style="Dark.TButton",
-            ).pack(side=tk.LEFT)
+            )
+            editor_btn.pack(side=tk.LEFT)
+            self._attach_tooltip(
+                editor_btn,
+                "Open the Advanced Prompt Editor for the first selected pack (multi-select safe).",
+            )
 
     def _on_pack_selection_changed(self, event: object = None) -> None:
         """
