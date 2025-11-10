@@ -212,6 +212,77 @@ class Pipeline:
 
         return cfg
 
+    def _apply_aesthetic_to_payload(
+        self, payload: dict[str, Any], full_config: dict[str, Any]
+    ) -> tuple[str, str]:
+        """Attach aesthetic gradient script data or fallback prompts to the payload."""
+
+        prompt = payload.get("prompt", "")
+        negative = payload.get("negative_prompt", "")
+
+        aesthetic_cfg = (full_config or {}).get("aesthetic", {})
+        if not aesthetic_cfg.get("enabled"):
+            return prompt, negative
+
+        mode = aesthetic_cfg.get("mode", "script")
+        if mode == "script":
+            script_args = self._build_aesthetic_script_args(aesthetic_cfg)
+            if script_args:
+                scripts = payload.setdefault("alwayson_scripts", {})
+                scripts["Aesthetic embeddings"] = {"args": script_args}
+            else:
+                mode = "prompt"
+
+        def append_phrase(base: str, addition: str) -> str:
+            addition = (addition or "").strip()
+            if not addition:
+                return base
+            return f"{base}, {addition}" if base else addition
+
+        if mode == "prompt":
+            text = aesthetic_cfg.get("text", "").strip()
+            if text:
+                if aesthetic_cfg.get("text_is_negative"):
+                    negative = append_phrase(negative, text)
+                else:
+                    prompt = append_phrase(prompt, text)
+
+            fallback = aesthetic_cfg.get("fallback_prompt", "").strip()
+            if fallback:
+                prompt = append_phrase(prompt, fallback)
+
+            embedding = aesthetic_cfg.get("embedding")
+            if embedding and embedding != "None":
+                prompt = append_phrase(prompt, f"<embedding:{embedding}>")
+
+        return prompt, negative
+
+    def _build_aesthetic_script_args(self, cfg: dict[str, Any]) -> list[Any] | None:
+        """Construct Always-on script args for the Aesthetic Gradient extension."""
+
+        try:
+            weight = float(cfg.get("weight", 0.9))
+        except (TypeError, ValueError):
+            weight = 0.9
+        try:
+            steps = int(cfg.get("steps", 5))
+        except (TypeError, ValueError):
+            steps = 5
+        try:
+            learning_rate = float(cfg.get("learning_rate", 0.0001))
+        except (TypeError, ValueError):
+            learning_rate = 0.0001
+        slerp = bool(cfg.get("slerp", False))
+        embedding = cfg.get("embedding", "None") or "None"
+        text = cfg.get("text", "")
+        try:
+            angle = float(cfg.get("slerp_angle", 0.1))
+        except (TypeError, ValueError):
+            angle = 0.1
+        text_negative = bool(cfg.get("text_is_negative", False))
+
+        return [weight, steps, f"{learning_rate}", slerp, embedding, text, angle, text_negative]
+
     def _annotate_active_variant(
         self,
         config: dict[str, Any],
@@ -1139,6 +1210,7 @@ class Pipeline:
                         config.get("img2img", {}),
                         img2img_dir,
                         image_name,  # Use same base name
+                        config,
                     )
                     if img2img_meta:
                         img2img_meta = self._tag_variant_metadata(
@@ -1311,6 +1383,10 @@ class Pipeline:
                 }
             )
 
+            prompt_after, negative_after = self._apply_aesthetic_to_payload(payload, config)
+            payload["prompt"] = prompt_after
+            payload["negative_prompt"] = negative_after
+
             # Add styles if specified
             if txt2img_config.get("styles"):
                 payload["styles"] = txt2img_config["styles"]
@@ -1377,6 +1453,7 @@ class Pipeline:
         config: dict[str, Any],
         output_dir: Path,
         image_name: str,
+        full_config: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         """
         Run img2img stage for image cleanup/refinement.
@@ -1434,6 +1511,12 @@ class Pipeline:
                 "batch_size": 1,
                 "n_iter": 1,
             }
+
+            prompt_after, negative_after = self._apply_aesthetic_to_payload(
+                payload, full_config or {"aesthetic": {}}
+            )
+            payload["prompt"] = prompt_after
+            payload["negative_prompt"] = negative_after
 
             # Log key parameters at INFO to correlate with WebUI progress
             try:

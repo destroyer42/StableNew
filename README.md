@@ -23,6 +23,7 @@ Everything is designed to be **reproducible, inspectable, and testable** — no 
   - [Core Pipeline](#core-pipeline)
   - [User Interface](#user-interface)
   - [Enhanced Configuration Features](#enhanced-configuration-features)
+  - [Randomization & Aesthetic Controls](#randomization--aesthetic-controls)
   - [Technical Features](#technical-features)
   - [Content Creation](#content-creation)
 - [Requirements](#requirements)
@@ -109,6 +110,8 @@ Control pipeline stages by setting flags in your configuration:
   - Pipeline Controls Panel - Loop config, batch settings, and API options
   - Tabbed Config Center - Pipeline, img2img, ADetailer, Upscale, Randomization, and General tabs each with inline help and per-stage toggles
   - API Status Panel - Color-coded connection indicator
+- **Stage Chooser Modal**: After txt2img finishes you can pick img2img, ADetailer, upscale, or skip per image without blocking the Tk loop
+- **Randomization & Aesthetic Gradient Tab**: Prompt S/R, wildcards, prompt matrices, and the Aesthetic Gradient controls (script or fallback mode) all live in one place. Embedding lists refresh automatically from your WebUI extension folder so you can pick a gradient embedding, tweak weight/steps/lr, flip between script and prompt injection, and persist everything per preset/pack.
   - Log Panel - Thread-safe live logging with Python integration
 - **Real-time State Feedback**: Status bar shows pipeline state (Idle/Running/Stopping/Error)
 - **Responsive Controls**: Stop button for graceful cancellation at any pipeline stage
@@ -125,21 +128,28 @@ Control pipeline stages by setting flags in your configuration:
 
 ### Enhanced Configuration Features
 
-- **Hires Fix Steps**: Control second-pass steps independently with `hires_steps` parameter
-- **Expanded Dimensions**: Width/Height support up to 2260px with validation warnings
-- **Face Restoration**: Optional GFPGAN/CodeFormer integration
-  - Toggle-based UI with automatic control visibility
-  - Model selection (GFPGAN or CodeFormer)
-  - Adjustable restoration weight (0.0-1.0)
-- **Dimension Validation**: Real-time bounds checking with user-friendly warnings
+- **Hires Fix Steps**: Separate hires-fix step count with validation
+- **Face Restoration**: Toggleable GFPGAN/CodeFormer controls shared across stages
+- **Dimension Bounds**: Width/Height up to 2260px with inline warnings
+- **Config Panel API**: `get_config()`, `set_config()`, and `validate()` for automation
+
+### Randomization & Aesthetic Controls
+
+- **Prompt S/R Rules**: `search => optionA | optionB` syntax with random or round-robin selection
+- **Wildcards**: AUTOMATIC1111-style `__token__` replacements with random or sequential modes
+- **Prompt Matrix Slots**: `[[Slot]]` tokens can fan out all combinations or rotate per prompt with a safety cap
+- **Aesthetic Gradient**: Script mode feeds the WebUI extension (weight/steps/lr/slerp/embedding); fallback mode injects text + embedding tokens directly into prompts
+- **Persistent Presets**: Randomization + aesthetic settings are stored in presets, pack overrides, and preferences
 
 ### Technical Features
 
-- **API Integration**: Built-in readiness checks and auto-discovery for SD WebUI API
-- **Structured Logging**: JSON manifests per image and CSV rollup summaries
-- **UTF-8 Support**: Full international character support for prompts and filenames
-- **Modular Architecture**: Clean separation for easy maintenance and expansion
-- **Comprehensive Testing**: `pytest` suite with journey tests for full validation
+- **Structured Logger**: JSON manifest per image + CSV rollups per run
+- **Config Manager**: Default/preset/pack override resolution with validation
+- **State Manager**: GUI state transitions (IDLE → RUNNING → STOPPING) with cancel tokens
+- **Pipeline Controller**: Async execution with cooperative cancellation hooks
+- **Variant Scheduler**: Fan-out or rotate combinations of models/hypernetworks along with prompt randomization labels in the logs
+- **Prompt Randomizer Engine**: Applies Prompt S/R, wildcards, matrices, and aesthetic fallbacks before the pipeline, emitting labels for manifests/logs
+- **Tests**: 190+ pytest cases spanning GUI, pipeline, and integration journeys
 
 ### Content Creation
 

@@ -1,14 +1,19 @@
 {
   "preset": "default",
   "selected_packs": [
-    "Juggernaut_SDXL_MedievalRealism_Pack_Hybrid.txt"
+    "Juggernaut_SDXL_MedievalRealism_Pack_Hybrid.txt",
+    "Juggernaut_SDXL_MedievalRealism_Pack_V1.txt",
+    "Juggernaut_SDXL_MedievalRealism_Pack_V2.txt",
+    "Juggernaut_SDXL_MedievalRealism_Pack_V3.txt",
+    "Juggernaut_SDXL_MedievalRealism_Pack_V4.txt",
+    "Juggernaut_SDXL_MedievalRealism_Pack_V5.txt"
   ],
   "override_pack": true,
   "pipeline_controls": {
     "txt2img_enabled": true,
     "img2img_enabled": false,
-    "adetailer_enabled": true,
-    "upscale_enabled": false,
+    "adetailer_enabled": false,
+    "upscale_enabled": true,
     "video_enabled": false,
     "loop_type": "single",
     "loop_count": 1,
@@ -22,8 +27,8 @@
     "txt2img": {
       "steps": 30,
       "cfg_scale": 6.0,
-      "width": 768,
-      "height": 896,
+      "width": 1024,
+      "height": 1024,
       "sampler_name": "DPM++ 2M",
       "scheduler": "Karras",
       "seed": -1,
@@ -33,12 +38,12 @@
       "negative_prompt": "blurry, bad quality, distorted, ugly, malformed",
       "hypernetwork": "None",
       "hypernetwork_strength": 1.0,
-      "enable_hr": true,
+      "enable_hr": false,
       "hr_scale": 2.0,
       "hr_upscaler": "R-ESRGAN 4x+",
       "denoising_strength": 0.2,
       "hires_steps": 12,
-      "face_restoration_enabled": true,
+      "face_restoration_enabled": false,
       "face_restoration_model": "GFPGAN",
       "face_restoration_weight": 0.5
     },
@@ -51,7 +56,7 @@
       "seed": -1,
       "clip_skip": 2,
       "model": "juggernautXL_ragnarokBy.safetensors [dd08fa32f9]",
-      "vae": "",
+      "vae": "sdxl_vae.safetensors",
       "hypernetwork": "None",
       "hypernetwork_strength": 1.0,
       "prompt_adjust": "",
@@ -76,8 +81,8 @@
     "pipeline": {
       "txt2img_enabled": true,
       "img2img_enabled": false,
-      "adetailer_enabled": true,
-      "upscale_enabled": false,
+      "adetailer_enabled": false,
+      "upscale_enabled": true,
       "video_enabled": false,
       "loop_type": "single",
       "loop_count": 1,
@@ -98,6 +103,41 @@
       "adetailer_cfg": 6.0,
       "adetailer_prompt": "",
       "adetailer_negative_prompt": ""
+    },
+    "randomization": {
+      "enabled": false,
+      "prompt_sr": {
+        "enabled": false,
+        "mode": "random",
+        "rules": [],
+        "raw_text": ""
+      },
+      "wildcards": {
+        "enabled": false,
+        "mode": "random",
+        "tokens": [],
+        "raw_text": ""
+      },
+      "matrix": {
+        "enabled": false,
+        "mode": "fanout",
+        "limit": 8,
+        "slots": [],
+        "raw_text": ""
+      }
+    },
+    "aesthetic": {
+      "enabled": true,
+      "mode": "script",
+      "weight": 0.9,
+      "steps": 5,
+      "learning_rate": 0.0001,
+      "slerp": true,
+      "slerp_angle": 0.1,
+      "embedding": "fantasy",
+      "text": "Magical",
+      "text_is_negative": false,
+      "fallback_prompt": ""
     }
   }
 }
