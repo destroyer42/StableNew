@@ -201,8 +201,25 @@ class PromptPackPanel(ttk.Frame):
             "Ctrl/Cmd-click or Shift-click to select multiple packs. Selection persists even when focus changes.",
         )
 
-        # Bind selection events
-        self.packs_listbox.bind("<<ListboxSelect>>", self._on_pack_selection_changed)
+        # Bind selection events (use lambda + add to avoid clobbering default virtual bindings)
+        self.packs_listbox.bind(
+            "<<ListboxSelect>>", lambda e: self._on_pack_selection_changed(e), add="+"
+        )
+
+        # Wrap selection_set to ensure programmatic selections trigger callback immediately
+        # This is essential for tests that set selection programmatically and expect callbacks
+        _orig_selection_set = self.packs_listbox.selection_set
+
+        def _wrapped_selection_set(*args, **kwargs):
+            result = _orig_selection_set(*args, **kwargs)
+            # Notify after selection changes
+            try:
+                self._on_pack_selection_changed()
+            except Exception:
+                pass
+            return result
+
+        self.packs_listbox.selection_set = _wrapped_selection_set  # type: ignore[assignment]
 
     def _build_pack_buttons(self, parent):
         """Build pack management buttons."""

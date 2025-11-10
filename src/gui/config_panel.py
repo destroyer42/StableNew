@@ -185,6 +185,7 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_vars["enable_hr"] = tk.BooleanVar(value=False)
         self.txt2img_vars["hr_scale"] = tk.DoubleVar(value=2.0)
         self.txt2img_vars["hr_upscaler"] = tk.StringVar(value="Latent")
+        self.txt2img_vars["hr_sampler_name"] = tk.StringVar(value="")
         self.txt2img_vars["denoising_strength"] = tk.DoubleVar(value=0.7)
         self.txt2img_vars["hires_steps"] = tk.IntVar(value=0)
 
@@ -192,6 +193,10 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_vars["face_restoration_enabled"] = tk.BooleanVar(value=False)
         self.txt2img_vars["face_restoration_model"] = tk.StringVar(value="GFPGAN")
         self.txt2img_vars["face_restoration_weight"] = tk.DoubleVar(value=0.5)
+
+        # Refiner (SDXL)
+        self.txt2img_vars["refiner_checkpoint"] = tk.StringVar(value="None")
+        self.txt2img_vars["refiner_switch_at"] = tk.DoubleVar(value=0.8)
 
         basic_frame = ttk.LabelFrame(scrollable_frame, text="Basic Settings", padding=10)
         basic_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -344,6 +349,47 @@ class ConfigPanel(ttk.Frame):
         hr_scale_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
         row += 1
 
+        ttk.Label(hires_frame, text="Upscaler:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        hr_upscaler_combo = ttk.Combobox(
+            hires_frame,
+            textvariable=self.txt2img_vars["hr_upscaler"],
+            values=[
+                "Latent",
+                "Latent (antialiased)",
+                "Latent (bicubic)",
+                "Latent (bicubic antialiased)",
+                "Latent (nearest)",
+                "Latent (nearest-exact)",
+                "None",
+                "Lanczos",
+                "Nearest",
+                "ESRGAN_4x",
+                "LDSR",
+                "R-ESRGAN 4x+",
+                "R-ESRGAN 4x+ Anime6B",
+                "ScuNET GAN",
+                "ScuNET PSNR",
+                "SwinIR 4x",
+            ],
+            state="readonly",
+            width=25,
+        )
+        hr_upscaler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["hr_upscaler"] = hr_upscaler_combo
+        row += 1
+
+        ttk.Label(hires_frame, text="Hires Sampler:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        hr_sampler_combo = ttk.Combobox(
+            hires_frame,
+            textvariable=self.txt2img_vars["hr_sampler_name"],
+            values=["", "Euler a", "Euler", "DPM++ 2M", "DPM++ SDE", "LMS", "Heun"],
+            state="readonly",
+            width=25,
+        )
+        hr_sampler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["hr_sampler_name"] = hr_sampler_combo
+        row += 1
+
         ttk.Label(hires_frame, text="Denoising:").grid(row=row, column=0, sticky=tk.W, pady=2)
         denoise_spin = ttk.Spinbox(
             hires_frame,
@@ -401,6 +447,47 @@ class ConfigPanel(ttk.Frame):
         face_weight_label.grid_remove()
         face_weight_spin.grid_remove()  # Hide initially
         row += 1
+
+        # Refiner section (SDXL)
+        refiner_frame = ttk.LabelFrame(scrollable_frame, text="🎨 Refiner (SDXL)", padding=10)
+        refiner_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        row = 0
+        ttk.Label(refiner_frame, text="Refiner Model:").grid(
+            row=row, column=0, sticky=tk.W, pady=2
+        )
+        refiner_combo = ttk.Combobox(
+            refiner_frame,
+            textvariable=self.txt2img_vars["refiner_checkpoint"],
+            values=["None"],
+            state="readonly",
+            width=25,
+        )
+        refiner_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["refiner_checkpoint"] = refiner_combo
+        row += 1
+
+        ttk.Label(refiner_frame, text="Switch at:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        refiner_switch_spin = ttk.Spinbox(
+            refiner_frame,
+            from_=0.0,
+            to=1.0,
+            increment=0.05,
+            textvariable=self.txt2img_vars["refiner_switch_at"],
+            width=15,
+        )
+        refiner_switch_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["refiner_switch_at"] = refiner_switch_spin
+        row += 1
+
+        # Helper text for refiner
+        refiner_help = ttk.Label(
+            refiner_frame,
+            text="💡 Switch at 0.8 = refiner runs last 20% of steps",
+            font=("Segoe UI", 8),
+            foreground="#888888",
+        )
+        refiner_help.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=2)
 
         # Seed and advanced
         advanced_frame = ttk.LabelFrame(scrollable_frame, text="Advanced", padding=10)
@@ -895,6 +982,14 @@ class ConfigPanel(ttk.Frame):
         for key, var in self.txt2img_vars.items():
             config["txt2img"][key] = var.get()
 
+        # Map UI-only keys to API config keys
+        try:
+            # Map hires_steps spinbox to hr_second_pass_steps used by WebUI
+            if "hires_steps" in config["txt2img"]:
+                config["txt2img"]["hr_second_pass_steps"] = int(config["txt2img"].get("hires_steps", 0))
+        except Exception:
+            pass
+
         # Extract img2img config
         for key, var in self.img2img_vars.items():
             config["img2img"][key] = var.get()
@@ -1062,7 +1157,14 @@ class ConfigPanel(ttk.Frame):
         """
         # Set txt2img config
         if "txt2img" in config:
-            for key, value in config["txt2img"].items():
+            # Pre-map hr_second_pass_steps to hires_steps for the UI control
+            txt_cfg = dict(config["txt2img"])  # shallow copy
+            try:
+                if "hr_second_pass_steps" in txt_cfg and "hires_steps" in self.txt2img_vars:
+                    self.txt2img_vars["hires_steps"].set(int(txt_cfg.get("hr_second_pass_steps") or 0))
+            except Exception:
+                pass
+            for key, value in txt_cfg.items():
                 if key in self.txt2img_vars:
                     if key == "scheduler":
                         value = self._normalize_scheduler_value(value)
@@ -1193,9 +1295,16 @@ class ConfigPanel(ttk.Frame):
             )
 
     def set_model_options(self, models: Iterable[str]) -> None:
-        """Update base model selections for txt2img/img2img."""
+        """Update base model selections for txt2img/img2img and refiner."""
         self._set_combobox_values(self.txt2img_widgets.get("model"), models)
         self._set_combobox_values(self.img2img_widgets.get("model"), models)
+
+        # Also populate refiner dropdown with models (prepend "None" option)
+        refiner_models = ["None"]
+        for m in models or []:
+            if m and str(m).strip():
+                refiner_models.append(str(m).strip())
+        self._set_combobox_values(self.txt2img_widgets.get("refiner_checkpoint"), refiner_models)
 
     def set_vae_options(self, vae_models: Iterable[str]) -> None:
         """Update VAE selections for txt2img/img2img."""

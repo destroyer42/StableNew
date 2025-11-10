@@ -70,66 +70,112 @@ class PromptRandomizer:
             return [PromptVariant(prompt_text, None)]
 
         matrix_combos = self._matrix_combos_for_prompt()
+        sr_variants = self._expand_prompt_sr(prompt_text)
+
         variants: list[PromptVariant] = []
+        for sr_text, sr_labels in sr_variants:
+            wildcard_variants = self._expand_wildcards(sr_text, list(sr_labels))
+            for wildcard_text, wildcard_labels in wildcard_variants:
+                for combo in matrix_combos:
+                    labels = list(wildcard_labels)
+                    final_text = self._apply_matrix(wildcard_text, combo, labels)
+                    label_value = "; ".join(labels) or None
+                    variants.append(PromptVariant(text=final_text, label=label_value))
 
-        for combo in matrix_combos:
-            text = prompt_text
-            label_parts: list[str] = []
+        # Deduplicate while preserving order
+        deduped: list[PromptVariant] = []
+        seen: set[tuple[str, str | None]] = set()
+        for variant in variants or [PromptVariant(prompt_text, None)]:
+            key = (variant.text, variant.label)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(variant)
 
-            text = self._apply_prompt_sr(text, label_parts)
-            text = self._apply_wildcards(text, label_parts)
-            text = self._apply_matrix(text, combo, label_parts)
-
-            variants.append(PromptVariant(text=text, label="; ".join(label_parts) or None))
-
-        return variants or [PromptVariant(prompt_text, None)]
+        return deduped or [PromptVariant(prompt_text, None)]
 
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
 
-    def _apply_prompt_sr(self, text: str, label_parts: list[str]) -> str:
+    def _ordered_sr_choices(self, rule_index: int, replacements: list[str]) -> list[str]:
+        if self._sr_mode == "round_robin":
+            start = self._sr_indices[rule_index]
+            rotated = replacements[start:] + replacements[:start]
+            return rotated or replacements
+        if self._sr_mode == "random":
+            choices = list(replacements)
+            self._rng.shuffle(choices)
+            return choices
+        return list(replacements)
+
+    def _expand_prompt_sr(self, text: str) -> list[tuple[str, list[str]]]:
+        variants: list[tuple[str, list[str]]] = [(text, [])]
         if not self._sr_rules:
-            return text
+            return variants
 
         for idx, rule in enumerate(self._sr_rules):
             search = rule.get("search", "")
             replacements = rule.get("replacements") or []
-            if not search or not replacements or search not in text:
+            if not search or not replacements:
                 continue
 
-            if self._sr_mode == "round_robin":
-                choice = replacements[self._sr_indices[idx]]
-                self._sr_indices[idx] = (self._sr_indices[idx] + 1) % len(replacements)
-            else:
-                choice = self._rng.choice(replacements)
+            choices = self._ordered_sr_choices(idx, replacements)
+            applied = False
+            new_variants: list[tuple[str, list[str]]] = []
+            for current_text, current_labels in variants:
+                if search not in current_text:
+                    new_variants.append((current_text, current_labels))
+                    continue
+                applied = True
+                for replacement in choices:
+                    replaced_text = current_text.replace(search, replacement)
+                    new_labels = current_labels + [f"{search}->{replacement}"]
+                    new_variants.append((replaced_text, new_labels))
+            variants = new_variants or variants
+            if applied and self._sr_mode == "round_robin" and replacements:
+                start = self._sr_indices[idx]
+                self._sr_indices[idx] = (start + 1) % len(replacements)
+        return variants
 
-            text = text.replace(search, choice)
-            label_parts.append(f"{search}->{choice}")
+    def _ordered_wildcard_values(self, token_name: str, values: list[str]) -> list[str]:
+        if self._wildcard_mode == "sequential":
+            start = self._wildcard_indices.get(token_name, 0)
+            return values[start:] + values[:start]
+        if self._wildcard_mode == "random":
+            choices = list(values)
+            self._rng.shuffle(choices)
+            return choices
+        return list(values)
 
-        return text
-
-    def _apply_wildcards(self, text: str, label_parts: list[str]) -> str:
+    def _expand_wildcards(self, text: str, base_labels: list[str]) -> list[tuple[str, list[str]]]:
+        variants: list[tuple[str, list[str]]] = [(text, base_labels)]
         if not self._wildcard_tokens:
-            return text
+            return variants
 
         for token in self._wildcard_tokens:
             token_name = token.get("token")
             values = token.get("values") or []
-            if not token_name or not values or token_name not in text:
+            if not token_name or not values:
                 continue
 
-            if self._wildcard_mode == "sequential":
-                idx = self._wildcard_indices.get(token_name, 0)
-                choice = values[idx % len(values)]
-                self._wildcard_indices[token_name] = (idx + 1) % len(values)
-            else:
-                choice = self._rng.choice(values)
-
-            text = text.replace(token_name, choice)
-            label_parts.append(f"{token_name}={choice}")
-
-        return text
+            choices = self._ordered_wildcard_values(token_name, values)
+            applied = False
+            new_variants: list[tuple[str, list[str]]] = []
+            for current_text, current_labels in variants:
+                if token_name not in current_text:
+                    new_variants.append((current_text, current_labels))
+                    continue
+                applied = True
+                for value in choices:
+                    replaced_text = current_text.replace(token_name, value)
+                    new_labels = current_labels + [f"{token_name}={value}"]
+                    new_variants.append((replaced_text, new_labels))
+            variants = new_variants or variants
+            if applied and self._wildcard_mode == "sequential" and values:
+                start = self._wildcard_indices.get(token_name, 0)
+                self._wildcard_indices[token_name] = (start + 1) % len(values)
+        return variants
 
     def _apply_matrix(
         self,

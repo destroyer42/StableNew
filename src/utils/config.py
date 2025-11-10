@@ -6,6 +6,11 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+DEFAULT_GLOBAL_NEGATIVE_PROMPT = (
+    "blurry, bad quality, distorted, ugly, malformed, nsfw, nude, naked, explicit, "
+    "sexual content, adult content, inappropriate, offensive, disturbing, violent, graphic"
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,6 +26,8 @@ class ConfigManager:
         """
         self.presets_dir = Path(presets_dir)
         self.presets_dir.mkdir(exist_ok=True)
+        self._global_negative_path = self.presets_dir / "global_negative.txt"
+        self._global_negative_cache: str | None = None
 
     def load_preset(self, name: str) -> dict[str, Any] | None:
         """
@@ -114,6 +121,7 @@ class ConfigManager:
                 "enable_hr": False,  # High-res fix / hires.fix
                 "hr_scale": 2.0,  # Hires.fix upscale factor
                 "hr_upscaler": "Latent",  # Hires.fix upscaler
+                "hr_sampler_name": "",  # Optional separate sampler for hires second pass
                 "hr_second_pass_steps": 0,  # 0 = use same as steps
                 "hr_resize_x": 0,  # 0 = automatic based on hr_scale
                 "hr_resize_y": 0,  # 0 = automatic based on hr_scale
@@ -200,6 +208,13 @@ class ConfigManager:
                 "text": "",
                 "text_is_negative": False,
                 "fallback_prompt": "",
+            },
+            "pipeline": {
+                "img2img_enabled": True,
+                "upscale_enabled": True,
+                "adetailer_enabled": False,
+                "allow_hr_with_stages": False,
+                "refiner_compare_mode": False,  # When True and refiner+hires enabled, branch original & refined
             },
         }
 
@@ -405,23 +420,57 @@ class ConfigManager:
 
         return self._merge_config_with_defaults(config)
 
+    def get_global_negative_prompt(self) -> str:
+        """Return the persisted global negative prompt, creating a default if missing."""
+
+        if self._global_negative_cache is not None:
+            return self._global_negative_cache
+
+        prompt = DEFAULT_GLOBAL_NEGATIVE_PROMPT
+        try:
+            if self._global_negative_path.exists():
+                text = self._global_negative_path.read_text(encoding="utf-8").strip()
+                if text:
+                    prompt = text
+            else:
+                self._global_negative_path.parent.mkdir(parents=True, exist_ok=True)
+                self._global_negative_path.write_text(prompt, encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001 - log and fall back to default
+            logger.warning("Failed reading global negative prompt: %s", exc)
+        self._global_negative_cache = prompt
+        return prompt
+
+    def save_global_negative_prompt(self, prompt: str) -> bool:
+        """Persist a custom global negative prompt to disk."""
+
+        text = (prompt or "").strip()
+        try:
+            self._global_negative_path.parent.mkdir(parents=True, exist_ok=True)
+            self._global_negative_path.write_text(text, encoding="utf-8")
+            self._global_negative_cache = text
+            logger.info("Saved global negative prompt (%s chars)", len(text))
+            return True
+        except Exception as exc:  # noqa: BLE001 - surface failure but keep running
+            logger.error("Failed to save global negative prompt: %s", exc)
+            return False
+
     def add_global_negative(self, negative_prompt: str) -> str:
         """
-        Add global NSFW prevention to negative prompt.
+        Add global safety terms to the provided negative prompt.
 
         Args:
             negative_prompt: Existing negative prompt
 
         Returns:
-            Enhanced negative prompt with safety additions
+            Combined negative prompt string
         """
-        global_neg = (
-            "nsfw, nude, naked, explicit, sexual content, adult content, "
-            "inappropriate, offensive, disturbing, violent, graphic"
-        )
 
-        if negative_prompt:
-            return f"{negative_prompt}, {global_neg}"
+        global_neg = self.get_global_negative_prompt().strip()
+        base = (negative_prompt or "").strip()
+        if not global_neg:
+            return base
+        if base:
+            return f"{base}, {global_neg}"
         return global_neg
 
     def _merge_config_with_defaults(self, config: dict[str, Any] | None) -> dict[str, Any]:

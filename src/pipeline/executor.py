@@ -10,6 +10,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from PIL import Image
+
 from ..api import SDWebUIClient
 from ..utils import ConfigManager, StructuredLogger, load_image_to_base64, save_image_from_base64
 
@@ -483,6 +485,13 @@ class Pipeline:
                 "denoising_strength": config.get("denoising_strength", 0.7),
             }
         )
+        # Optional separate sampler for hires second pass
+        try:
+            hr_sampler_name = config.get("hr_sampler_name")
+            if hr_sampler_name:
+                payload["hr_sampler_name"] = hr_sampler_name
+        except Exception:
+            pass
 
         # Add styles if specified
         if config.get("styles"):
@@ -779,6 +788,25 @@ class Pipeline:
             logger.error("Failed to load input image")
             return None
 
+        # Determine the working resolution for this image
+        actual_width: int | None = None
+        actual_height: int | None = None
+        try:
+            with Image.open(input_image_path) as image:
+                actual_width, actual_height = image.size
+        except Exception:
+            actual_width = None
+            actual_height = None
+
+        def _coerce_dimension(value: Any, fallback: int) -> int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return fallback
+
+        payload_width = actual_width or _coerce_dimension(config.get("width"), 512)
+        payload_height = actual_height or _coerce_dimension(config.get("height"), 512)
+
         # Build ADetailer payload
         payload = {
             "init_images": [init_image],
@@ -788,8 +816,8 @@ class Pipeline:
             "steps": config.get('adetailer_steps', 28),
             "cfg_scale": config.get('adetailer_cfg', 7.0),
             "denoising_strength": config.get('adetailer_denoise', 0.4),
-            "width": config.get("width", 512),
-            "height": config.get("height", 512),
+            "width": payload_width,
+            "height": payload_height,
             # ADetailer specific parameters
             "alwayson_scripts": {
                 "ADetailer": {
@@ -1120,6 +1148,7 @@ class Pipeline:
         batch_size: int = 1,
         variant_index: int = 0,
         variant_label: str | None = None,
+        negative_prompt: str | None = None,
     ) -> dict[str, Any]:
         """
         Run pipeline for a single prompt from a pack with new directory structure.
@@ -1179,6 +1208,12 @@ class Pipeline:
         except Exception:
             pass
 
+        # If caller provided an explicit negative prompt override, apply it early so
+        # both the stage call and the config snapshot reflect the value (tests rely on this).
+        if negative_prompt is not None:
+            # Ensure txt2img section exists
+            config.setdefault("txt2img", {})["negative_prompt"] = negative_prompt
+
         # Generate images with numbered naming
         for batch_idx in range(batch_size):
             # Calculate global image number for this pack
@@ -1189,9 +1224,11 @@ class Pipeline:
 
             # Step 1: txt2img
             txt2img_dir = pack_dir / "txt2img"
+            # Determine negative prompt (override already written if provided)
+            effective_negative = config.get("txt2img", {}).get("negative_prompt", "")
             txt2img_meta = self.run_txt2img_stage(
                 prompt,
-                config.get("txt2img", {}).get("negative_prompt", ""),
+                effective_negative,
                 config,
                 txt2img_dir,
                 image_name,
@@ -1201,17 +1238,40 @@ class Pipeline:
                 txt2img_meta = self._tag_variant_metadata(txt2img_meta, variant_index, variant_label)
                 results["txt2img"].append(txt2img_meta)
 
-                # Step 2: img2img cleanup (if enabled)
-                if config.get("pipeline", {}).get("img2img_enabled", True):
+                # Decide if we should branch for refiner compare mode
+                txt_cfg = config.get("txt2img", {})
+                refiner_checkpoint = txt_cfg.get("refiner_checkpoint")
+                refiner_switch_at = txt_cfg.get("refiner_switch_at", 0.8)
+                use_refiner = (
+                    refiner_checkpoint
+                    and refiner_checkpoint != "None"
+                    and str(refiner_checkpoint).strip() != ""
+                    and 0.0 < float(refiner_switch_at) < 1.0
+                )
+                compare_mode = bool(config.get("pipeline", {}).get("refiner_compare_mode", False))
+
+                # Step 2: img2img cleanup (if enabled) – default single-branch path
+                if not compare_mode and config.get("pipeline", {}).get("img2img_enabled", True):
                     img2img_dir = pack_dir / "img2img"
-                    img2img_meta = self.run_img2img_stage(
-                        Path(txt2img_meta["path"]),
-                        prompt,
-                        config.get("img2img", {}),
-                        img2img_dir,
-                        image_name,  # Use same base name
-                        config,
-                    )
+                    # Backward-compatible call: some test stubs provide a 5-arg signature.
+                    try:
+                        img2img_meta = self.run_img2img_stage(
+                            Path(txt2img_meta["path"]),
+                            prompt,
+                            config.get("img2img", {}),
+                            img2img_dir,
+                            image_name,  # Use same base name
+                            config,
+                        )
+                    except TypeError:
+                        # Retry without the full config for legacy/monkeypatched signatures
+                        img2img_meta = self.run_img2img_stage(
+                            Path(txt2img_meta["path"]),
+                            prompt,
+                            config.get("img2img", {}),
+                            img2img_dir,
+                            image_name,  # Use same base name
+                        )
                     if img2img_meta:
                         img2img_meta = self._tag_variant_metadata(
                             img2img_meta, variant_index, variant_label
@@ -1220,11 +1280,90 @@ class Pipeline:
                         last_image_path = img2img_meta["path"]
                     else:
                         last_image_path = txt2img_meta["path"]
-                else:
+                elif not compare_mode:
                     last_image_path = txt2img_meta["path"]
 
+                # Branching compare mode: produce both base and a refiner img2img variant
+                if compare_mode and use_refiner:
+                    candidates: list[dict[str, str]] = []
+                    # Base output branch
+                    candidates.append({"label": "base", "path": txt2img_meta["path"]})
+                    # Forced img2img refinement branch using refiner checkpoint
+                    try:
+                        ref_clean = refiner_checkpoint.split(" [")[0] if " [" in refiner_checkpoint else refiner_checkpoint
+                    except Exception:
+                        ref_clean = refiner_checkpoint
+                    forced_i2i_cfg = dict(config.get("img2img", {}))
+                    # Ensure refiner model and gentle denoise defaults
+                    forced_i2i_cfg["model"] = ref_clean or forced_i2i_cfg.get("model", "")
+                    forced_i2i_cfg.setdefault("denoising_strength", 0.25)
+                    forced_i2i_cfg.setdefault("steps", max(10, int(forced_i2i_cfg.get("steps", 15))))
+                    img2img_dir_cmp = pack_dir / "img2img"
+                    img2img_name = f"{image_name}_refined"
+                    try:
+                        cmp_meta = self.run_img2img_stage(
+                            Path(txt2img_meta["path"]),
+                            prompt,
+                            forced_i2i_cfg,
+                            img2img_dir_cmp,
+                            img2img_name,
+                            config,
+                        )
+                    except TypeError:
+                        cmp_meta = self.run_img2img_stage(
+                            Path(txt2img_meta["path"]),
+                            prompt,
+                            forced_i2i_cfg,
+                            img2img_dir_cmp,
+                            img2img_name,
+                        )
+                    if cmp_meta:
+                        cmp_meta = self._tag_variant_metadata(cmp_meta, variant_index, variant_label)
+                        results["img2img"].append(cmp_meta)
+                        candidates.append({"label": "refined", "path": cmp_meta["path"]})
+
+                    # For each candidate, optionally run adetailer and upscale
+                    processed_final_paths: list[str] = []
+                    for cand in candidates:
+                        branch_last = cand["path"]
+                        # ADetailer
+                        if config.get("pipeline", {}).get("adetailer_enabled", False):
+                            adetailer_cfg = dict(config.get("adetailer", {}))
+                            txt_settings = config.get("txt2img", {})
+                            adetailer_cfg.setdefault("width", txt_settings.get("width", 512))
+                            adetailer_cfg.setdefault("height", txt_settings.get("height", 512))
+                            adetailer_meta = self.run_adetailer(
+                                Path(branch_last),
+                                prompt,
+                                adetailer_cfg,
+                                pack_dir,
+                            )
+                            if adetailer_meta:
+                                adetailer_meta = self._tag_variant_metadata(adetailer_meta, variant_index, variant_label)
+                                results["adetailer"].append(adetailer_meta)
+                                branch_last = adetailer_meta["path"]
+                        # Upscale
+                        if config.get("pipeline", {}).get("upscale_enabled", True):
+                            upscale_dir = pack_dir / "upscaled"
+                            up_name = f"{image_name}_{cand['label']}"
+                            up_meta = self.run_upscale_stage(
+                                Path(branch_last),
+                                config.get("upscale", {}),
+                                upscale_dir,
+                                up_name,
+                            )
+                            if up_meta:
+                                up_meta = self._tag_variant_metadata(up_meta, variant_index, variant_label)
+                                results["upscaled"].append(up_meta)
+                                processed_final_paths.append(up_meta["path"])
+                            else:
+                                processed_final_paths.append(branch_last)
+
+                    # Use the first branch as the representative final image in summary below
+                    last_image_path = processed_final_paths[0] if processed_final_paths else txt2img_meta["path"]
+
                 # Step 2b: adetailer (optional detail enhancer)
-                if config.get("pipeline", {}).get("adetailer_enabled", False):
+                if not (compare_mode and use_refiner) and config.get("pipeline", {}).get("adetailer_enabled", False):
                     adetailer_cfg = dict(config.get("adetailer", {}))
                     txt_settings = config.get("txt2img", {})
                     adetailer_cfg.setdefault("width", txt_settings.get("width", 512))
@@ -1243,7 +1382,7 @@ class Pipeline:
                         last_image_path = adetailer_meta["path"]
 
                 # Step 3: Upscale (if enabled)
-                if config.get("pipeline", {}).get("upscale_enabled", True):
+                if not (compare_mode and use_refiner) and config.get("pipeline", {}).get("upscale_enabled", True):
                     upscale_dir = pack_dir / "upscaled"
                     upscaled_meta = self.run_upscale_stage(
                         Path(last_image_path),
@@ -1332,6 +1471,22 @@ class Pipeline:
                 f"🛡️ Applied global NSFW prevention (stage) - Enhanced: '{enhanced_negative[:100]}...'"
             )
 
+            # Check if refiner is configured for SDXL (native API support via override_settings)
+            refiner_checkpoint = txt2img_config.get("refiner_checkpoint")
+            refiner_switch_at = txt2img_config.get("refiner_switch_at", 0.8)
+            use_refiner = (
+                refiner_checkpoint
+                and refiner_checkpoint != "None"
+                and refiner_checkpoint.strip() != ""
+                and 0.0 < refiner_switch_at < 1.0
+            )
+
+            if use_refiner:
+                logger.info(
+                    f"🎨 SDXL Refiner enabled: {refiner_checkpoint} "
+                    f"(switching at {refiner_switch_at * 100:.0f}% of steps)"
+                )
+
             # Set model and VAE if specified
             model_name = txt2img_config.get("model") or txt2img_config.get("sd_model_checkpoint")
             vae_name = txt2img_config.get("vae")
@@ -1382,6 +1537,13 @@ class Pipeline:
                     "denoising_strength": txt2img_config.get("denoising_strength", 0.7),
                 }
             )
+            # Optional separate sampler for hires second pass
+            try:
+                hr_sampler_name = txt2img_config.get("hr_sampler_name")
+                if hr_sampler_name:
+                    payload["hr_sampler_name"] = hr_sampler_name
+            except Exception:
+                pass
 
             prompt_after, negative_after = self._apply_aesthetic_to_payload(payload, config)
             payload["prompt"] = prompt_after
@@ -1390,6 +1552,17 @@ class Pipeline:
             # Add styles if specified
             if txt2img_config.get("styles"):
                 payload["styles"] = txt2img_config["styles"]
+
+            # Add refiner support (SDXL native API - top-level parameters)
+            if use_refiner:
+                # Strip hash from checkpoint name if present (e.g., "model.safetensors [abc123]" -> "model.safetensors")
+                refiner_checkpoint_clean = refiner_checkpoint.split(" [")[0] if " [" in refiner_checkpoint else refiner_checkpoint
+                # Refiner parameters go at the top level of the payload
+                payload["refiner_checkpoint"] = refiner_checkpoint_clean
+                payload["refiner_switch_at"] = refiner_switch_at
+                logger.debug(
+                    f"🎨 Refiner params: checkpoint={refiner_checkpoint_clean}, switch_at={refiner_switch_at}"
+                )
 
             # Log final payload for validation
             logger.debug(f"🚀 Sending txt2img payload: {json.dumps(payload, indent=2)}")
@@ -1400,7 +1573,7 @@ class Pipeline:
                 logger.error("txt2img failed - no images returned")
                 return None
 
-            # Save image with provided name
+            # Save final image with provided name
             image_path = output_dir / f"{image_name}.png"
 
             if save_image_from_base64(response["images"][0], image_path):

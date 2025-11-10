@@ -15,7 +15,9 @@
     "hr_scale": 2.0,
     "hr_upscaler": "R-ESRGAN 4x+",
     "denoising_strength": 0.7,
-    "prompt": "normal anatomy, coherent lighting, cinematic composition, photorealistic skin"
+    "prompt": "normal anatomy, coherent lighting, cinematic composition, photorealistic skin",
+    "refiner_checkpoint": "None",
+    "refiner_switch_at": 0.8
   },
   "img2img": {
     "steps": 25,

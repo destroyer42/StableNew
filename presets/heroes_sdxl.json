@@ -13,7 +13,9 @@
     "restore_faces": true,
     "tiling": false,
     "do_not_save_samples": false,
-    "do_not_save_grid": false
+    "do_not_save_grid": false,
+    "refiner_checkpoint": "None",
+    "refiner_switch_at": 0.8
   },
   "img2img": {
     "steps": 20,

@@ -18,6 +18,7 @@ from ..api import SDWebUIClient
 from ..pipeline import Pipeline, VideoCreator
 from ..pipeline.variant_planner import apply_variant_to_config, build_variant_plan
 from ..utils import ConfigManager, PreferencesManager, StructuredLogger, setup_logging
+from ..utils.aesthetic import detect_aesthetic_extension
 from ..utils.randomizer import PromptRandomizer, PromptVariant
 from ..utils.file_io import get_prompt_packs, read_prompt_pack
 from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
@@ -894,14 +895,87 @@ class StableNewGUI:
             style="Dark.TLabel",
         ).pack(side=tk.LEFT, padx=(6, 0))
 
+        # Base prompt field
+        base_prompt_frame = ttk.Frame(matrix_frame, style="Dark.TFrame")
+        base_prompt_frame.pack(fill=tk.X, pady=(4, 2))
+        ttk.Label(
+            base_prompt_frame,
+            text="Base prompt:",
+            style="Dark.TLabel",
+            width=14,
+        ).pack(side=tk.LEFT)
+        base_prompt_entry = ttk.Entry(base_prompt_frame)
+        base_prompt_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
+        self.randomization_widgets["matrix_base_prompt"] = base_prompt_entry
+
         ttk.Label(
             matrix_frame,
-            text="Add [[Slot Name]] markers to your prompt. Define each slot below as Slot Name: option1 | option2.",
+            text="Add [[Slot Name]] markers in your base prompt. Define combination slots below:",
             style="Dark.TLabel",
             wraplength=700,
         ).pack(fill=tk.X, pady=(2, 4))
 
-        matrix_text = scrolledtext.ScrolledText(matrix_frame, height=6, wrap=tk.WORD)
+        # Scrollable container for slot rows
+        slots_container = ttk.Frame(matrix_frame, style="Dark.TFrame")
+        slots_container.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
+
+        slots_canvas = tk.Canvas(
+            slots_container,
+            bg="#2b2b2b",
+            highlightthickness=0,
+            height=150,
+        )
+        slots_scrollbar = ttk.Scrollbar(
+            slots_container,
+            orient=tk.VERTICAL,
+            command=slots_canvas.yview,
+        )
+        slots_scrollable_frame = ttk.Frame(slots_canvas, style="Dark.TFrame")
+
+        slots_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: slots_canvas.configure(scrollregion=slots_canvas.bbox("all")),
+        )
+
+        slots_canvas.create_window((0, 0), window=slots_scrollable_frame, anchor="nw")
+        slots_canvas.configure(yscrollcommand=slots_scrollbar.set)
+
+        slots_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        slots_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.randomization_widgets["matrix_slots_frame"] = slots_scrollable_frame
+        self.randomization_widgets["matrix_slots_canvas"] = slots_canvas
+        self.randomization_widgets["matrix_slot_rows"] = []
+
+        # Add slot button
+        add_slot_btn = ttk.Button(
+            matrix_frame,
+            text="+ Add Combination Slot",
+            command=self._add_matrix_slot_row,
+        )
+        add_slot_btn.pack(fill=tk.X, pady=(0, 4))
+
+        # Legacy text view (hidden by default, for advanced users)
+        legacy_frame = ttk.Frame(matrix_frame, style="Dark.TFrame")
+        legacy_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.randomization_vars["matrix_show_legacy"] = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            legacy_frame,
+            text="Show advanced text editor (legacy format)",
+            variable=self.randomization_vars["matrix_show_legacy"],
+            style="Dark.TCheckbutton",
+            command=self._toggle_matrix_legacy_view,
+        ).pack(fill=tk.X, pady=(0, 2))
+
+        legacy_text_container = ttk.Frame(legacy_frame, style="Dark.TFrame")
+        self.randomization_widgets["matrix_legacy_container"] = legacy_text_container
+
+        matrix_text = scrolledtext.ScrolledText(
+            legacy_text_container,
+            height=6,
+            wrap=tk.WORD,
+        )
         matrix_text.pack(fill=tk.BOTH, expand=True)
         self.randomization_widgets["matrix_text"] = matrix_text
         self._enable_mousewheel(matrix_text)
@@ -1203,7 +1277,7 @@ class StableNewGUI:
     def _detect_aesthetic_extension_root(self):
         """Locate the Aesthetic Gradient extension directory if present."""
 
-        candidates = []
+        candidates: list[Path] = []
         env_root = os.environ.get("WEBUI_ROOT")
         if env_root:
             candidates.append(Path(env_root))
@@ -1213,18 +1287,9 @@ class StableNewGUI:
         local_candidate = Path("..") / "stable-diffusion-webui"
         candidates.append(local_candidate.resolve())
 
-        seen: set[str] = set()
-        for root in candidates:
-            if not root:
-                continue
-            root = Path(root)
-            key = str(root).lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            ext_dir = root / "extensions" / "stable-diffusion-webui-aesthetic-gradients-master"
-            if ext_dir.exists():
-                return True, ext_dir
+        detected, extension_dir = detect_aesthetic_extension(candidates)
+        if detected and extension_dir:
+            return True, extension_dir
         return False, None
 
     def _refresh_aesthetic_embeddings(self, *_):
@@ -1264,7 +1329,26 @@ class StableNewGUI:
 
         sr_text = self._get_randomization_text("prompt_sr_text")
         wildcard_text = self._get_randomization_text("wildcard_text")
-        matrix_text = self._get_randomization_text("matrix_text")
+
+        # Collect matrix data from UI fields (not legacy text)
+        base_prompt_widget = self.randomization_widgets.get("matrix_base_prompt")
+        base_prompt = base_prompt_widget.get() if base_prompt_widget else ""
+
+        matrix_slots = []
+        for row in self.randomization_widgets.get("matrix_slot_rows", []):
+            name = row["name_entry"].get().strip()
+            values_text = row["values_entry"].get().strip()
+            if name and values_text:
+                values = [v.strip() for v in values_text.split("|") if v.strip()]
+                if values:
+                    matrix_slots.append({"name": name, "values": values})
+
+        # Build raw_text for backward compatibility
+        matrix_raw_lines = []
+        if base_prompt:
+            matrix_raw_lines.append(f"# Base: {base_prompt}")
+        matrix_raw_lines.append(self._format_matrix_lines(matrix_slots))
+        matrix_raw_text = "\n".join(matrix_raw_lines)
 
         return {
             "enabled": bool(vars_dict["enabled"].get()),
@@ -1284,8 +1368,9 @@ class StableNewGUI:
                 "enabled": bool(vars_dict["matrix_enabled"].get()),
                 "mode": vars_dict["matrix_mode"].get(),
                 "limit": int(vars_dict["matrix_limit"].get() or 0),
-                "slots": self._parse_matrix_lines(matrix_text),
-                "raw_text": matrix_text,
+                "slots": matrix_slots,
+                "raw_text": matrix_raw_text,
+                "base_prompt": base_prompt,
             },
         }
 
@@ -1315,7 +1400,26 @@ class StableNewGUI:
         vars_dict["matrix_enabled"].set(bool(matrix.get("enabled", False)))
         vars_dict["matrix_mode"].set(matrix.get("mode", "fanout"))
         vars_dict["matrix_limit"].set(int(matrix.get("limit", 8)))
-        matrix_text = matrix.get("raw_text") or self._format_matrix_lines(matrix.get("slots", []))
+
+        # Load matrix base prompt
+        base_prompt = matrix.get("base_prompt", "")
+        base_prompt_widget = self.randomization_widgets.get("matrix_base_prompt")
+        if base_prompt_widget:
+            base_prompt_widget.delete(0, tk.END)
+            base_prompt_widget.insert(0, base_prompt)
+
+        # Load matrix slots into UI
+        slots = matrix.get("slots", [])
+        self._clear_matrix_slot_rows()
+        for slot in slots:
+            name = slot.get("name", "")
+            values = slot.get("values", [])
+            if name and values:
+                values_str = " | ".join(values)
+                self._add_matrix_slot_row(name, values_str)
+
+        # Also populate legacy text for users who want to see it
+        matrix_text = matrix.get("raw_text") or self._format_matrix_lines(slots)
         self._set_randomization_text("matrix_text", matrix_text)
 
         self._update_randomization_states()
@@ -1466,6 +1570,151 @@ class StableNewGUI:
             if not name or not values:
                 continue
             lines.append(f"{name}: {' | '.join(values)}")
+
+    def _add_matrix_slot_row(self, slot_name: str = "", slot_values: str = "") -> None:
+        """Add a new matrix slot row to the UI."""
+
+        slots_frame = self.randomization_widgets.get("matrix_slots_frame")
+        if not slots_frame:
+            return
+
+        row_frame = ttk.Frame(slots_frame, style="Dark.TFrame")
+        row_frame.pack(fill=tk.X, pady=2)
+
+        # Slot name entry
+        ttk.Label(row_frame, text="Slot:", style="Dark.TLabel", width=6).pack(side=tk.LEFT)
+        name_entry = ttk.Entry(row_frame, width=15)
+        name_entry.pack(side=tk.LEFT, padx=(2, 4))
+        if slot_name:
+            name_entry.insert(0, slot_name)
+
+        # Values entry
+        ttk.Label(row_frame, text="Options (| separated):", style="Dark.TLabel").pack(side=tk.LEFT, padx=(4, 2))
+        values_entry = ttk.Entry(row_frame)
+        values_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 4))
+        if slot_values:
+            values_entry.insert(0, slot_values)
+
+        # Remove button
+        remove_btn = ttk.Button(
+            row_frame,
+            text="−",
+            width=3,
+            command=lambda: self._remove_matrix_slot_row(row_frame),
+        )
+        remove_btn.pack(side=tk.LEFT)
+
+        # Store row data
+        row_data = {
+            "frame": row_frame,
+            "name_entry": name_entry,
+            "values_entry": values_entry,
+        }
+        self.randomization_widgets["matrix_slot_rows"].append(row_data)
+
+        # Update scroll region
+        canvas = self.randomization_widgets.get("matrix_slots_canvas")
+        if canvas:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def _remove_matrix_slot_row(self, row_frame: tk.Widget) -> None:
+        """Remove a matrix slot row from the UI."""
+
+        slot_rows = self.randomization_widgets.get("matrix_slot_rows", [])
+        self.randomization_widgets["matrix_slot_rows"] = [
+            row for row in slot_rows if row["frame"] != row_frame
+        ]
+        row_frame.destroy()
+
+        # Update scroll region
+        canvas = self.randomization_widgets.get("matrix_slots_canvas")
+        if canvas:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def _clear_matrix_slot_rows(self) -> None:
+        """Clear all matrix slot rows from the UI."""
+
+        for row in self.randomization_widgets.get("matrix_slot_rows", []):
+            row["frame"].destroy()
+        self.randomization_widgets["matrix_slot_rows"] = []
+
+        # Update scroll region
+        canvas = self.randomization_widgets.get("matrix_slots_canvas")
+        if canvas:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def _toggle_matrix_legacy_view(self) -> None:
+        """Toggle between modern UI and legacy text editor for matrix config."""
+
+        show_legacy = self.randomization_vars.get("matrix_show_legacy", tk.BooleanVar()).get()
+        legacy_container = self.randomization_widgets.get("matrix_legacy_container")
+
+        if legacy_container:
+            if show_legacy:
+                # Sync from UI to legacy text before showing
+                self._sync_matrix_ui_to_text()
+                legacy_container.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
+            else:
+                # Sync from legacy text to UI before hiding
+                self._sync_matrix_text_to_ui()
+                legacy_container.pack_forget()
+
+    def _sync_matrix_ui_to_text(self) -> None:
+        """Sync matrix UI fields to the legacy text widget."""
+
+        base_prompt_widget = self.randomization_widgets.get("matrix_base_prompt")
+        base_prompt = base_prompt_widget.get() if base_prompt_widget else ""
+
+        slots = []
+        for row in self.randomization_widgets.get("matrix_slot_rows", []):
+            name = row["name_entry"].get().strip()
+            values_text = row["values_entry"].get().strip()
+            if name and values_text:
+                slots.append({"name": name, "values": [v.strip() for v in values_text.split("|") if v.strip()]})
+
+        # Build legacy format: base prompt on first line, then slots
+        lines = []
+        if base_prompt:
+            lines.append(f"# Base: {base_prompt}")
+        lines.append(self._format_matrix_lines(slots))
+
+        matrix_text = self.randomization_widgets.get("matrix_text")
+        if matrix_text:
+            matrix_text.delete("1.0", tk.END)
+            matrix_text.insert("1.0", "\n".join(lines))
+
+    def _sync_matrix_text_to_ui(self) -> None:
+        """Sync legacy text widget to matrix UI fields."""
+
+        matrix_text = self.randomization_widgets.get("matrix_text")
+        if not matrix_text:
+            return
+
+        text = matrix_text.get("1.0", tk.END).strip()
+        lines = text.splitlines()
+
+        # Check for base prompt marker
+        base_prompt = ""
+        slot_lines = []
+        for line in lines:
+            line_stripped = line.strip()
+            if line_stripped.startswith("# Base:"):
+                base_prompt = line_stripped[7:].strip()
+            elif line_stripped and not line_stripped.startswith("#"):
+                slot_lines.append(line_stripped)
+
+        # Update base prompt
+        base_prompt_widget = self.randomization_widgets.get("matrix_base_prompt")
+        if base_prompt_widget:
+            base_prompt_widget.delete(0, tk.END)
+            base_prompt_widget.insert(0, base_prompt)
+
+        # Parse slots and rebuild UI
+        slots = self._parse_matrix_lines("\n".join(slot_lines))
+        self._clear_matrix_slot_rows()
+        for slot in slots:
+            values_str = " | ".join(slot.get("values", []))
+            self._add_matrix_slot_row(slot.get("name", ""), values_str)
         return "\n".join(lines)
 
     def _build_pipeline_controls_panel(self, parent):
@@ -2783,10 +3032,10 @@ class StableNewGUI:
                         pack_file.name, preset_snapshot or "default"
                     )
                 except Exception as exc:
-                self.log_message(
-                    f"⚠️ Failed to load config for {pack_file.name}: {exc}. Using current form values.",
-                    "WARNING",
-                )
+                    self.log_message(
+                        f"⚠️ Failed to load config for {pack_file.name}: {exc}. Using current form values.",
+                        "WARNING",
+                    )
 
             merged = deepcopy(pack_config) if pack_config else {}
             if pipeline_overrides:

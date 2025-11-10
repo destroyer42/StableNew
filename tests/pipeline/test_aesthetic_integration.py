@@ -16,6 +16,10 @@ class DummyClient:
         self.payloads.append(payload)
         return {"images": ["base64"]}
 
+    def img2img(self, payload):
+        self.payloads.append(payload)
+        return {"images": ["base64"]}
+
     def set_model(self, *_args, **_kwargs):
         return True
 
@@ -93,3 +97,32 @@ def test_aesthetic_prompt_fallback(dummy_pipeline, tmp_path):
     assert "<embedding:Cozy>" in payload["prompt"]
     assert "soft colors" in payload["prompt"]
     assert "dreamy tones" in payload["negative_prompt"]
+
+
+def test_adetailer_payload_uses_image_dimensions(dummy_pipeline, tmp_path):
+    pipeline, client = dummy_pipeline
+
+    # Create an input image with a non-default size
+    from PIL import Image
+
+    image_path = tmp_path / "input.png"
+    Image.new("RGB", (1024, 768), color="white").save(image_path)
+
+    config = {
+        "adetailer_enabled": True,
+        "adetailer_model": "face_yolov8n.pt",
+        "adetailer_confidence": 0.3,
+        "adetailer_mask_feather": 4,
+        "adetailer_sampler": "DPM++ 2M",
+        "adetailer_steps": 28,
+        "adetailer_denoise": 0.4,
+        "adetailer_cfg": 7.0,
+        "adetailer_prompt": "",
+        "adetailer_negative_prompt": "",
+    }
+
+    pipeline.run_adetailer(image_path, "portrait", config, tmp_path)
+
+    payload = client.payloads[-1]
+    assert payload["width"] == 1024
+    assert payload["height"] == 768
