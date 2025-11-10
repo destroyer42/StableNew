@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 from copy import deepcopy
+import time
 from pathlib import Path
 from typing import Any
 
@@ -797,6 +798,8 @@ class StableNewGUI:
         sr_text.pack(fill=tk.BOTH, expand=True)
         self.randomization_widgets["prompt_sr_text"] = sr_text
         self._enable_mousewheel(sr_text)
+        # Persist on edits
+        self._bind_autosave_text(sr_text)
 
         # Wildcards section
         wildcard_frame = ttk.LabelFrame(
@@ -844,6 +847,7 @@ class StableNewGUI:
         wildcard_text.pack(fill=tk.BOTH, expand=True)
         self.randomization_widgets["wildcard_text"] = wildcard_text
         self._enable_mousewheel(wildcard_text)
+        self._bind_autosave_text(wildcard_text)
 
         # Prompt matrix section
         matrix_frame = ttk.LabelFrame(
@@ -907,6 +911,7 @@ class StableNewGUI:
         base_prompt_entry = ttk.Entry(base_prompt_frame)
         base_prompt_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
         self.randomization_widgets["matrix_base_prompt"] = base_prompt_entry
+        self._bind_autosave_entry(base_prompt_entry)
 
         ttk.Label(
             matrix_frame,
@@ -979,6 +984,7 @@ class StableNewGUI:
         matrix_text.pack(fill=tk.BOTH, expand=True)
         self.randomization_widgets["matrix_text"] = matrix_text
         self._enable_mousewheel(matrix_text)
+        self._bind_autosave_text(matrix_text)
 
         # Aesthetic gradient section
         aesthetic_frame = ttk.LabelFrame(
@@ -1149,14 +1155,30 @@ class StableNewGUI:
 
         for key in ("enabled", "prompt_sr_enabled", "wildcards_enabled", "matrix_enabled"):
             try:
-                self.randomization_vars[key].trace_add("write", lambda *_: self._update_randomization_states())
+                def _rand_trace_cb(*_args, _k=key):
+                    self._update_randomization_states()
+                    if _k.endswith("enabled"):
+                        self._autosave_preferences_if_needed()
+                self.randomization_vars[key].trace_add("write", _rand_trace_cb)
+            except Exception:
+                pass
+        # Persist changes to modes/limits too
+        for key in ("prompt_sr_mode", "wildcard_mode", "matrix_mode", "matrix_limit"):
+            try:
+                self.randomization_vars[key].trace_add("write", lambda *_: self._autosave_preferences_if_needed())
             except Exception:
                 pass
 
         try:
-            self.aesthetic_vars["enabled"].trace_add("write", lambda *_: self._update_aesthetic_states())
-            self.aesthetic_vars["mode"].trace_add("write", lambda *_: self._update_aesthetic_states())
-            self.aesthetic_vars["slerp"].trace_add("write", lambda *_: self._update_aesthetic_states())
+            self.aesthetic_vars["enabled"].trace_add("write", lambda *_: self._aesthetic_autosave_handler())
+            self.aesthetic_vars["mode"].trace_add("write", lambda *_: self._aesthetic_autosave_handler())
+            self.aesthetic_vars["slerp"].trace_add("write", lambda *_: self._aesthetic_autosave_handler())
+            # Also persist other aesthetic fields on change
+            for _k, _var in self.aesthetic_vars.items():
+                try:
+                    _var.trace_add("write", lambda *_: self._autosave_preferences_if_needed())
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -1180,13 +1202,50 @@ class StableNewGUI:
         }
 
         for key, widget in widgets.items():
-            if widget is None:
+            if widget is None or isinstance(widget, list):
                 continue
             state = tk.NORMAL if section_enabled.get(key, master) else tk.DISABLED
             try:
                 widget.configure(state=state)
-            except tk.TclError:
+            except (tk.TclError, AttributeError):
                 pass
+        # Throttled autosave to keep last_settings.json aligned with UI
+        self._autosave_preferences_if_needed()
+
+    def _autosave_preferences_if_needed(self) -> None:
+        """Autosave preferences (including randomization enabled flag) with 2s throttle."""
+        now = time.time()
+        last = getattr(self, "_last_pref_autosave", 0.0)
+        if now - last < 2.0:
+            return
+        self._last_pref_autosave = now
+        try:
+            prefs = self._collect_preferences()
+            if self.preferences_manager.save_preferences(prefs):
+                self.preferences = prefs
+        except Exception:
+            pass
+
+    def _bind_autosave_text(self, widget: tk.Text) -> None:
+        """Bind common events on a Text widget to autosave preferences (throttled)."""
+        try:
+            widget.bind("<KeyRelease>", lambda _e: self._autosave_preferences_if_needed())
+            widget.bind("<FocusOut>", lambda _e: self._autosave_preferences_if_needed())
+        except Exception:
+            pass
+
+    def _bind_autosave_entry(self, widget: tk.Entry) -> None:
+        """Bind common events on an Entry widget to autosave preferences (throttled)."""
+        try:
+            widget.bind("<KeyRelease>", lambda _e: self._autosave_preferences_if_needed())
+            widget.bind("<FocusOut>", lambda _e: self._autosave_preferences_if_needed())
+        except Exception:
+            pass
+
+    def _aesthetic_autosave_handler(self) -> None:
+        """Handler for aesthetic state changes that also triggers autosave."""
+        self._update_aesthetic_states()
+        self._autosave_preferences_if_needed()
 
     def _get_randomization_text(self, key: str) -> str:
         """Return trimmed contents of a randomization text widget."""
@@ -1570,6 +1629,7 @@ class StableNewGUI:
             if not name or not values:
                 continue
             lines.append(f"{name}: {' | '.join(values)}")
+        return "\n".join(lines)
 
     def _add_matrix_slot_row(self, slot_name: str = "", slot_values: str = "") -> None:
         """Add a new matrix slot row to the UI."""
@@ -1587,6 +1647,8 @@ class StableNewGUI:
         name_entry.pack(side=tk.LEFT, padx=(2, 4))
         if slot_name:
             name_entry.insert(0, slot_name)
+        # Autosave when editing slot name
+        self._bind_autosave_entry(name_entry)
 
         # Values entry
         ttk.Label(row_frame, text="Options (| separated):", style="Dark.TLabel").pack(side=tk.LEFT, padx=(4, 2))
@@ -1594,6 +1656,8 @@ class StableNewGUI:
         values_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 4))
         if slot_values:
             values_entry.insert(0, slot_values)
+        # Autosave when editing slot values
+        self._bind_autosave_entry(values_entry)
 
         # Remove button
         remove_btn = ttk.Button(
@@ -1859,28 +1923,63 @@ class StableNewGUI:
         preset_frame = ttk.LabelFrame(config_buttons, text="Base Preset", padding=5)
         preset_frame.pack(side=tk.LEFT, padx=(10, 10))
 
+        preset_controls = ttk.Frame(preset_frame, style="Dark.TFrame")
+        preset_controls.pack(fill=tk.X)
+
         self.preset_dropdown = ttk.Combobox(
-            preset_frame,
+            preset_controls,
             textvariable=self.preset_var,
             state="readonly",
             width=15,
             style="Dark.TCombobox",
             values=self.config_manager.list_presets(),
         )
-        self.preset_dropdown.pack(side=tk.LEFT)
+        self.preset_dropdown.pack(side=tk.LEFT, padx=(0, 4))
         self.preset_dropdown.bind("<<ComboboxSelected>>", self._on_preset_changed)
 
-        save_override_btn = ttk.Button(
-            config_buttons,
-            text="Save as Override Preset",
-            command=self._save_override_preset,
+        # Preset action buttons
+        preset_buttons = ttk.Frame(preset_controls, style="Dark.TFrame")
+        preset_buttons.pack(side=tk.LEFT)
+
+        load_btn = ttk.Button(
+            preset_buttons,
+            text="↻ Load",
+            command=self._load_selected_preset,
+            width=6,
             style="Dark.TButton",
         )
-        save_override_btn.pack(side=tk.LEFT)
-        self._attach_tooltip(
-            save_override_btn,
-            "Capture the current settings as a reusable preset that can be applied to future packs.",
+        load_btn.pack(side=tk.LEFT, padx=1)
+        self._attach_tooltip(load_btn, "Load the selected preset into the current configuration")
+
+        save_as_btn = ttk.Button(
+            preset_buttons,
+            text="💾 Save As",
+            command=self._save_preset_as,
+            width=8,
+            style="Dark.TButton",
         )
+        save_as_btn.pack(side=tk.LEFT, padx=1)
+        self._attach_tooltip(save_as_btn, "Save current config as a new preset")
+
+        update_btn = ttk.Button(
+            preset_buttons,
+            text="✓ Update",
+            command=self._save_override_preset,
+            width=7,
+            style="Dark.TButton",
+        )
+        update_btn.pack(side=tk.LEFT, padx=1)
+        self._attach_tooltip(update_btn, "Update the selected preset with current settings")
+
+        delete_btn = ttk.Button(
+            preset_buttons,
+            text="🗑 Delete",
+            command=self._delete_selected_preset,
+            width=7,
+            style="Danger.TButton",
+        )
+        delete_btn.pack(side=tk.LEFT, padx=1)
+        self._attach_tooltip(delete_btn, "Delete the selected preset (default cannot be deleted)")
 
     def _build_pipeline_controls_tab(self, notebook):
         """Build pipeline execution controls tab"""
@@ -2323,11 +2422,12 @@ class StableNewGUI:
         # Schedule next poll
         self.root.after(100, self._poll_controller_logs)
 
-        def _check_api_connection(self):
-            """Check API connection status with improved diagnostics"""
+    # Class-level API check method
+    def _check_api_connection(self):
+        """Check API connection status with improved diagnostics."""
 
-            def check_in_thread():
-                api_url = self.api_url_var.get()
+        def check_in_thread():
+            api_url = self.api_url_var.get()
 
             # Try the specified URL first
             self.log_message("🔍 Checking API connection...", "INFO")
@@ -2400,85 +2500,7 @@ class StableNewGUI:
             )
             self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
 
-        # Removed erroneous nested thread start; class-level _check_api_connection handles this
-
-    # Class-level API check method (fix accidental nesting)
-    def _check_api_connection(self):
-        """Check API connection status with improved diagnostics (class-level)."""
-
-        def check_in_thread():
-            api_url = self.api_url_var.get()
-
-            # Try the specified URL first
-            self.log_message("?? Checking API connection...", "INFO")
-
-            # First try direct connection
-            client = SDWebUIClient(api_url)
-            # Apply configured timeout from API tab (keeps UI responsive on failures)
-            try:
-                if hasattr(self, "api_vars") and "timeout" in self.api_vars:
-                    client.timeout = int(self.api_vars["timeout"].get() or 30)
-            except Exception:
-                pass
-            if client.check_api_ready():
-                # Perform health check
-                health = validate_webui_health(api_url)
-
-                self.api_connected = True
-                self.client = client
-                self.pipeline = Pipeline(client, self.structured_logger)
-                self.controller.set_pipeline(self.pipeline)
-
-                self.root.after(0, lambda: self._update_api_status(True, api_url))
-
-                if health.get("models_loaded"):
-                    self.log_message(
-                        f"? API connected! Found {health.get('model_count', 0)} models", "SUCCESS"
-                    )
-                else:
-                    self.log_message("?? API connected but no models loaded", "WARNING")
-                return
-
-            # If direct connection failed, try port discovery
-            self.log_message("?? Trying port discovery...", "INFO")
-            discovered_url = find_webui_api_port()
-
-            if discovered_url:
-                # Test the discovered URL
-                client = SDWebUIClient(discovered_url)
-                try:
-                    if hasattr(self, "api_vars") and "timeout" in self.api_vars:
-                        client.timeout = int(self.api_vars["timeout"].get() or 30)
-                except Exception:
-                    pass
-                if client.check_api_ready():
-                    health = validate_webui_health(discovered_url)
-
-                    self.api_connected = True
-                    self.client = client
-                    self.pipeline = Pipeline(client, self.structured_logger)
-                    self.controller.set_pipeline(self.pipeline)
-
-                    # Update URL field and status
-                    self.root.after(0, lambda: self.api_url_var.set(discovered_url))
-                    self.root.after(0, lambda: self._update_api_status(True, discovered_url))
-
-                    if health.get("models_loaded"):
-                        self.log_message(
-                            f"? API found at {discovered_url}! Found {health.get('model_count', 0)} models",
-                            "SUCCESS",
-                        )
-                    else:
-                        self.log_message("?? API found but no models loaded", "WARNING")
-                    return
-
-            # Connection failed
-            self.api_connected = False
-            self.root.after(0, lambda: self._update_api_status(False))
-            self.log_message(
-                "? API connection failed. Please ensure WebUI is running with --api", "ERROR"
-            )
-            self.log_message("?? Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
+        threading.Thread(target=check_in_thread, daemon=True).start()
 
         threading.Thread(target=check_in_thread, daemon=True).start()
 
@@ -3071,7 +3093,16 @@ class StableNewGUI:
                 self.log_message(
                     f"⚙️ Using {config_mode} configuration for {pack_file.name}", "INFO"
                 )
-                randomizer = PromptRandomizer(config.get("randomization", {}))
+                rand_cfg = config.get("randomization", {}) or {}
+                if rand_cfg.get("enabled"):
+                    sr_count = len((rand_cfg.get("prompt_sr", {}) or {}).get("rules", []) or [])
+                    wc_count = len((rand_cfg.get("wildcards", {}) or {}).get("tokens", []) or [])
+                    mx_slots = len((rand_cfg.get("matrix", {}) or {}).get("slots", []) or [])
+                    self.log_message(
+                        f"🎲 Randomization active: S/R={sr_count}, wildcards={wc_count}, matrix slots={mx_slots}",
+                        "INFO",
+                    )
+                randomizer = PromptRandomizer(rand_cfg)
                 variant_plan = build_variant_plan(config)
                 if variant_plan.active:
                     self.log_message(
@@ -3092,6 +3123,11 @@ class StableNewGUI:
                     )
 
                     randomized_variants = randomizer.generate(prompt_text)
+                    if rand_cfg.get("enabled") and len(randomized_variants) == 1:
+                        self.log_message(
+                            "ℹ️ Randomization produced only one variant. Ensure prompt contains tokens (e.g. __mood__, [[slot]]) and rules have matches.",
+                            "INFO",
+                        )
                     if not randomized_variants:
                         randomized_variants = [PromptVariant(text=prompt_text, label=None)]
 
@@ -4592,31 +4628,117 @@ class StableNewGUI:
         """Handle preset dropdown selection changes"""
         preset_name = self.preset_var.get()
         if preset_name:
-            config = self.config_manager.load_preset(preset_name)
-            if config:
-                self.current_preset = preset_name
-                if not self.override_pack_var.get():
-                    self._load_config_into_forms(config)
-                self.current_config = config
-                self.log_message(f"Selected preset: {preset_name}", "INFO")
-                self._refresh_config()  # Update display based on current pack selection
-                # Refresh pack list asynchronously to reflect any changes
-                try:
-                    self._refresh_prompt_packs_async()
-                except Exception:
-                    pass
-            else:
-                self.log_message(f"Failed to load preset: {preset_name}", "ERROR")
+            self.log_message(f"Preset selected: {preset_name} (click Load to apply)", "INFO")
+
+    def _load_selected_preset(self):
+        """Load the currently selected preset into the form"""
+        preset_name = self.preset_var.get()
+        if not preset_name:
+            self.log_message("No preset selected", "WARNING")
+            return
+
+        config = self.config_manager.load_preset(preset_name)
+        if config:
+            self.current_preset = preset_name
+            if not self.override_pack_var.get():
+                self._load_config_into_forms(config)
+            self.current_config = config
+            self.log_message(f"✓ Loaded preset: {preset_name}", "SUCCESS")
+            self._refresh_config()
+            # Refresh pack list asynchronously to reflect any changes
+            try:
+                self._refresh_prompt_packs_async()
+            except Exception:
+                pass
+        else:
+            self.log_message(f"Failed to load preset: {preset_name}", "ERROR")
+
+    def _save_preset_as(self):
+        """Save current configuration as a new preset with user-provided name"""
+        from tkinter import simpledialog
+
+        current_config = self._get_config_from_forms()
+
+        preset_name = simpledialog.askstring(
+            "Save Preset As",
+            "Enter a name for the new preset:",
+            initialvalue="",
+        )
+
+        if not preset_name:
+            return
+
+        # Clean up the name
+        preset_name = preset_name.strip()
+        if not preset_name:
+            self.log_message("Preset name cannot be empty", "WARNING")
+            return
+
+        # Check if preset already exists
+        if preset_name in self.config_manager.list_presets():
+            from tkinter import messagebox
+
+            overwrite = messagebox.askyesno(
+                "Preset Exists",
+                f"Preset '{preset_name}' already exists. Overwrite it?",
+            )
+            if not overwrite:
+                return
+
+        if self.config_manager.save_preset(preset_name, current_config):
+            self.log_message(f"✓ Saved preset as: {preset_name}", "SUCCESS")
+            # Refresh dropdown
+            self.preset_dropdown["values"] = self.config_manager.list_presets()
+            # Select the new preset
+            self.preset_var.set(preset_name)
+            self.current_preset = preset_name
+        else:
+            self.log_message(f"Failed to save preset: {preset_name}", "ERROR")
+
+    def _delete_selected_preset(self):
+        """Delete the currently selected preset after confirmation"""
+        from tkinter import messagebox
+
+        preset_name = self.preset_var.get()
+        if not preset_name:
+            self.log_message("No preset selected", "WARNING")
+            return
+
+        if preset_name == "default":
+            self.log_message("Cannot delete the default preset", "WARNING")
+            return
+
+        confirm = messagebox.askyesno(
+            "Delete Preset",
+            f"Are you sure you want to delete preset '{preset_name}'?\n\nThis cannot be undone.",
+        )
+
+        if not confirm:
+            return
+
+        if self.config_manager.delete_preset(preset_name):
+            self.log_message(f"✓ Deleted preset: {preset_name}", "SUCCESS")
+            # Refresh dropdown
+            self.preset_dropdown["values"] = self.config_manager.list_presets()
+            # Select default
+            self.preset_var.set("default")
+            self.current_preset = "default"
+        else:
+            self.log_message(f"Failed to delete preset: {preset_name}", "ERROR")
 
     def _save_override_preset(self):
-        """Save current configuration as the override preset (updates default)"""
+        """Save current configuration as the override preset (updates selected preset)"""
         current_config = self._get_config_from_forms()
         preset_name = self.preset_var.get()
 
+        if not preset_name:
+            self.log_message("No preset selected to update", "WARNING")
+            return
+
         if self.config_manager.save_preset(preset_name, current_config):
-            self.log_message(f"Updated preset '{preset_name}' with override config", "SUCCESS")
+            self.log_message(f"✓ Updated preset: {preset_name}", "SUCCESS")
         else:
-            self.log_message(f"Failed to save override preset: {preset_name}", "ERROR")
+            self.log_message(f"Failed to update preset: {preset_name}", "ERROR")
 
     def _on_override_changed(self):
         """Handle override checkbox changes"""

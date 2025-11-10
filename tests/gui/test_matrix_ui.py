@@ -2,7 +2,7 @@
 
 import tkinter as tk
 
-from src.gui.main_window import MainWindow
+from src.gui.main_window import StableNewGUI
 
 
 def test_matrix_ui_basic():
@@ -11,7 +11,12 @@ def test_matrix_ui_basic():
     root = tk.Tk()
     try:
         # Create main window (this will build the UI)
-        window = MainWindow(root)
+        window = StableNewGUI()
+
+        # Enable randomization and matrix to activate widgets
+        window.randomization_vars["enabled"].set(True)
+        window.randomization_vars["matrix_enabled"].set(True)
+        window._update_randomization_states()
 
         # Test adding a slot row
         window._add_matrix_slot_row("time", "dawn | noon | dusk")
@@ -34,6 +39,7 @@ def test_matrix_ui_basic():
         # Test base prompt
         base_prompt_widget = window.randomization_widgets.get("matrix_base_prompt")
         base_prompt_widget.insert(0, "A photo at [[time]] in a [[location]]")
+        root.update()  # Process pending events
 
         config = window._collect_randomization_config()
         assert config["matrix"]["base_prompt"] == "A photo at [[time]] in a [[location]]"
@@ -53,7 +59,7 @@ def test_matrix_ui_load_save():
 
     root = tk.Tk()
     try:
-        window = MainWindow(root)
+        window = StableNewGUI()
 
         # Create test config
         test_config = {

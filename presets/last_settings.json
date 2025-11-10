@@ -1,9 +1,9 @@
 {
   "preset": "default",
   "selected_packs": [
-    "CPT_Moroni.txt"
+    "SDXL_heroes_13_ChatGPTAdjusted.txt"
   ],
-  "override_pack": false,
+  "override_pack": true,
   "pipeline_controls": {
     "txt2img_enabled": true,
     "img2img_enabled": false,
@@ -36,13 +36,15 @@
       "enable_hr": true,
       "hr_scale": 1.5,
       "hr_upscaler": "Latent",
+      "hr_sampler_name": "DPM++ 2M",
       "denoising_strength": 0.27,
       "hires_steps": 12,
       "face_restoration_enabled": false,
       "face_restoration_model": "GFPGAN",
       "face_restoration_weight": 0.5,
-      "refiner_checkpoint": "None",
-      "refiner_switch_at": 0.8
+      "refiner_checkpoint": "realvisxlV50_v50Bakedvae.safetensors [6a35a78557]",
+      "refiner_switch_at": 0.8,
+      "hr_second_pass_steps": 12
     },
     "img2img": {
       "steps": 15,
@@ -102,7 +104,7 @@
       "adetailer_negative_prompt": "asymmetrical eyes, glossy skin, melted face, face mush, deformed nose"
     },
     "randomization": {
-      "enabled": false,
+      "enabled": true,
       "prompt_sr": {
         "enabled": false,
         "mode": "random",
@@ -116,23 +118,33 @@
         "raw_text": ""
       },
       "matrix": {
-        "enabled": false,
+        "enabled": true,
         "mode": "fanout",
         "limit": 8,
-        "slots": [],
-        "raw_text": ""
+        "slots": [
+          {
+            "name": "hot sun",
+            "values": [
+              "cold wind",
+              "jungle",
+              "short skirt"
+            ]
+          }
+        ],
+        "raw_text": "# Base: [minimal armor]\nhot sun: cold wind | jungle | short skirt",
+        "base_prompt": "[minimal armor]"
       }
     },
     "aesthetic": {
-      "enabled": false,
+      "enabled": true,
       "mode": "script",
       "weight": 0.9,
       "steps": 5,
       "learning_rate": 0.0001,
       "slerp": false,
       "slerp_angle": 0.1,
-      "embedding": "None",
-      "text": "",
+      "embedding": "fantasy",
+      "text": "magical",
       "text_is_negative": false,
       "fallback_prompt": ""
     }

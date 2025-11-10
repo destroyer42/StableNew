@@ -86,6 +86,33 @@ class ConfigManager:
         logger.info(f"Found {len(presets)} presets")
         return sorted(presets)
 
+    def delete_preset(self, name: str) -> bool:
+        """
+        Delete a preset configuration.
+
+        Args:
+            name: Name of the preset to delete
+
+        Returns:
+            True if deleted successfully
+        """
+        if name == "default":
+            logger.warning("Cannot delete the default preset")
+            return False
+
+        preset_path = self.presets_dir / f"{name}.json"
+        if not preset_path.exists():
+            logger.warning(f"Preset '{name}' not found at {preset_path}")
+            return False
+
+        try:
+            preset_path.unlink()
+            logger.info(f"Deleted preset: {name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete preset '{name}': {e}")
+            return False
+
     def get_default_config(self) -> dict[str, Any]:
         """
         Get the default configuration for all pipeline stages.
@@ -215,6 +242,11 @@ class ConfigManager:
                 "adetailer_enabled": False,
                 "allow_hr_with_stages": False,
                 "refiner_compare_mode": False,  # When True and refiner+hires enabled, branch original & refined
+                # Global negative application toggles per-stage (default True for backward compatibility)
+                "apply_global_negative_txt2img": True,
+                "apply_global_negative_img2img": True,
+                "apply_global_negative_upscale": True,
+                "apply_global_negative_adetailer": True,
             },
         }
 

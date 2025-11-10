@@ -807,11 +807,28 @@ class Pipeline:
         payload_width = actual_width or _coerce_dimension(config.get("width"), 512)
         payload_height = actual_height or _coerce_dimension(config.get("height"), 512)
 
+        # Optionally apply global negative to adetailer negative prompt
+        base_ad_neg = config.get('adetailer_negative_prompt', '')
+        apply_global = (config.get("pipeline", {}) if isinstance(config, dict) else {}).get(
+            "apply_global_negative_adetailer", True
+        )
+        if apply_global:
+            ad_neg_final = self.config_manager.add_global_negative(base_ad_neg)
+            try:
+                logger.info(
+                    "🛡️ Applied global NSFW prevention (adetailer stage) - Enhanced: '%s'",
+                    (ad_neg_final[:120] + "...") if len(ad_neg_final) > 120 else ad_neg_final,
+                )
+            except Exception:
+                pass
+        else:
+            ad_neg_final = base_ad_neg
+
         # Build ADetailer payload
         payload = {
             "init_images": [init_image],
             "prompt": config.get('adetailer_prompt', prompt),
-            "negative_prompt": config.get('adetailer_negative_prompt', ''),
+            "negative_prompt": ad_neg_final,
             "sampler_name": config.get('adetailer_sampler', 'DPM++ 2M'),
             "steps": config.get('adetailer_steps', 28),
             "cfg_scale": config.get('adetailer_cfg', 7.0),
@@ -834,7 +851,7 @@ class Pipeline:
                             "ad_steps": config.get('adetailer_steps', 28),
                             "ad_cfg_scale": config.get('adetailer_cfg', 7.0),
                             "ad_prompt": config.get('adetailer_prompt', ''),
-                            "ad_negative_prompt": config.get('adetailer_negative_prompt', '')
+                            "ad_negative_prompt": ad_neg_final
                         }
                     ]
                 }
@@ -863,7 +880,11 @@ class Pipeline:
                 "name": image_name,
                 "stage": "adetailer",
                 "timestamp": timestamp,
-                "prompt": prompt,
+                "original_prompt": prompt,
+                "final_prompt": payload.get("prompt", prompt),
+                "original_negative_prompt": base_ad_neg,
+                "final_negative_prompt": ad_neg_final,
+                "global_negative_applied": apply_global,
                 "input_image": str(input_image_path),
                 "config": payload,
                 "path": str(image_path)
@@ -1332,6 +1353,13 @@ class Pipeline:
                             txt_settings = config.get("txt2img", {})
                             adetailer_cfg.setdefault("width", txt_settings.get("width", 512))
                             adetailer_cfg.setdefault("height", txt_settings.get("height", 512))
+                            # Pass per-stage pipeline flag through to adetailer call
+                            pipe_flags = dict(config.get("pipeline", {}))
+                            adetailer_cfg["pipeline"] = {
+                                "apply_global_negative_adetailer": pipe_flags.get(
+                                    "apply_global_negative_adetailer", True
+                                )
+                            }
                             adetailer_meta = self.run_adetailer(
                                 Path(branch_last),
                                 prompt,
@@ -1368,6 +1396,12 @@ class Pipeline:
                     txt_settings = config.get("txt2img", {})
                     adetailer_cfg.setdefault("width", txt_settings.get("width", 512))
                     adetailer_cfg.setdefault("height", txt_settings.get("height", 512))
+                    pipe_flags = dict(config.get("pipeline", {}))
+                    adetailer_cfg["pipeline"] = {
+                        "apply_global_negative_adetailer": pipe_flags.get(
+                            "apply_global_negative_adetailer", True
+                        )
+                    }
                     adetailer_meta = self.run_adetailer(
                         Path(last_image_path),
                         prompt,
@@ -1465,11 +1499,15 @@ class Pipeline:
             # Build txt2img payload
             txt2img_config = config.get("txt2img", {})
 
-            # Apply global NSFW prevention to negative prompt
-            enhanced_negative = self.config_manager.add_global_negative(negative_prompt)
-            logger.info(
-                f"🛡️ Applied global NSFW prevention (stage) - Enhanced: '{enhanced_negative[:100]}...'"
-            )
+            # Optionally apply global NSFW prevention to negative prompt based on stage flag
+            apply_global = config.get("pipeline", {}).get("apply_global_negative_txt2img", True)
+            if apply_global:
+                enhanced_negative = self.config_manager.add_global_negative(negative_prompt)
+                logger.info(
+                    f"🛡️ Applied global NSFW prevention (txt2img stage) - Enhanced: '{enhanced_negative[:100]}...'"
+                )
+            else:
+                enhanced_negative = negative_prompt
 
             # Check if refiner is configured for SDXL (native API support via override_settings)
             refiner_checkpoint = txt2img_config.get("refiner_checkpoint")
@@ -1548,6 +1586,13 @@ class Pipeline:
             prompt_after, negative_after = self._apply_aesthetic_to_payload(payload, config)
             payload["prompt"] = prompt_after
             payload["negative_prompt"] = negative_after
+            try:
+                logger.info(
+                    "🎨 Final txt2img negative prompt (with global + aesthetic): '%s'",
+                    (negative_after[:160] + "...") if len(negative_after) > 160 else negative_after,
+                )
+            except Exception:
+                pass
 
             # Add styles if specified
             if txt2img_config.get("styles"):
@@ -1582,9 +1627,13 @@ class Pipeline:
                     "name": image_name,
                     "stage": "txt2img",
                     "timestamp": timestamp,
-                    "prompt": prompt,
-                    "negative_prompt": enhanced_negative,  # Log the enhanced negative prompt
-                    "original_negative_prompt": negative_prompt,  # Also keep original
+                    "original_prompt": prompt,
+                    "final_prompt": payload.get("prompt", prompt),
+                    "prompt": payload.get("prompt", prompt),  # backward compatibility
+                    "original_negative_prompt": negative_prompt,
+                    "final_negative_prompt": payload.get("negative_prompt", enhanced_negative),
+                    "negative_prompt": payload.get("negative_prompt", enhanced_negative),  # backward compatibility
+                    "global_negative_applied": apply_global,
                     "config": payload,
                     "output_path": str(image_path),
                     "path": str(image_path),
@@ -1666,12 +1715,28 @@ class Pipeline:
             # Combine negative prompt with optional adjustments
             base_negative = config.get("negative_prompt", "")
             neg_adjust = (config.get("negative_adjust") or "").strip()
-            negative_prompt = base_negative if not neg_adjust else f"{base_negative} {neg_adjust}".strip()
+            original_negative_prompt = base_negative if not neg_adjust else f"{base_negative} {neg_adjust}".strip()
+
+            # Optionally apply global negative safety terms based on stage flag
+            apply_global = (full_config or {}).get("pipeline", {}).get(
+                "apply_global_negative_img2img", True
+            )
+            if apply_global:
+                enhanced_negative = self.config_manager.add_global_negative(original_negative_prompt)
+                try:
+                    logger.info(
+                        "🛡️ Applied global NSFW prevention (img2img stage) - Enhanced: '%s'",
+                        (enhanced_negative[:100] + "...") if len(enhanced_negative) > 100 else enhanced_negative,
+                    )
+                except Exception:
+                    pass
+            else:
+                enhanced_negative = original_negative_prompt
 
             payload = {
                 "init_images": [input_image_b64],
                 "prompt": prompt,
-                "negative_prompt": negative_prompt,
+                "negative_prompt": enhanced_negative,
                 "steps": config.get("steps", 15),
                 "cfg_scale": config.get("cfg_scale", 7.0),
                 "denoising_strength": config.get("denoising_strength", 0.3),
@@ -1685,11 +1750,20 @@ class Pipeline:
                 "n_iter": 1,
             }
 
+            # Apply aesthetic adjustments AFTER global negative safety terms so they layer on top
             prompt_after, negative_after = self._apply_aesthetic_to_payload(
                 payload, full_config or {"aesthetic": {}}
             )
             payload["prompt"] = prompt_after
             payload["negative_prompt"] = negative_after
+            try:
+                logger.info(
+                    "🎨 Final img2img negative prompt (with%s global + aesthetic): '%s'",
+                    "" if apply_global else "out",
+                    (negative_after[:160] + "...") if len(negative_after) > 160 else negative_after,
+                )
+            except Exception:
+                pass
 
             # Log key parameters at INFO to correlate with WebUI progress
             try:
@@ -1718,7 +1792,13 @@ class Pipeline:
                     "name": image_name,
                     "stage": "img2img",
                     "timestamp": timestamp,
-                    "prompt": prompt,
+                    "original_prompt": prompt,
+                    "final_prompt": payload.get("prompt", prompt),
+                    "prompt": payload.get("prompt", prompt),
+                    "original_negative_prompt": original_negative_prompt,
+                    "final_negative_prompt": payload.get("negative_prompt", ""),
+                    "negative_prompt": payload.get("negative_prompt", ""),
+                    "global_negative_applied": apply_global,
                     "input_image": str(input_image_path),
                     "config": payload,
                     "path": str(image_path),
@@ -1828,6 +1908,25 @@ class Pipeline:
                 except Exception:
                     pass
 
+                # Apply global negative if any (upscale-as-img2img path may include a negative prompt)
+                try:
+                    original_neg = payload.get("negative_prompt", "")
+                    if original_neg:
+                        apply_global = (config.get("pipeline", {}) if isinstance(config, dict) else {}).get(
+                            "apply_global_negative_upscale", True
+                        )
+                        if apply_global:
+                            enhanced_neg = self.config_manager.add_global_negative(original_neg)
+                            payload["negative_prompt"] = enhanced_neg
+                            logger.info(
+                                "🛡️ Applied global NSFW prevention (upscale img2img) - Enhanced: '%s'",
+                                (enhanced_neg[:120] + "...") if len(enhanced_neg) > 120 else enhanced_neg,
+                            )
+                        else:
+                            logger.info("⚠️ Global negative skipped for upscale(img2img) stage")
+                except Exception:
+                    pass
+
                 response = self.client.img2img(payload)
                 response_key = "images"
                 image_key = 0
@@ -1887,6 +1986,7 @@ class Pipeline:
                     "stage": "upscale",
                     "timestamp": timestamp,
                     "input_image": str(input_image_path),
+                    "final_negative_prompt": payload.get("negative_prompt"),
                     "config": payload,
                     "path": str(image_path),
                 }

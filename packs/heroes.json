@@ -13,6 +13,7 @@
     "enable_hr": false,
     "hr_scale": 2.0,
     "hr_upscaler": "Latent",
+    "hr_sampler_name": "",
     "hr_second_pass_steps": 0,
     "hr_resize_x": 0,
     "hr_resize_y": 0,
@@ -106,5 +107,16 @@
     "text": "",
     "text_is_negative": false,
     "fallback_prompt": ""
+  },
+  "pipeline": {
+    "img2img_enabled": true,
+    "upscale_enabled": true,
+    "adetailer_enabled": false,
+    "allow_hr_with_stages": false,
+    "refiner_compare_mode": false,
+    "apply_global_negative_txt2img": true,
+    "apply_global_negative_img2img": true,
+    "apply_global_negative_upscale": true,
+    "apply_global_negative_adetailer": true
   }
 }
