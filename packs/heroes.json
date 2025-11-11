@@ -23,7 +23,10 @@
     "vae": "",
     "hypernetwork": "None",
     "hypernetwork_strength": 1.0,
-    "styles": []
+    "styles": [],
+    "refiner_checkpoint": "",
+    "refiner_switch_at": 0.8,
+    "refiner_switch_steps": 0
   },
   "img2img": {
     "steps": 15,

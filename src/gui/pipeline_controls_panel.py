@@ -32,6 +32,11 @@ class PipelineControlsPanel(ttk.Frame):
             "adetailer_enabled": bool(self.adetailer_enabled.get()),
             "upscale_enabled": bool(self.upscale_enabled.get()),
             "video_enabled": bool(self.video_enabled.get()),
+            # Global negative per-stage toggles
+            "apply_global_negative_txt2img": bool(self.global_neg_txt2img.get()),
+            "apply_global_negative_img2img": bool(self.global_neg_img2img.get()),
+            "apply_global_negative_upscale": bool(self.global_neg_upscale.get()),
+            "apply_global_negative_adetailer": bool(self.global_neg_adetailer.get()),
             "loop_type": self.loop_type_var.get(),
             "loop_count": loop_count,
             "pack_mode": self.pack_mode_var.get(),
@@ -52,6 +57,10 @@ class PipelineControlsPanel(ttk.Frame):
             "adetailer_enabled": bool(self.adetailer_enabled.get()),
             "upscale_enabled": bool(self.upscale_enabled.get()),
             "video_enabled": bool(self.video_enabled.get()),
+            "apply_global_negative_txt2img": bool(self.global_neg_txt2img.get()),
+            "apply_global_negative_img2img": bool(self.global_neg_img2img.get()),
+            "apply_global_negative_upscale": bool(self.global_neg_upscale.get()),
+            "apply_global_negative_adetailer": bool(self.global_neg_adetailer.get()),
             "loop_type": self.loop_type_var.get(),
             "loop_count": int(self.loop_count_var.get()),
             "pack_mode": self.pack_mode_var.get(),
@@ -77,14 +86,22 @@ class PipelineControlsPanel(ttk.Frame):
                 self.upscale_enabled.set(bool(state["upscale_enabled"]))
             if "video_enabled" in state:
                 self.video_enabled.set(bool(state["video_enabled"]))
+            if "apply_global_negative_txt2img" in state:
+                self.global_neg_txt2img.set(bool(state["apply_global_negative_txt2img"]))
+            if "apply_global_negative_img2img" in state:
+                self.global_neg_img2img.set(bool(state["apply_global_negative_img2img"]))
+            if "apply_global_negative_upscale" in state:
+                self.global_neg_upscale.set(bool(state["apply_global_negative_upscale"]))
+            if "apply_global_negative_adetailer" in state:
+                self.global_neg_adetailer.set(bool(state["apply_global_negative_adetailer"]))
             if "loop_type" in state:
                 self.loop_type_var.set(str(state["loop_type"]))
             if "loop_count" in state:
-                self.loop_count_var.set(int(state["loop_count"]))
+                self.loop_count_var.set(str(state["loop_count"]))
             if "pack_mode" in state:
                 self.pack_mode_var.set(str(state["pack_mode"]))
             if "images_per_prompt" in state:
-                self.images_per_prompt_var.set(int(state["images_per_prompt"]))
+                self.images_per_prompt_var.set(str(state["images_per_prompt"]))
             if "model_matrix" in state:
                 self._set_model_matrix_display(state["model_matrix"])
             if "hypernetworks" in state:
@@ -153,6 +170,11 @@ class PipelineControlsPanel(ttk.Frame):
         self.video_enabled = self._stage_vars.get("video") or tk.BooleanVar(
             value=bool(state.get("video_enabled", False))
         )
+        # Global negative per-stage toggles (default True for backward compatibility)
+        self.global_neg_txt2img = tk.BooleanVar(value=bool(state.get("apply_global_negative_txt2img", True)))
+        self.global_neg_img2img = tk.BooleanVar(value=bool(state.get("apply_global_negative_img2img", True)))
+        self.global_neg_upscale = tk.BooleanVar(value=bool(state.get("apply_global_negative_upscale", True)))
+        self.global_neg_adetailer = tk.BooleanVar(value=bool(state.get("apply_global_negative_adetailer", True)))
 
         # Loop configuration
         self.loop_type_var = tk.StringVar(value=str(state.get("loop_type", "single")))
@@ -194,6 +216,7 @@ class PipelineControlsPanel(ttk.Frame):
         # Batch configuration - compact
         self._build_batch_config(pipeline_frame)
         self._build_variant_config(pipeline_frame)
+        self._build_global_negative_toggles(pipeline_frame)
 
     def _build_loop_config(self, parent):
         """Build loop configuration controls with logging."""
@@ -351,6 +374,21 @@ class PipelineControlsPanel(ttk.Frame):
             value="rotate",
             style="Dark.TRadiobutton",
         ).pack(anchor=tk.W, pady=(2, 0))
+
+    def _build_global_negative_toggles(self, parent):
+        """Build per-stage Global Negative enable toggles."""
+        frame = ttk.LabelFrame(parent, text="Global Negative (per stage)", style="Dark.TFrame", padding=5)
+        frame.pack(fill=tk.X, pady=(0, 5))
+
+        def _mk(cb_text, var, key):
+            def _log():
+                logger.info(f"PipelineControlsPanel: {key} set to {var.get()}")
+            ttk.Checkbutton(frame, text=cb_text, variable=var, style="Dark.TCheckbutton", command=_log).pack(anchor=tk.W)
+
+        _mk("Apply to txt2img", self.global_neg_txt2img, "apply_global_negative_txt2img")
+        _mk("Apply to img2img", self.global_neg_img2img, "apply_global_negative_img2img")
+        _mk("Apply to upscale", self.global_neg_upscale, "apply_global_negative_upscale")
+        _mk("Apply to ADetailer", self.global_neg_adetailer, "apply_global_negative_adetailer")
 
     def set_settings(self, settings: dict[str, Any]):
         """

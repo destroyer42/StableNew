@@ -6,10 +6,14 @@
   "override_pack": true,
   "pipeline_controls": {
     "txt2img_enabled": true,
-    "img2img_enabled": false,
+    "img2img_enabled": true,
     "adetailer_enabled": true,
     "upscale_enabled": true,
     "video_enabled": false,
+    "apply_global_negative_txt2img": true,
+    "apply_global_negative_img2img": true,
+    "apply_global_negative_upscale": true,
+    "apply_global_negative_adetailer": true,
     "loop_type": "single",
     "loop_count": 1,
     "pack_mode": "selected",
@@ -42,8 +46,9 @@
       "face_restoration_enabled": false,
       "face_restoration_model": "GFPGAN",
       "face_restoration_weight": 0.5,
-      "refiner_checkpoint": "realvisxlV50_v50Bakedvae.safetensors [6a35a78557]",
+      "refiner_checkpoint": "gonzalomoXLFluxPony_v60PhotoXLDMD.safetensors",
       "refiner_switch_at": 0.8,
+      "refiner_switch_steps": 0,
       "hr_second_pass_steps": 12
     },
     "img2img": {
@@ -79,10 +84,14 @@
     },
     "pipeline": {
       "txt2img_enabled": true,
-      "img2img_enabled": false,
+      "img2img_enabled": true,
       "adetailer_enabled": true,
       "upscale_enabled": true,
       "video_enabled": false,
+      "apply_global_negative_txt2img": true,
+      "apply_global_negative_img2img": true,
+      "apply_global_negative_upscale": true,
+      "apply_global_negative_adetailer": true,
       "loop_type": "single",
       "loop_count": 1,
       "pack_mode": "selected",
@@ -118,21 +127,12 @@
         "raw_text": ""
       },
       "matrix": {
-        "enabled": true,
+        "enabled": false,
         "mode": "fanout",
         "limit": 8,
-        "slots": [
-          {
-            "name": "hot sun",
-            "values": [
-              "cold wind",
-              "jungle",
-              "short skirt"
-            ]
-          }
-        ],
-        "raw_text": "# Base: [minimal armor]\nhot sun: cold wind | jungle | short skirt",
-        "base_prompt": "[minimal armor]"
+        "slots": [],
+        "raw_text": "",
+        "base_prompt": ""
       }
     },
     "aesthetic": {
@@ -143,8 +143,8 @@
       "learning_rate": 0.0001,
       "slerp": false,
       "slerp_angle": 0.1,
-      "embedding": "fantasy",
-      "text": "magical",
+      "embedding": "ParadiseGirl-1024",
+      "text": "p",
       "text_is_negative": false,
       "fallback_prompt": ""
     }

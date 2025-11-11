@@ -28,6 +28,7 @@ class ConfigManager:
         self.presets_dir.mkdir(exist_ok=True)
         self._global_negative_path = self.presets_dir / "global_negative.txt"
         self._global_negative_cache: str | None = None
+        self._default_preset_path = self.presets_dir / ".default_preset"
 
     def load_preset(self, name: str) -> dict[str, Any] | None:
         """
@@ -159,6 +160,10 @@ class ConfigManager:
                 "hypernetwork": "None",
                 "hypernetwork_strength": 1.0,
                 "styles": [],  # Style names to apply
+                # SDXL refiner controls
+                "refiner_checkpoint": "",
+                "refiner_switch_at": 0.8,  # ratio 0-1 used by WebUI
+                "refiner_switch_steps": 0,  # optional: absolute step number within base pass; 0=unused
             },
             "img2img": {
                 "steps": 15,
@@ -517,3 +522,73 @@ class ConfigManager:
             else:
                 merged[key] = value
         return merged
+
+    def set_default_preset(self, preset_name: str) -> bool:
+        """
+        Set a preset as the default to load on startup.
+
+        Args:
+            preset_name: Name of the preset to set as default
+
+        Returns:
+            True if set successfully
+        """
+        if not preset_name:
+            logger.warning("Cannot set empty preset name as default")
+            return False
+
+        # Verify preset exists
+        preset_path = self.presets_dir / f"{preset_name}.json"
+        if not preset_path.exists():
+            logger.warning(f"Preset '{preset_name}' does not exist, cannot set as default")
+            return False
+
+        try:
+            self._default_preset_path.write_text(preset_name, encoding="utf-8")
+            logger.info(f"Set default preset to: {preset_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set default preset: {e}")
+            return False
+
+    def get_default_preset(self) -> str | None:
+        """
+        Get the name of the default preset.
+
+        Returns:
+            Name of default preset, or None if not set
+        """
+        if not self._default_preset_path.exists():
+            return None
+
+        try:
+            preset_name = self._default_preset_path.read_text(encoding="utf-8").strip()
+            if preset_name:
+                # Verify preset still exists
+                preset_path = self.presets_dir / f"{preset_name}.json"
+                if preset_path.exists():
+                    return preset_name
+                else:
+                    logger.warning(f"Default preset '{preset_name}' no longer exists")
+                    # Clean up stale reference
+                    self._default_preset_path.unlink(missing_ok=True)
+                    return None
+            return None
+        except Exception as e:
+            logger.error(f"Failed to read default preset: {e}")
+            return None
+
+    def clear_default_preset(self) -> bool:
+        """
+        Clear the default preset setting.
+
+        Returns:
+            True if cleared successfully
+        """
+        try:
+            self._default_preset_path.unlink(missing_ok=True)
+            logger.info("Cleared default preset")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear default preset: {e}")
+            return False

@@ -396,10 +396,23 @@ class StableNewGUI:
             )
 
     def _ensure_default_preset(self):
-        """Ensure default preset exists"""
+        """Ensure default preset exists and load it if set as startup default"""
         if "default" not in self.config_manager.list_presets():
             default_config = self.config_manager.get_default_config()
             self.config_manager.save_preset("default", default_config)
+
+        # Check if a default preset is configured for startup
+        default_preset_name = self.config_manager.get_default_preset()
+        if default_preset_name:
+            logger.info(f"Loading default preset on startup: {default_preset_name}")
+            preset_config = self.config_manager.load_preset(default_preset_name)
+            if preset_config:
+                self.current_preset = default_preset_name
+                self.current_config = preset_config
+                # preset_var will be set in __init__ after this call
+                self.preferences["preset"] = default_preset_name
+            else:
+                logger.warning(f"Failed to load default preset '{default_preset_name}'")
 
     def _build_ui(self):
         """Build the modern user interface"""
@@ -1980,6 +1993,16 @@ class StableNewGUI:
         )
         delete_btn.pack(side=tk.LEFT, padx=1)
         self._attach_tooltip(delete_btn, "Delete the selected preset (default cannot be deleted)")
+
+        set_default_btn = ttk.Button(
+            preset_buttons,
+            text="⭐ Set Default",
+            command=self._set_default_preset,
+            width=11,
+            style="Dark.TButton",
+        )
+        set_default_btn.pack(side=tk.LEFT, padx=1)
+        self._attach_tooltip(set_default_btn, "Set this preset to load automatically on startup")
 
     def _build_pipeline_controls_tab(self, notebook):
         """Build pipeline execution controls tab"""
@@ -4725,6 +4748,43 @@ class StableNewGUI:
             self.current_preset = "default"
         else:
             self.log_message(f"Failed to delete preset: {preset_name}", "ERROR")
+
+    def _set_default_preset(self):
+        """Set the currently selected preset as default to load on startup"""
+        from tkinter import messagebox
+
+        preset_name = self.preset_var.get()
+        if not preset_name:
+            self.log_message("No preset selected", "WARNING")
+            return
+
+        # Check if there's already a default
+        current_default = self.config_manager.get_default_preset()
+        if current_default == preset_name:
+            messagebox.showinfo(
+                "Already Default",
+                f"'{preset_name}' is already set as the default preset.",
+            )
+            return
+
+        # Confirm setting as default
+        msg = f"Set '{preset_name}' as the default preset?\n\n"
+        msg += "This preset will automatically load when the application starts."
+        if current_default:
+            msg += f"\n\nCurrent default: '{current_default}'"
+
+        confirm = messagebox.askyesno("Set Default Preset", msg)
+        if not confirm:
+            return
+
+        if self.config_manager.set_default_preset(preset_name):
+            self.log_message(f"⭐ Set '{preset_name}' as default preset", "SUCCESS")
+            messagebox.showinfo(
+                "Default Preset Set",
+                f"'{preset_name}' will now load automatically on startup.",
+            )
+        else:
+            self.log_message(f"Failed to set default preset: {preset_name}", "ERROR")
 
     def _save_override_preset(self):
         """Save current configuration as the override preset (updates selected preset)"""

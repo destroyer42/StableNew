@@ -885,6 +885,7 @@ class Pipeline:
                 "original_negative_prompt": base_ad_neg,
                 "final_negative_prompt": ad_neg_final,
                 "global_negative_applied": apply_global,
+                "global_negative_terms": self.config_manager.get_global_negative_prompt() if apply_global else "",
                 "input_image": str(input_image_path),
                 "config": payload,
                 "path": str(image_path)
@@ -1448,16 +1449,52 @@ class Pipeline:
                         "index": variant_index,
                         "label": variant_label,
                     },
+                    # Per-stage auditing (capture primary prompts/negatives if available)
+                    "txt2img_final_prompt": txt2img_meta.get("final_prompt") if txt2img_meta else "",
+                    "txt2img_final_negative": txt2img_meta.get("final_negative_prompt") if txt2img_meta else "",
                 }
 
                 if txt2img_meta:
                     summary_entry["steps_completed"].append("txt2img")
                 if results["img2img"] and len(results["img2img"]) > batch_idx:
                     summary_entry["steps_completed"].append("img2img")
+                    try:
+                        # Gather all img2img metas matching this image base name
+                        base_prefix = image_name
+                        img2img_prompts = []
+                        img2img_negatives = []
+                        for m in results["img2img"]:
+                            name_val = m.get("name", "")
+                            if name_val.startswith(base_prefix):
+                                img2img_prompts.append(m.get("final_prompt") or m.get("prompt", ""))
+                                img2img_negatives.append(m.get("final_negative_prompt") or m.get("negative_prompt", ""))
+                        summary_entry["img2img_final_prompt"] = "; ".join(img2img_prompts)
+                        summary_entry["img2img_final_negative"] = "; ".join(img2img_negatives)
+                    except Exception:
+                        summary_entry["img2img_final_prompt"] = ""
+                        summary_entry["img2img_final_negative"] = ""
                 if results["adetailer"] and len(results["adetailer"]) > batch_idx:
                     summary_entry["steps_completed"].append("adetailer")
+                    try:
+                        adetailer_meta = next(
+                            (m for m in results["adetailer"] if m.get("path") == last_image_path),
+                            results["adetailer"][-1],
+                        )
+                        summary_entry["adetailer_final_prompt"] = adetailer_meta.get("final_prompt", "")
+                        summary_entry["adetailer_final_negative"] = adetailer_meta.get("final_negative_prompt", "")
+                    except Exception:
+                        summary_entry["adetailer_final_prompt"] = ""
+                        summary_entry["adetailer_final_negative"] = ""
                 if results["upscaled"] and len(results["upscaled"]) > batch_idx:
                     summary_entry["steps_completed"].append("upscaled")
+                    try:
+                        up_meta = next(
+                            (m for m in results["upscaled"] if m.get("path") == final_image_path),
+                            results["upscaled"][-1],
+                        )
+                        summary_entry["upscale_final_negative"] = up_meta.get("final_negative_prompt", "")
+                    except Exception:
+                        summary_entry["upscale_final_negative"] = ""
 
                 results["summary"].append(summary_entry)
 
@@ -1511,7 +1548,26 @@ class Pipeline:
 
             # Check if refiner is configured for SDXL (native API support via override_settings)
             refiner_checkpoint = txt2img_config.get("refiner_checkpoint")
+            # Allow either ratio (0-1) or absolute step count via refiner_switch_steps
             refiner_switch_at = txt2img_config.get("refiner_switch_at", 0.8)
+            try:
+                base_steps_for_switch = int(txt2img_config.get("steps", 20))
+            except Exception:
+                base_steps_for_switch = 20
+            try:
+                switch_steps = int(txt2img_config.get("refiner_switch_steps", 0) or 0)
+            except Exception:
+                switch_steps = 0
+            if switch_steps and base_steps_for_switch > 0:
+                # Convert absolute step to ratio clamped to (0,1)
+                computed_ratio = max(0.01, min(0.99, switch_steps / float(base_steps_for_switch)))
+                logger.info(
+                    "🔀 Converting refiner_switch_steps=%d of %d to ratio=%.3f",
+                    switch_steps,
+                    base_steps_for_switch,
+                    computed_ratio,
+                )
+                refiner_switch_at = computed_ratio
             use_refiner = (
                 refiner_checkpoint
                 and refiner_checkpoint != "None"
@@ -1520,9 +1576,25 @@ class Pipeline:
             )
 
             if use_refiner:
+                # Compute expected switch step number within the base pass and within combined progress
+                try:
+                    base_steps = int(txt2img_config.get("steps", 20))
+                except Exception:
+                    base_steps = 20
+                enable_hr = bool(txt2img_config.get("enable_hr", False))
+                hr_steps_cfg = int(txt2img_config.get("hr_second_pass_steps", 0) or 0)
+                effective_hr_steps = (hr_steps_cfg if hr_steps_cfg > 0 else base_steps) if enable_hr else 0
+                expected_switch_step_base = max(1, int(round(refiner_switch_at * base_steps)))
+                expected_switch_step_total = expected_switch_step_base  # progress bars often show total steps
+                total_steps_progress = base_steps + effective_hr_steps
                 logger.info(
-                    f"🎨 SDXL Refiner enabled: {refiner_checkpoint} "
-                    f"(switching at {refiner_switch_at * 100:.0f}% of steps)"
+                    "🎨 SDXL Refiner enabled: %s | switch_at=%s (≈ step %d of base %d; ≈ %d/%d total)",
+                    refiner_checkpoint,
+                    refiner_switch_at,
+                    expected_switch_step_base,
+                    base_steps,
+                    expected_switch_step_total,
+                    total_steps_progress,
                 )
 
             # Set model and VAE if specified
@@ -1634,6 +1706,7 @@ class Pipeline:
                     "final_negative_prompt": payload.get("negative_prompt", enhanced_negative),
                     "negative_prompt": payload.get("negative_prompt", enhanced_negative),  # backward compatibility
                     "global_negative_applied": apply_global,
+                    "global_negative_terms": self.config_manager.get_global_negative_prompt() if apply_global else "",
                     "config": payload,
                     "output_path": str(image_path),
                     "path": str(image_path),
@@ -1799,6 +1872,7 @@ class Pipeline:
                     "final_negative_prompt": payload.get("negative_prompt", ""),
                     "negative_prompt": payload.get("negative_prompt", ""),
                     "global_negative_applied": apply_global,
+                    "global_negative_terms": self.config_manager.get_global_negative_prompt() if apply_global else "",
                     "input_image": str(input_image_path),
                     "config": payload,
                     "path": str(image_path),
@@ -1987,6 +2061,8 @@ class Pipeline:
                     "timestamp": timestamp,
                     "input_image": str(input_image_path),
                     "final_negative_prompt": payload.get("negative_prompt"),
+                    "global_negative_applied": (config.get("pipeline", {}) if isinstance(config, dict) else {}).get("apply_global_negative_upscale", True) if isinstance(payload, dict) and "init_images" in payload else False,
+                    "global_negative_terms": self.config_manager.get_global_negative_prompt() if (isinstance(payload, dict) and "init_images" in payload and payload.get("negative_prompt")) else "",
                     "config": payload,
                     "path": str(image_path),
                 }

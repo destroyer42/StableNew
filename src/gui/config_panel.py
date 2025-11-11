@@ -197,6 +197,7 @@ class ConfigPanel(ttk.Frame):
         # Refiner (SDXL)
         self.txt2img_vars["refiner_checkpoint"] = tk.StringVar(value="None")
         self.txt2img_vars["refiner_switch_at"] = tk.DoubleVar(value=0.8)
+        self.txt2img_vars["refiner_switch_steps"] = tk.IntVar(value=0)
 
         basic_frame = ttk.LabelFrame(scrollable_frame, text="Basic Settings", padding=10)
         basic_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -467,23 +468,41 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_widgets["refiner_checkpoint"] = refiner_combo
         row += 1
 
-        ttk.Label(refiner_frame, text="Switch at:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        ttk.Label(refiner_frame, text="Switch ratio:").grid(row=row, column=0, sticky=tk.W, pady=2)
         refiner_switch_spin = ttk.Spinbox(
             refiner_frame,
             from_=0.0,
             to=1.0,
-            increment=0.05,
+            increment=0.01,
             textvariable=self.txt2img_vars["refiner_switch_at"],
-            width=15,
+            width=10,
         )
         refiner_switch_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.txt2img_widgets["refiner_switch_at"] = refiner_switch_spin
         row += 1
 
+        ttk.Label(refiner_frame, text="Switch step (abs):").grid(row=row, column=0, sticky=tk.W, pady=2)
+        refiner_steps_spin = ttk.Spinbox(
+            refiner_frame,
+            from_=0,
+            to=999,
+            increment=1,
+            textvariable=self.txt2img_vars["refiner_switch_steps"],
+            width=10,
+        )
+        refiner_steps_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["refiner_switch_steps"] = refiner_steps_spin
+        row += 1
+
+        # Live computed mapping label
+        self.refiner_mapping_label = ttk.Label(refiner_frame, text="", font=("Segoe UI", 8), foreground="#888888")
+        self.refiner_mapping_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0,2))
+        row += 1
+
         # Helper text for refiner
         refiner_help = ttk.Label(
             refiner_frame,
-            text="💡 Switch at 0.8 = refiner runs last 20% of steps",
+            text="💡 Set either ratio or absolute step (ratio ignored if step > 0)",
             font=("Segoe UI", 8),
             foreground="#888888",
         )
@@ -987,6 +1006,10 @@ class ConfigPanel(ttk.Frame):
             # Map hires_steps spinbox to hr_second_pass_steps used by WebUI
             if "hires_steps" in config["txt2img"]:
                 config["txt2img"]["hr_second_pass_steps"] = int(config["txt2img"].get("hires_steps", 0))
+            # Pass through refiner absolute steps if provided (>0)
+            if int(config["txt2img"].get("refiner_switch_steps", 0) or 0) > 0:
+                # Keep as user-set; executor converts this to ratio
+                config["txt2img"]["refiner_switch_steps"] = int(config["txt2img"].get("refiner_switch_steps", 0))
         except Exception:
             pass
 
@@ -1117,20 +1140,7 @@ class ConfigPanel(ttk.Frame):
         except Exception:
             pass
 
-    def _attach_change_traces(self) -> None:
-        """Attach variable traces to flag unsaved changes."""
-        def attach(d: dict[str, tk.Variable]):
-            for v in d.values():
-                try:
-                    v.trace_add("write", self._mark_unsaved)
-                except Exception:
-                    try:
-                        v.trace("w", self._mark_unsaved)  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-
-        for var_dict in (self.txt2img_vars, self.img2img_vars, self.upscale_vars, self.api_vars):
-            attach(var_dict)
+    # (Old _attach_change_traces removed; see enhanced version later in file)
 
     def _mark_unsaved(self, *args) -> None:
         try:
@@ -1169,6 +1179,11 @@ class ConfigPanel(ttk.Frame):
                     if key == "scheduler":
                         value = self._normalize_scheduler_value(value)
                     self.txt2img_vars[key].set(value)
+            # Sync mapping label after setting fields
+            try:
+                self._update_refiner_mapping_label()
+            except Exception:
+                pass
 
         # Set img2img config
         if "img2img" in config:
@@ -1194,6 +1209,53 @@ class ConfigPanel(ttk.Frame):
 
         # Update face restoration visibility
         self._toggle_face_restoration()
+        try:
+            self._update_refiner_mapping_label()
+        except Exception:
+            pass
+
+    def _update_refiner_mapping_label(self):
+        """Compute and display the effective switch mapping."""
+        if not hasattr(self, "refiner_mapping_label"):
+            return
+        try:
+            steps = int(self.txt2img_vars.get("steps").get())
+        except Exception:
+            steps = 0
+        ratio = float(self.txt2img_vars.get("refiner_switch_at").get()) if steps else 0.0
+        abs_step = int(self.txt2img_vars.get("refiner_switch_steps").get())
+        if abs_step > 0 and steps > 0:
+            # Show both representations
+            computed_ratio = abs_step / float(steps)
+            self.refiner_mapping_label.configure(
+                text=f"🔀 Will switch at step {abs_step}/{steps} (ratio={computed_ratio:.3f})"
+            )
+        elif steps > 0 and 0 < ratio < 1:
+            target_step = int(round(ratio * steps))
+            self.refiner_mapping_label.configure(
+                text=f"🔀 Ratio {ratio:.3f} => switch ≈ step {target_step}/{steps}"
+            )
+        else:
+            self.refiner_mapping_label.configure(text="")
+
+    def _attach_change_traces(self) -> None:
+        """Attach variable traces to flag unsaved changes (extended to update refiner mapping)."""
+        def attach(d: dict[str, tk.Variable]):
+            for k, v in d.items():
+                try:
+                    def _cb(*_):
+                        self._mark_unsaved()
+                        if k in {"refiner_switch_at", "refiner_switch_steps", "steps"}:
+                            self._update_refiner_mapping_label()
+                    v.trace_add("write", _cb)
+                except Exception:
+                    try:
+                        v.trace("w", _cb)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+
+        for var_dict in (self.txt2img_vars, self.img2img_vars, self.upscale_vars, self.api_vars):
+            attach(var_dict)
 
     def validate(self) -> tuple[bool, list[str]]:
         """
