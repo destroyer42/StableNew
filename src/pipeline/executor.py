@@ -8,7 +8,7 @@ from datetime import datetime
 from functools import lru_cache
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from PIL import Image
 
@@ -383,7 +383,7 @@ class Pipeline:
             return f"ETA: {hours:d}h {minutes:02d}m {secs:02d}s"
         return f"ETA: {minutes:02d}:{secs:02d}"
 
-    def _extract_name_prefix(self, prompt: str) -> Optional[str]:
+    def _extract_name_prefix(self, prompt: str) -> str | None:
         """
         Extract name prefix from prompt if it contains 'name:' metadata.
 
@@ -755,8 +755,8 @@ class Pipeline:
         return None
 
     def run_adetailer(self, input_image_path: Path, prompt: str,
-                     config: Dict[str, Any], run_dir: Path,
-                     cancel_token=None) -> Optional[Dict[str, Any]]:
+                     config: dict[str, Any], run_dir: Path,
+                     cancel_token=None) -> dict[str, Any] | None:
         """
         Run ADetailer for automatic face/detail enhancement.
 
@@ -1198,15 +1198,15 @@ class Pipeline:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
 
-        results = {
+        results: dict[str, Any] = {
             "pack_name": pack_name,
             "pack_dir": str(pack_dir),
             "prompt": prompt,
-            "txt2img": [],
-            "img2img": [],
-            "adetailer": [],
-            "upscaled": [],
-            "summary": [],
+            "txt2img": [],  # list[dict]
+            "img2img": [],  # list[dict]
+            "adetailer": [],  # list[dict]
+            "upscaled": [],  # list[dict]
+            "summary": [],  # list[dict]
         }
 
         # Normalize config for this run (disable conflicting hires, normalize scheduler casing)
@@ -1236,163 +1236,147 @@ class Pipeline:
             # Ensure txt2img section exists
             config.setdefault("txt2img", {})["negative_prompt"] = negative_prompt
 
-        # Generate images with numbered naming
+        # ------------------------------------------------------------------
+        # Batching strategy: generate ALL base txt2img images first, then perform
+        # refinement & upscale passes. This minimizes costly model checkpoint
+        # swaps when refiner is enabled but compare_mode is False.
+        # ------------------------------------------------------------------
+        txt_cfg = config.get("txt2img", {})
+        refiner_checkpoint = txt_cfg.get("refiner_checkpoint")
+        refiner_switch_at = txt_cfg.get("refiner_switch_at", 0.8)
+        compare_mode = bool(config.get("pipeline", {}).get("refiner_compare_mode", False))
+        use_refiner = (
+            refiner_checkpoint
+            and refiner_checkpoint != "None"
+            and str(refiner_checkpoint).strip() != ""
+            and 0.0 < float(refiner_switch_at) < 1.0
+        )
+        img2img_enabled = config.get("pipeline", {}).get("img2img_enabled", True)
+        adetailer_enabled = config.get("pipeline", {}).get("adetailer_enabled", False)
+        upscale_enabled = config.get("pipeline", {}).get("upscale_enabled", True)
+
+        # Phase 1: txt2img for all images
         for batch_idx in range(batch_size):
-            # Calculate global image number for this pack
             image_number = (prompt_index * batch_size) + batch_idx + 1
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             variant_suffix = self._build_variant_suffix(variant_index, variant_label)
             image_name = f"{image_number:03d}_{timestamp}{variant_suffix}"
-
-            # Step 1: txt2img
             txt2img_dir = pack_dir / "txt2img"
-            # Determine negative prompt (override already written if provided)
             effective_negative = config.get("txt2img", {}).get("negative_prompt", "")
-            txt2img_meta = self.run_txt2img_stage(
-                prompt,
-                effective_negative,
-                config,
-                txt2img_dir,
-                image_name,
-            )
+            meta = self.run_txt2img_stage(prompt, effective_negative, config, txt2img_dir, image_name)
+            if meta:
+                # ensure name present for downstream base prefix extraction
+                meta = self._tag_variant_metadata(meta, variant_index, variant_label)
+                results["txt2img"].append(meta)
 
-            if txt2img_meta:
-                txt2img_meta = self._tag_variant_metadata(txt2img_meta, variant_index, variant_label)
-                results["txt2img"].append(txt2img_meta)
+        # Early exit if no base images
+        if not results["txt2img"]:
+            logger.error("No txt2img outputs produced; aborting pack pipeline early")
+            return results
 
-                # Decide if we should branch for refiner compare mode
-                txt_cfg = config.get("txt2img", {})
-                refiner_checkpoint = txt_cfg.get("refiner_checkpoint")
-                refiner_switch_at = txt_cfg.get("refiner_switch_at", 0.8)
-                use_refiner = (
-                    refiner_checkpoint
-                    and refiner_checkpoint != "None"
-                    and str(refiner_checkpoint).strip() != ""
-                    and 0.0 < float(refiner_switch_at) < 1.0
-                )
-                compare_mode = bool(config.get("pipeline", {}).get("refiner_compare_mode", False))
+        # Phase 2: refinement (img2img/adetailer/upscale) per base image
+        for batch_idx, txt2img_meta in enumerate(results["txt2img"]):
+            image_number = (prompt_index * batch_size) + batch_idx + 1
+            # txt2img_meta is a dict; name key guaranteed from stage
+            base_image_name = Path(txt2img_meta.get("name", "base")).stem
+            last_image_path = txt2img_meta.get("path", "")
+            final_image_path = last_image_path
 
-                # Step 2: img2img cleanup (if enabled) – default single-branch path
-                if not compare_mode and config.get("pipeline", {}).get("img2img_enabled", True):
+            # Compare mode keeps original + refined branch logic (unchanged broadly)
+            if compare_mode and use_refiner:
+                candidates: list[dict[str, str]] = [{"label": "base", "path": txt2img_meta["path"]}]
+                try:
+                    ref_clean = refiner_checkpoint.split(" [")[0] if " [" in refiner_checkpoint else refiner_checkpoint
+                except Exception:
+                    ref_clean = refiner_checkpoint
+                forced_i2i_cfg = dict(config.get("img2img", {}))
+                forced_i2i_cfg["model"] = ref_clean or forced_i2i_cfg.get("model", "")
+                forced_i2i_cfg.setdefault("denoising_strength", 0.25)
+                forced_i2i_cfg.setdefault("steps", max(10, int(forced_i2i_cfg.get("steps", 15))))
+                img2img_dir_cmp = pack_dir / "img2img"
+                refined_name = f"{base_image_name}_refined"
+                try:
+                    cmp_meta = self.run_img2img_stage(
+                        Path(txt2img_meta["path"]),
+                        prompt,
+                        forced_i2i_cfg,
+                        img2img_dir_cmp,
+                        refined_name,
+                        config,
+                    )
+                except TypeError:
+                    cmp_meta = self.run_img2img_stage(
+                        Path(txt2img_meta["path"]),
+                        prompt,
+                        forced_i2i_cfg,
+                        img2img_dir_cmp,
+                        refined_name,
+                    )
+                if cmp_meta:
+                    cmp_meta = self._tag_variant_metadata(cmp_meta, variant_index, variant_label)
+                    results["img2img"].append(cmp_meta)
+                    candidates.append({"label": "refined", "path": cmp_meta["path"]})
+
+                processed_final_paths: list[str] = []
+                for cand in candidates:
+                    branch_last = cand["path"]
+                    if adetailer_enabled:
+                        adetailer_cfg = dict(config.get("adetailer", {}))
+                        txt_settings = config.get("txt2img", {})
+                        adetailer_cfg.setdefault("width", txt_settings.get("width", 512))
+                        adetailer_cfg.setdefault("height", txt_settings.get("height", 512))
+                        pipe_flags = dict(config.get("pipeline", {}))
+                        adetailer_cfg["pipeline"] = {
+                            "apply_global_negative_adetailer": pipe_flags.get(
+                                "apply_global_negative_adetailer", True
+                            )
+                        }
+                        adetailer_meta = self.run_adetailer(Path(branch_last), prompt, adetailer_cfg, pack_dir)
+                        if adetailer_meta:
+                            adetailer_meta = self._tag_variant_metadata(adetailer_meta, variant_index, variant_label)
+                            results["adetailer"].append(adetailer_meta)
+                            branch_last = adetailer_meta["path"]
+                    if upscale_enabled:
+                        upscale_dir = pack_dir / "upscaled"
+                        up_name = f"{base_image_name}_{cand['label']}"
+                        up_meta = self.run_upscale_stage(Path(branch_last), config.get("upscale", {}), upscale_dir, up_name)
+                        if up_meta:
+                            up_meta = self._tag_variant_metadata(up_meta, variant_index, variant_label)
+                            results["upscaled"].append(up_meta)
+                            processed_final_paths.append(up_meta["path"])
+                        else:
+                            processed_final_paths.append(branch_last)
+                    else:
+                        processed_final_paths.append(branch_last)
+                final_image_path = processed_final_paths[0] if processed_final_paths else txt2img_meta.get("path", "")
+                last_image_path = final_image_path
+            else:
+                # Non-compare mode refinement path (single branch)
+                if img2img_enabled:
                     img2img_dir = pack_dir / "img2img"
-                    # Backward-compatible call: some test stubs provide a 5-arg signature.
                     try:
                         img2img_meta = self.run_img2img_stage(
                             Path(txt2img_meta["path"]),
                             prompt,
                             config.get("img2img", {}),
                             img2img_dir,
-                            image_name,  # Use same base name
+                            base_image_name,
                             config,
                         )
                     except TypeError:
-                        # Retry without the full config for legacy/monkeypatched signatures
                         img2img_meta = self.run_img2img_stage(
                             Path(txt2img_meta["path"]),
                             prompt,
                             config.get("img2img", {}),
                             img2img_dir,
-                            image_name,  # Use same base name
+                            base_image_name,
                         )
                     if img2img_meta:
-                        img2img_meta = self._tag_variant_metadata(
-                            img2img_meta, variant_index, variant_label
-                        )
+                        img2img_meta = self._tag_variant_metadata(img2img_meta, variant_index, variant_label)
                         results["img2img"].append(img2img_meta)
                         last_image_path = img2img_meta["path"]
-                    else:
-                        last_image_path = txt2img_meta["path"]
-                elif not compare_mode:
-                    last_image_path = txt2img_meta["path"]
-
-                # Branching compare mode: produce both base and a refiner img2img variant
-                if compare_mode and use_refiner:
-                    candidates: list[dict[str, str]] = []
-                    # Base output branch
-                    candidates.append({"label": "base", "path": txt2img_meta["path"]})
-                    # Forced img2img refinement branch using refiner checkpoint
-                    try:
-                        ref_clean = refiner_checkpoint.split(" [")[0] if " [" in refiner_checkpoint else refiner_checkpoint
-                    except Exception:
-                        ref_clean = refiner_checkpoint
-                    forced_i2i_cfg = dict(config.get("img2img", {}))
-                    # Ensure refiner model and gentle denoise defaults
-                    forced_i2i_cfg["model"] = ref_clean or forced_i2i_cfg.get("model", "")
-                    forced_i2i_cfg.setdefault("denoising_strength", 0.25)
-                    forced_i2i_cfg.setdefault("steps", max(10, int(forced_i2i_cfg.get("steps", 15))))
-                    img2img_dir_cmp = pack_dir / "img2img"
-                    img2img_name = f"{image_name}_refined"
-                    try:
-                        cmp_meta = self.run_img2img_stage(
-                            Path(txt2img_meta["path"]),
-                            prompt,
-                            forced_i2i_cfg,
-                            img2img_dir_cmp,
-                            img2img_name,
-                            config,
-                        )
-                    except TypeError:
-                        cmp_meta = self.run_img2img_stage(
-                            Path(txt2img_meta["path"]),
-                            prompt,
-                            forced_i2i_cfg,
-                            img2img_dir_cmp,
-                            img2img_name,
-                        )
-                    if cmp_meta:
-                        cmp_meta = self._tag_variant_metadata(cmp_meta, variant_index, variant_label)
-                        results["img2img"].append(cmp_meta)
-                        candidates.append({"label": "refined", "path": cmp_meta["path"]})
-
-                    # For each candidate, optionally run adetailer and upscale
-                    processed_final_paths: list[str] = []
-                    for cand in candidates:
-                        branch_last = cand["path"]
-                        # ADetailer
-                        if config.get("pipeline", {}).get("adetailer_enabled", False):
-                            adetailer_cfg = dict(config.get("adetailer", {}))
-                            txt_settings = config.get("txt2img", {})
-                            adetailer_cfg.setdefault("width", txt_settings.get("width", 512))
-                            adetailer_cfg.setdefault("height", txt_settings.get("height", 512))
-                            # Pass per-stage pipeline flag through to adetailer call
-                            pipe_flags = dict(config.get("pipeline", {}))
-                            adetailer_cfg["pipeline"] = {
-                                "apply_global_negative_adetailer": pipe_flags.get(
-                                    "apply_global_negative_adetailer", True
-                                )
-                            }
-                            adetailer_meta = self.run_adetailer(
-                                Path(branch_last),
-                                prompt,
-                                adetailer_cfg,
-                                pack_dir,
-                            )
-                            if adetailer_meta:
-                                adetailer_meta = self._tag_variant_metadata(adetailer_meta, variant_index, variant_label)
-                                results["adetailer"].append(adetailer_meta)
-                                branch_last = adetailer_meta["path"]
-                        # Upscale
-                        if config.get("pipeline", {}).get("upscale_enabled", True):
-                            upscale_dir = pack_dir / "upscaled"
-                            up_name = f"{image_name}_{cand['label']}"
-                            up_meta = self.run_upscale_stage(
-                                Path(branch_last),
-                                config.get("upscale", {}),
-                                upscale_dir,
-                                up_name,
-                            )
-                            if up_meta:
-                                up_meta = self._tag_variant_metadata(up_meta, variant_index, variant_label)
-                                results["upscaled"].append(up_meta)
-                                processed_final_paths.append(up_meta["path"])
-                            else:
-                                processed_final_paths.append(branch_last)
-
-                    # Use the first branch as the representative final image in summary below
-                    last_image_path = processed_final_paths[0] if processed_final_paths else txt2img_meta["path"]
-
-                # Step 2b: adetailer (optional detail enhancer)
-                if not (compare_mode and use_refiner) and config.get("pipeline", {}).get("adetailer_enabled", False):
+                        final_image_path = last_image_path
+                if adetailer_enabled:
                     adetailer_cfg = dict(config.get("adetailer", {}))
                     txt_settings = config.get("txt2img", {})
                     adetailer_cfg.setdefault("width", txt_settings.get("width", 512))
@@ -1403,32 +1387,17 @@ class Pipeline:
                             "apply_global_negative_adetailer", True
                         )
                     }
-                    adetailer_meta = self.run_adetailer(
-                        Path(last_image_path),
-                        prompt,
-                        adetailer_cfg,
-                        pack_dir,
-                    )
+                    adetailer_meta = self.run_adetailer(Path(last_image_path), prompt, adetailer_cfg, pack_dir)
                     if adetailer_meta:
-                        adetailer_meta = self._tag_variant_metadata(
-                            adetailer_meta, variant_index, variant_label
-                        )
+                        adetailer_meta = self._tag_variant_metadata(adetailer_meta, variant_index, variant_label)
                         results["adetailer"].append(adetailer_meta)
                         last_image_path = adetailer_meta["path"]
-
-                # Step 3: Upscale (if enabled)
-                if not (compare_mode and use_refiner) and config.get("pipeline", {}).get("upscale_enabled", True):
+                        final_image_path = last_image_path
+                if upscale_enabled:
                     upscale_dir = pack_dir / "upscaled"
-                    upscaled_meta = self.run_upscale_stage(
-                        Path(last_image_path),
-                        config.get("upscale", {}),
-                        upscale_dir,
-                        image_name,  # Use same base name
-                    )
+                    upscaled_meta = self.run_upscale_stage(Path(last_image_path), config.get("upscale", {}), upscale_dir, base_image_name)
                     if upscaled_meta:
-                        upscaled_meta = self._tag_variant_metadata(
-                            upscaled_meta, variant_index, variant_label
-                        )
+                        upscaled_meta = self._tag_variant_metadata(upscaled_meta, variant_index, variant_label)
                         results["upscaled"].append(upscaled_meta)
                         final_image_path = upscaled_meta["path"]
                     else:
@@ -1436,67 +1405,57 @@ class Pipeline:
                 else:
                     final_image_path = last_image_path
 
-                # Add to summary
-                summary_entry = {
-                    "pack": pack_name,
-                    "prompt_index": prompt_index,
-                    "batch_index": batch_idx,
-                    "image_number": image_number,
-                    "prompt": prompt,
-                    "final_image": final_image_path,
-                    "steps_completed": [],
-                    "variant": {
-                        "index": variant_index,
-                        "label": variant_label,
-                    },
-                    # Per-stage auditing (capture primary prompts/negatives if available)
-                    "txt2img_final_prompt": txt2img_meta.get("final_prompt") if txt2img_meta else "",
-                    "txt2img_final_negative": txt2img_meta.get("final_negative_prompt") if txt2img_meta else "",
-                }
-
-                if txt2img_meta:
-                    summary_entry["steps_completed"].append("txt2img")
-                if results["img2img"] and len(results["img2img"]) > batch_idx:
-                    summary_entry["steps_completed"].append("img2img")
-                    try:
-                        # Gather all img2img metas matching this image base name
-                        base_prefix = image_name
-                        img2img_prompts = []
-                        img2img_negatives = []
-                        for m in results["img2img"]:
-                            name_val = m.get("name", "")
-                            if name_val.startswith(base_prefix):
-                                img2img_prompts.append(m.get("final_prompt") or m.get("prompt", ""))
-                                img2img_negatives.append(m.get("final_negative_prompt") or m.get("negative_prompt", ""))
+            # Build summary entry
+            summary_entry = {
+                "pack": pack_name,
+                "prompt_index": prompt_index,
+                "batch_index": batch_idx,
+                "image_number": image_number,
+                "prompt": prompt,
+                "final_image": final_image_path,
+                "steps_completed": [],
+                "variant": {"index": variant_index, "label": variant_label},
+                "txt2img_final_prompt": txt2img_meta.get("final_prompt", ""),
+                "txt2img_final_negative": txt2img_meta.get("final_negative_prompt", ""),
+            }
+            summary_entry["steps_completed"].append("txt2img")
+            if results["img2img"]:
+                # Collect img2img prompts for this base name
+                try:
+                    base_prefix = Path(txt2img_meta.get("name", "base")).stem
+                    img2img_prompts: list[str] = []
+                    img2img_negatives: list[str] = []
+                    for m in results["img2img"]:
+                        if isinstance(m, dict) and m.get("name", "").startswith(base_prefix):
+                            img2img_prompts.append(m.get("final_prompt") or m.get("prompt", ""))
+                            img2img_negatives.append(m.get("final_negative_prompt") or m.get("negative_prompt", ""))
+                    if img2img_prompts:
+                        summary_entry["steps_completed"].append("img2img")
                         summary_entry["img2img_final_prompt"] = "; ".join(img2img_prompts)
                         summary_entry["img2img_final_negative"] = "; ".join(img2img_negatives)
-                    except Exception:
-                        summary_entry["img2img_final_prompt"] = ""
-                        summary_entry["img2img_final_negative"] = ""
-                if results["adetailer"] and len(results["adetailer"]) > batch_idx:
-                    summary_entry["steps_completed"].append("adetailer")
-                    try:
-                        adetailer_meta = next(
-                            (m for m in results["adetailer"] if m.get("path") == last_image_path),
-                            results["adetailer"][-1],
-                        )
+                except Exception:
+                    pass
+            if results["adetailer"]:
+                try:
+                    adetailer_meta = next(
+                        (m for m in results["adetailer"] if isinstance(m, dict) and m.get("path") == last_image_path),
+                        None,
+                    )
+                    if adetailer_meta:
+                        summary_entry["steps_completed"].append("adetailer")
                         summary_entry["adetailer_final_prompt"] = adetailer_meta.get("final_prompt", "")
                         summary_entry["adetailer_final_negative"] = adetailer_meta.get("final_negative_prompt", "")
-                    except Exception:
-                        summary_entry["adetailer_final_prompt"] = ""
-                        summary_entry["adetailer_final_negative"] = ""
-                if results["upscaled"] and len(results["upscaled"]) > batch_idx:
-                    summary_entry["steps_completed"].append("upscaled")
-                    try:
-                        up_meta = next(
-                            (m for m in results["upscaled"] if m.get("path") == final_image_path),
-                            results["upscaled"][-1],
-                        )
+                except Exception:
+                    pass
+            if results["upscaled"]:
+                try:
+                    up_meta = next((m for m in results["upscaled"] if isinstance(m, dict) and m.get("path") == final_image_path), None)
+                    if up_meta:
+                        summary_entry["steps_completed"].append("upscaled")
                         summary_entry["upscale_final_negative"] = up_meta.get("final_negative_prompt", "")
-                    except Exception:
-                        summary_entry["upscale_final_negative"] = ""
-
-                results["summary"].append(summary_entry)
+                except Exception:
+                    pass
+            results["summary"].append(summary_entry)
 
         # Create CSV summary for this pack
         if results["summary"]:
