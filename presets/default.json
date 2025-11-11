@@ -1,6 +1,6 @@
 {
   "txt2img": {
-    "steps": 34,
+    "steps": 32,
     "sampler_name": "DPM++ 2M",
     "scheduler": "Karras",
     "cfg_scale": 6.1,
@@ -24,12 +24,13 @@
     "hypernetwork": "None",
     "hypernetwork_strength": 1.0,
     "styles": [],
+    "refiner_checkpoint": "None",
+    "refiner_switch_at": 0.8,
+    "refiner_switch_steps": 0,
     "hires_steps": 12,
     "face_restoration_enabled": false,
     "face_restoration_model": "GFPGAN",
-    "face_restoration_weight": 0.5,
-    "refiner_checkpoint": "realvisxlV50_v50Bakedvae.safetensors [6a35a78557]",
-    "refiner_switch_at": 0.8
+    "face_restoration_weight": 0.5
   },
   "img2img": {
     "steps": 15,
@@ -80,7 +81,7 @@
     "timeout": 300
   },
   "randomization": {
-    "enabled": false,
+    "enabled": true,
     "prompt_sr": {
       "enabled": false,
       "mode": "random",
@@ -94,12 +95,34 @@
       "raw_text": ""
     },
     "matrix": {
-      "enabled": false,
+      "enabled": true,
       "mode": "fanout",
-      "limit": 8,
-      "slots": [],
-      "raw_text": "",
-      "base_prompt": ""
+      "limit": 0,
+      "slots": [
+        {
+          "name": "place",
+          "values": [
+            "jungle",
+            "castle"
+          ]
+        },
+        {
+          "name": "clothes",
+          "values": [
+            "leather armor",
+            "bikini armor"
+          ]
+        },
+        {
+          "name": "looks",
+          "values": [
+            "gorgeous",
+            "scandalous"
+          ]
+        }
+      ],
+      "raw_text": "# Base: A female ranger standing in [[place]] wearing [clothes] and looking [[looks]]\nplace: jungle | castle\nclothes: leather armor | bikini armor\nlooks: gorgeous | scandalous",
+      "base_prompt": "A female ranger standing in [[place]] wearing [clothes] and looking [[looks]]"
     }
   },
   "aesthetic": {
@@ -110,8 +133,8 @@
     "learning_rate": 0.0001,
     "slerp": false,
     "slerp_angle": 0.1,
-    "embedding": "None",
-    "text": "",
+    "embedding": "ParadiseGirl-1024",
+    "text": "paradise",
     "text_is_negative": false,
     "fallback_prompt": ""
   },
@@ -123,8 +146,8 @@
     "refiner_compare_mode": false,
     "apply_global_negative_txt2img": true,
     "apply_global_negative_img2img": true,
-    "apply_global_negative_upscale": true,
-    "apply_global_negative_adetailer": true,
+    "apply_global_negative_upscale": false,
+    "apply_global_negative_adetailer": false,
     "txt2img_enabled": true,
     "video_enabled": false,
     "loop_type": "single",

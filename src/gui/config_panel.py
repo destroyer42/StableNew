@@ -275,7 +275,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.txt2img_vars["sampler_name"],
             values=["Euler a", "Euler", "DPM++ 2M", "DPM++ SDE", "LMS", "Heun"],
             state="readonly",
-            width=13,
+            width=18,  # widened for readability
         )
         sampler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.txt2img_widgets["sampler_name"] = sampler_combo
@@ -287,7 +287,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.txt2img_vars["scheduler"],
             values=self._scheduler_options,
             state="readonly",
-            width=13,
+            width=18,  # widened for readability
         )
         scheduler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.txt2img_widgets["scheduler"] = scheduler_combo
@@ -299,7 +299,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.txt2img_vars["model"],
             values=[],
             state="readonly",
-            width=25,
+            width=40,  # widened for long model names
         )
         model_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.txt2img_widgets["model"] = model_combo
@@ -311,7 +311,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.txt2img_vars["vae"],
             values=[],
             state="readonly",
-            width=25,
+            width=40,  # widened for long VAE names
         )
         vae_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.txt2img_widgets["vae"] = vae_combo
@@ -621,7 +621,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.img2img_vars["sampler_name"],
             values=["Euler a", "Euler", "DPM++ 2M", "DPM++ SDE", "LMS", "Heun"],
             state="readonly",
-            width=15,
+            width=18,  # widened for readability
         )
         img_sampler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.img2img_widgets["sampler_name"] = img_sampler_combo
@@ -633,7 +633,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.img2img_vars["scheduler"],
             values=self._scheduler_options,
             state="readonly",
-            width=15,
+            width=18,  # widened for readability
         )
         img_scheduler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.img2img_widgets["scheduler"] = img_scheduler_combo
@@ -645,7 +645,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.img2img_vars["model"],
             values=[],
             state="readonly",
-            width=25,
+            width=40,  # widened for long model names
         )
         img_model_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.img2img_widgets["model"] = img_model_combo
@@ -657,7 +657,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.img2img_vars["vae"],
             values=[],
             state="readonly",
-            width=25,
+            width=40,  # widened for long VAE names
         )
         img_vae_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.img2img_widgets["vae"] = img_vae_combo

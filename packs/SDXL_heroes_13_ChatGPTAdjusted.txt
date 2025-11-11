@@ -15,7 +15,7 @@
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality) portrait, natural skin, balanced lighting, fine facial texture
-young shieldmaiden, brushed steel armor, cloak clasp, hand on shield, calm gaze, 3/4 view, aesthetic armor
+young shieldmaiden, brushed steel armor, cloak clasp, hand on shield, calm gaze, 3/4 view, aesthetic armor, babe
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45> <lora:DetailedEyes_V3:0.65><lora:babesByStableYogiPony_xlV4:1.0>
 neg: <embedding:negative_hands> <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, plastic skin, face mush, double pupils
@@ -31,7 +31,7 @@ neg: deformed hands, asymmetrical eyes, rubber skin, plastic highlights, face mu
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality) portrait, soft natural light, healthy skin tone, smiling eyes
-female archer captain, athletic build, bracer lacing visible, feathered cloak, soft backlight, traditional longbow (not compound), wooden bow, single bowstring, swimsuit armor
+female archer captain, athletic build, bracer lacing visible, feathered cloak, soft backlight, traditional longbow (not compound), wooden bow, single bowstring, swimsuit armor, babe
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45> <lora:DetailedEyes_V3:0.65><lora:babesByStableYogiPony_xlV4:1.0>
 neg: <embedding:negative_hands> <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: malformed hands, twisted wrists, asymmetrical eyes, plastic skin, face mush, low-res feathers, extra arrows, multiple bowstrings, broken bowstring, warped bow, floating arrows, misplaced arrow, missing arrowhead, arrow through body, bowstring intersecting face, disjoint limbs, compound bow, crossbow, sci-fi bow, weapon glitch, doubled strings
@@ -39,7 +39,7 @@ neg: malformed hands, twisted wrists, asymmetrical eyes, plastic skin, face mush
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality) full-body portrait, golden rim light, clean contrast
-female knight, silver armor with gold filigree, sun flare behind, castle parapet, sword raised high, wind-tossed hair, resolute gaze
+female knight, silver armor with gold filigree, sun flare behind, castle parapet, sword raised high, wind-tossed hair, resolute gaze, babe
 <lora:add-detail-xl:0.55> <lora:CinematicStyle_v1:0.5><lora:babesByStableYogiPony_xlV4:1.0>
 neg: <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: overexposure, cartoon style, muddy lighting, crooked horizon, plastic texture, face mush, deformed hands, extra digits
@@ -55,7 +55,7 @@ neg: stiff pose, bad foliage, metallic reflections, color bleed, deformed hands,
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality) portrait, ambient moonlight, magical atmosphere
-female sorceress, ornate staff with violet fire, floating spell sigils, ancient runic circle, flowing robes, mischievous eyes, bikini armor
+female sorceress, ornate staff with violet fire, floating spell sigils, ancient runic circle, flowing robes, mischievous eyes, bikini armor, babe
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45> <lora:DetailedEyes_V3:0.7><lora:babesByStableYogiPony_xlV4:1.0>
 neg: <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: warped glyphs, uneven glow, blurry runes, deformed hands, melted faces, plastic fabric, symmetry errors
@@ -71,7 +71,7 @@ neg: glare, ghosting, distorted reflections, melted faces, deformed hands, chaot
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality) portrait, chiaroscuro lighting, street shadows
-female rogue, hood up, dual daggers, crouched mid-motion, torchlight glint on blades, flowing cloak, sly smile, sharp eyes, rakish, tight leotard
+female rogue, hood up, dual daggers, crouched mid-motion, torchlight glint on blades, flowing cloak, sly smile, sharp eyes, rakish, tight leotard, babe
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45> <lora:DetailedEyes_V3:0.65><lora:babesByStableYogiPony_xlV4:1.0>
 neg: <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: cartoon outlines, flat light, disconnected limbs, deformed hands, plastic texture, face mush, blurred edges
@@ -87,7 +87,7 @@ neg: muddy snow, exaggerated muscles, flat depth, deformed hands, missing weapon
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality) serene scene, diffused warm light, intimate framing
-female healer, gentle expression, glowing hands over patient’s chest, golden aura, soft bokeh, hair illuminated by window light
+female healer, gentle expression, glowing hands over patient’s chest, golden aura, soft bokeh, hair illuminated by window light, babe
 <lora:add-detail-xl:0.55> <lora:CinematicStyle_v1:0.45><lora:babesByStableYogiPony_xlV4:1.0>
 neg: <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: overexposed glow, messy hands, smudged fabric detail, plastic speculars, face mush, warped posture
@@ -103,7 +103,7 @@ neg: blurry skyline, grain noise, floating debris, flame halos, poor perspective
 
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
 (masterpiece, best quality) action portrait, golden sunset rim light, crisp edge detail
-female archer, athletic build, high cliff overlook, hair swept by wind, ornate minimal armor filigree, longbow held in left hand, right hand drawing single bowstring with single nocked arrow, single arrow tip pointed forward, single taut bowstring
+female archer, athletic build, high cliff overlook, hair swept by wind, ornate minimal armor filigree, babe, longbow held in left hand, right hand drawing single bowstring with single nocked arrow, single arrow tip pointed forward, single taut bowstring
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45> <lora:DetailedEyes_V3:0.6><lora:babesByStableYogiPony_xlV4:1.0>
 neg: <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: motion blur, uneven sky, twisted pose, poor bow alignment, deformed hands, face mush, soft edges, extra arrows, multiple bowstrings, broken bowstring, warped bow, floating arrows, misplaced arrow, missing arrowhead, arrow through body, bowstring intersecting face, disjoint limbs

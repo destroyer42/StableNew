@@ -45,7 +45,8 @@ class StableNewGUI:
         """Initialize GUI"""
         self.root = tk.Tk()
         self.root.title("StableNew - Stable Diffusion WebUI Automation")
-        self.root.geometry("1200x1000+100+50")  # Increased height to surface all controls/logs
+        # Widen default window to take advantage of horizontal space for wider dropdowns
+        self.root.geometry("1550x1020+60+40")
         self.root.configure(bg="#2b2b2b")
 
         # Ensure window is visible and on top
@@ -432,9 +433,9 @@ class StableNewGUI:
         vertical_split.add(content_frame, weight=4)
 
         # Configure grid for better space utilization
-        content_frame.columnconfigure(0, weight=0, minsize=200)  # Left: compact packs
+        content_frame.columnconfigure(0, weight=0, minsize=280)  # Left: wider pack list for long names
         content_frame.columnconfigure(1, weight=1)  # Center: flexible config
-        content_frame.columnconfigure(2, weight=0, minsize=250)  # Right: pipeline controls
+        content_frame.columnconfigure(2, weight=0, minsize=260)  # Right: pipeline controls
         content_frame.rowconfigure(0, weight=1)
 
         # Left panel - Compact prompt pack selection
@@ -518,10 +519,91 @@ class StableNewGUI:
         center_panel = ttk.Frame(parent, style="Dark.TFrame")
         center_panel.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
         center_panel.columnconfigure(0, weight=1)
-        center_panel.rowconfigure(0, weight=1)
+        # Notebook is on row 1 (row 0 is the preset bar)
+        center_panel.rowconfigure(1, weight=1)
 
+        # Global preset management bar (applies to all tabs: Pipeline / Randomization / General)
+        preset_bar = ttk.Frame(center_panel, style="Dark.TFrame")
+        preset_bar.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        preset_bar.columnconfigure(0, weight=0)
+        preset_bar.columnconfigure(1, weight=0)
+        preset_bar.columnconfigure(2, weight=0)
+        preset_bar.columnconfigure(3, weight=1)
+
+        ttk.Label(preset_bar, text="Preset:", style="Dark.TLabel").grid(row=0, column=0, sticky=tk.W, padx=(2, 4))
+        # Single authoritative preset dropdown (moved from Pipeline tab)
+        self.preset_dropdown = ttk.Combobox(
+            preset_bar,
+            textvariable=self.preset_var,
+            state="readonly",
+            width=28,
+            values=self.config_manager.list_presets(),
+        )
+        self.preset_dropdown.grid(row=0, column=1, sticky=tk.W)
+        self.preset_dropdown.bind("<<ComboboxSelected>>", lambda _e: self._on_preset_dropdown_changed())
+        self._attach_tooltip(
+            self.preset_dropdown,
+            "Select a preset to load its settings into the active configuration (spans all tabs).",
+        )
+
+        apply_default_btn = ttk.Button(
+            preset_bar,
+            text="Apply Default",
+            command=self._apply_default_to_selected_packs,
+            width=14,
+            style="Dark.TButton",
+        )
+        apply_default_btn.grid(row=0, column=2, padx=(8, 4))
+        self._attach_tooltip(apply_default_btn, "Load the 'default' preset into the form (not saved until you click Save to Pack(s)).")
+
+        # Right-aligned action strip
+        actions_strip = ttk.Frame(preset_bar, style="Dark.TFrame")
+        actions_strip.grid(row=0, column=3, sticky=tk.E, padx=(10, 4))
+
+        save_packs_btn = ttk.Button(
+            actions_strip,
+            text="Save to Pack(s)",
+            command=self._save_config_to_packs,
+            style="Accent.TButton",
+            width=18,
+        )
+        save_packs_btn.pack(side=tk.LEFT, padx=2)
+        self._attach_tooltip(
+            save_packs_btn,
+            "Persist current configuration to selected pack(s). Single selection saves that pack; multi-selection saves all.",
+        )
+
+        save_as_btn = ttk.Button(
+            actions_strip,
+            text="Save As Preset…",
+            command=self._save_preset_as,
+            width=16,
+        )
+        save_as_btn.pack(side=tk.LEFT, padx=2)
+        self._attach_tooltip(save_as_btn, "Create a new preset from the current configuration state.")
+
+        set_default_btn = ttk.Button(
+            actions_strip,
+            text="Set Default",
+            command=self._set_as_default_preset,
+            width=12,
+        )
+        set_default_btn.pack(side=tk.LEFT, padx=2)
+        self._attach_tooltip(set_default_btn, "Mark the selected preset as the startup default.")
+
+        del_preset_btn = ttk.Button(
+            actions_strip,
+            text="Delete",
+            command=self._delete_selected_preset,
+            style="Danger.TButton",
+            width=10,
+        )
+        del_preset_btn.pack(side=tk.LEFT, padx=2)
+        self._attach_tooltip(del_preset_btn, "Delete the selected preset (cannot delete 'default').")
+
+        # Notebook sits below preset bar
         notebook = ttk.Notebook(center_panel, style="Dark.TNotebook")
-        notebook.grid(row=0, column=0, sticky="nsew")
+        notebook.grid(row=1, column=0, sticky="nsew")
         self.config_notebook = notebook
 
         pipeline_tab = ttk.Frame(notebook, style="Dark.TFrame")
@@ -532,7 +614,7 @@ class StableNewGUI:
         notebook.add(randomization_tab, text="Randomization")
         notebook.add(general_tab, text="General")
 
-        # Pipeline tab content
+        # Pipeline tab content (preset bar removed from here and placed globally)
         self._build_info_box(
             pipeline_tab,
             "Pipeline Overview",
@@ -2736,40 +2818,73 @@ class StableNewGUI:
 
     def _handle_single_pack_mode(self, pack_name):
         """Handle single pack selection: show pack's individual config"""
-        # Ensure pack has a config file
-        pack_config = self.config_manager.ensure_pack_config(pack_name, self.preset_var.get())
+        # If override mode is NOT enabled, load the pack's config
+        if not self.override_pack_var.get():
+            # Ensure pack has a config file
+            pack_config = self.config_manager.ensure_pack_config(pack_name, self.preset_var.get() or "default")
+
+            # Load pack's individual config into forms
+            self._load_config_into_forms(pack_config)
+            self.current_config = pack_config
+
+            self.log_message(f"Loaded config for pack: {pack_name}", "INFO")
+        else:
+            # Override mode: keep current config visible (don't reload from pack)
+            self.log_message(f"Override mode: keeping current config for pack: {pack_name}", "INFO")
 
         # Enable config controls
         self._set_config_editable(True)
 
-        # Load pack's individual config into forms
-        self._load_config_into_forms(pack_config)
-        self.current_config = pack_config
-
         # Update status
         if hasattr(self, "current_pack_label"):
-            self.current_pack_label.configure(text=f"Pack: {pack_name}", foreground="#00ff00")
+            if self.override_pack_var.get():
+                self.current_pack_label.configure(text=f"Pack: {pack_name} (Override)", foreground="#ffa500")
+            else:
+                self.current_pack_label.configure(text=f"Pack: {pack_name}", foreground="#00ff00")
 
-        self._show_config_status(f"Showing individual config for pack: {pack_name}")
-
-        self.log_message(f"Loaded individual config for pack: {pack_name}", "INFO")
+        if self.override_pack_var.get():
+            self._show_config_status(f"Override mode: current config will apply to {pack_name}")
+        else:
+            self._show_config_status(f"Showing config for pack: {pack_name}")
 
     def _handle_multi_pack_mode(self, selected_packs):
-        """Handle multiple pack selection: grey out config"""
-        # Disable config controls
-        self._set_config_editable(False)
+        """Handle multiple pack selection: show first pack's config, save applies to all"""
+        # If override mode is NOT enabled, load the first pack's config
+        if not self.override_pack_var.get():
+            first_pack = selected_packs[0]
+            pack_config = self.config_manager.ensure_pack_config(first_pack, self.preset_var.get() or "default")
+
+            # Load first pack's config into forms
+            self._load_config_into_forms(pack_config)
+            self.current_config = pack_config
+
+            self.log_message(f"Showing config from first selected pack: {first_pack}", "INFO")
+        else:
+            # Override mode: keep current config visible
+            self.log_message(f"Override mode: current config will apply to {len(selected_packs)} packs", "INFO")
+
+        # Enable config controls
+        self._set_config_editable(True)
 
         # Update status
         if hasattr(self, "current_pack_label"):
-            self.current_pack_label.configure(
-                text=f"{len(selected_packs)} packs selected", foreground="#ffff00"
+            if self.override_pack_var.get():
+                self.current_pack_label.configure(
+                    text=f"{len(selected_packs)} packs (Override)", foreground="#ffa500"
+                )
+            else:
+                self.current_pack_label.configure(
+                    text=f"{len(selected_packs)} packs selected", foreground="#ffff00"
+                )
+
+        if self.override_pack_var.get():
+            self._show_config_status(
+                f"Override mode: current config will apply to all {len(selected_packs)} packs"
             )
-
-        self._show_config_status(
-            f"Multiple packs selected ({len(selected_packs)}) - each will use its individual config. Enable override to edit."
-        )
-
-        self.log_message(f"Multiple packs selected: {', '.join(selected_packs)}", "INFO")
+        else:
+            self._show_config_status(
+                f"Showing config from first pack ({selected_packs[0]}). Click Save to apply to all {len(selected_packs)} pack(s)."
+            )
 
     def _handle_no_pack_mode(self):
         """Handle no pack selection: show preset config"""
@@ -4653,6 +4768,75 @@ class StableNewGUI:
         if preset_name:
             self.log_message(f"Preset selected: {preset_name} (click Load to apply)", "INFO")
 
+    def _on_preset_dropdown_changed(self):
+        """Handle preset dropdown selection changes"""
+        preset_name = self.preset_var.get()
+        if not preset_name:
+            return
+
+        config = self.config_manager.load_preset(preset_name)
+        if not config:
+            self.log_message(f"Failed to load preset: {preset_name}", "ERROR")
+            return
+
+        self.current_preset = preset_name
+        
+        # Load the preset into the visible forms
+        self._load_config_into_forms(config)
+        
+        # If override mode is enabled, this becomes the new override config
+        if self.override_pack_var.get():
+            self.current_config = config
+            self.log_message(
+                f"✓ Loaded preset '{preset_name}' (Pipeline + Randomization + General)",
+                "SUCCESS",
+            )
+        else:
+            # Not in override mode - preset loaded but not persisted until Save is clicked
+            self.current_config = config
+            self.log_message(
+                f"✓ Loaded preset '{preset_name}' (Pipeline + Randomization + General). Click Save to apply to selected pack",
+                "INFO",
+            )
+
+    def _apply_default_to_selected_packs(self):
+        """Apply the default preset to currently selected pack(s)"""
+        default_config = self.config_manager.load_preset("default")
+        if not default_config:
+            self.log_message("Failed to load default preset", "ERROR")
+            return
+
+        # Load into forms
+        self._load_config_into_forms(default_config)
+        self.current_config = default_config
+        self.preset_var.set("default")
+        self.current_preset = "default"
+        
+        self.log_message("✓ Loaded default preset (click Save to apply to selected pack)", "SUCCESS")
+
+    def _save_config_to_packs(self):
+        """Save current configuration to selected pack(s)"""
+        selected_indices = self.packs_listbox.curselection()
+        if not selected_indices:
+            self.log_message("No packs selected", "WARNING")
+            return
+
+        selected_packs = [self.packs_listbox.get(i) for i in selected_indices]
+        current_config = self._get_config_from_forms()
+
+        saved_count = 0
+        for pack_name in selected_packs:
+            if self.config_manager.save_pack_config(pack_name, current_config):
+                saved_count += 1
+
+        if saved_count > 0:
+            if len(selected_packs) == 1:
+                self.log_message(f"✓ Saved config to pack: {selected_packs[0]}", "SUCCESS")
+            else:
+                self.log_message(f"✓ Saved config to {saved_count}/{len(selected_packs)} pack(s)", "SUCCESS")
+        else:
+            self.log_message("Failed to save config to packs", "ERROR")
+
     def _load_selected_preset(self):
         """Load the currently selected preset into the form"""
         preset_name = self.preset_var.get()
@@ -4728,12 +4912,15 @@ class StableNewGUI:
             return
 
         if preset_name == "default":
-            self.log_message("Cannot delete the default preset", "WARNING")
+            messagebox.showwarning(
+                "Cannot Delete Default",
+                "The 'default' preset is protected and cannot be deleted.\n\nYou can overwrite it with different settings, but it cannot be removed."
+            )
             return
 
         confirm = messagebox.askyesno(
             "Delete Preset",
-            f"Are you sure you want to delete preset '{preset_name}'?\n\nThis cannot be undone.",
+            f"Are you sure you want to delete the '{preset_name}' preset forever?",
         )
 
         if not confirm:
@@ -4746,11 +4933,13 @@ class StableNewGUI:
             # Select default
             self.preset_var.set("default")
             self.current_preset = "default"
+            # Load default into forms
+            self._on_preset_dropdown_changed()
         else:
             self.log_message(f"Failed to delete preset: {preset_name}", "ERROR")
 
-    def _set_default_preset(self):
-        """Set the currently selected preset as default to load on startup"""
+    def _set_as_default_preset(self):
+        """Mark the currently selected preset as the default (auto-loads on startup)"""
         from tkinter import messagebox
 
         preset_name = self.preset_var.get()
@@ -4763,25 +4952,15 @@ class StableNewGUI:
         if current_default == preset_name:
             messagebox.showinfo(
                 "Already Default",
-                f"'{preset_name}' is already set as the default preset.",
+                f"'{preset_name}' is already marked as the default preset.",
             )
             return
 
-        # Confirm setting as default
-        msg = f"Set '{preset_name}' as the default preset?\n\n"
-        msg += "This preset will automatically load when the application starts."
-        if current_default:
-            msg += f"\n\nCurrent default: '{current_default}'"
-
-        confirm = messagebox.askyesno("Set Default Preset", msg)
-        if not confirm:
-            return
-
         if self.config_manager.set_default_preset(preset_name):
-            self.log_message(f"⭐ Set '{preset_name}' as default preset", "SUCCESS")
+            self.log_message(f"⭐ Marked '{preset_name}' as default preset", "SUCCESS")
             messagebox.showinfo(
                 "Default Preset Set",
-                f"'{preset_name}' will now load automatically on startup.",
+                f"'{preset_name}' will now auto-load when the application starts.",
             )
         else:
             self.log_message(f"Failed to set default preset: {preset_name}", "ERROR")
