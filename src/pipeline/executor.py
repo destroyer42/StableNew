@@ -57,6 +57,7 @@ class Pipeline:
         """Only call into WebUI when the requested weights change."""
         try:
             if model_name and model_name != self._current_model:
+                logger.info(f"Switching to model: {model_name}")
                 self.client.set_model(model_name)
                 self._current_model = model_name
         except Exception:
@@ -65,6 +66,7 @@ class Pipeline:
 
         try:
             if vae_name and vae_name != self._current_vae:
+                logger.info(f"Switching to VAE: {vae_name}")
                 self.client.set_vae(vae_name)
                 self._current_vae = vae_name
         except Exception:
@@ -1246,7 +1248,6 @@ class Pipeline:
         # Defensive: ensure refiner_checkpoint is string or None
         if refiner_checkpoint is not None:
             refiner_checkpoint = str(refiner_checkpoint)
-        logger.debug(f"🔍 Refiner checkpoint raw value: {repr(refiner_checkpoint)} (type: {type(refiner_checkpoint).__name__})")
         refiner_switch_at = txt_cfg.get("refiner_switch_at", 0.8)
         compare_mode = bool(config.get("pipeline", {}).get("refiner_compare_mode", False))
         use_refiner = (
@@ -1255,7 +1256,6 @@ class Pipeline:
             and str(refiner_checkpoint).strip() != ""
             and 0.0 < float(refiner_switch_at) < 1.0
         )
-        logger.debug(f"🔍 use_refiner={use_refiner}, compare_mode={compare_mode}, switch_at={refiner_switch_at}")
         img2img_enabled = config.get("pipeline", {}).get("img2img_enabled", True)
         adetailer_enabled = config.get("pipeline", {}).get("adetailer_enabled", False)
         upscale_enabled = config.get("pipeline", {}).get("upscale_enabled", True)

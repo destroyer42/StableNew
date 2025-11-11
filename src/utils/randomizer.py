@@ -51,6 +51,8 @@ class PromptRandomizer:
         # Matrix
         self._matrix_config = cfg.get("matrix", {}) or {}
         self._matrix_enabled = bool(self._matrix_config.get("enabled"))
+        self._matrix_base_prompt = self._matrix_config.get("base_prompt", "")
+        self._matrix_prompt_mode = (self._matrix_config.get("prompt_mode") or "replace").lower()
         self._matrix_slots = []
         if self._matrix_enabled:
             self._matrix_slots = [
@@ -64,13 +66,32 @@ class PromptRandomizer:
         self._matrix_index = 0
 
     def generate(self, prompt_text: str) -> list[PromptVariant]:
-        """Return one or more prompt variants for the supplied text."""
+        """Return one or more prompt variants for the supplied text.
+        
+        Matrix prompt_mode behavior:
+        - "replace": base_prompt replaces pack prompt (default for backward compatibility)
+        - "append": base_prompt is appended to pack prompt with ", " separator
+        - "prepend": base_prompt is prepended to pack prompt with ", " separator
+        """
 
         if not self.enabled:
             return [PromptVariant(prompt_text, None)]
 
+        # Determine working prompt based on matrix prompt_mode
+        working_prompt = prompt_text
+        if self._matrix_enabled and self._matrix_base_prompt:
+            if self._matrix_prompt_mode == "append":
+                # Append matrix base_prompt to pack prompt
+                working_prompt = f"{prompt_text}, {self._matrix_base_prompt}"
+            elif self._matrix_prompt_mode == "prepend":
+                # Prepend matrix base_prompt before pack prompt
+                working_prompt = f"{self._matrix_base_prompt}, {prompt_text}"
+            else:
+                # Default "replace" mode - base_prompt replaces pack prompt
+                working_prompt = self._matrix_base_prompt
+
         matrix_combos = self._matrix_combos_for_prompt()
-        sr_variants = self._expand_prompt_sr(prompt_text)
+        sr_variants = self._expand_prompt_sr(working_prompt)
 
         variants: list[PromptVariant] = []
         for sr_text, sr_labels in sr_variants:

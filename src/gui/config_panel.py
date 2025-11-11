@@ -1165,8 +1165,16 @@ class ConfigPanel(ttk.Frame):
         Args:
             config: Dictionary containing configuration values
         """
+        import os
+        diag = os.environ.get("STABLENEW_DIAG", "").lower() in {"1", "true", "yes"}
+        if diag:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("[DIAG] ConfigPanel.set_config: start", extra={"flush": True})
         # Set txt2img config
         if "txt2img" in config:
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: processing txt2img", extra={"flush": True})
             # Pre-map hr_second_pass_steps to hires_steps for the UI control
             txt_cfg = dict(config["txt2img"])  # shallow copy
             try:
@@ -1184,35 +1192,55 @@ class ConfigPanel(ttk.Frame):
                 self._update_refiner_mapping_label()
             except Exception:
                 pass
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: txt2img done", extra={"flush": True})
 
         # Set img2img config
         if "img2img" in config:
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: processing img2img", extra={"flush": True})
             for key, value in config["img2img"].items():
                 if key in self.img2img_vars:
                     if key == "scheduler":
                         value = self._normalize_scheduler_value(value)
                     self.img2img_vars[key].set(value)
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: img2img done", extra={"flush": True})
 
         # Set upscale config
         if "upscale" in config:
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: processing upscale", extra={"flush": True})
             for key, value in config["upscale"].items():
                 if key in self.upscale_vars:
                     if key == "scheduler":
                         value = self._normalize_scheduler_value(value)
                     self.upscale_vars[key].set(value)
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: upscale done", extra={"flush": True})
 
         # Set API config
         if "api" in config:
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: processing api", extra={"flush": True})
             for key, value in config["api"].items():
                 if key in self.api_vars:
                     self.api_vars[key].set(value)
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: api done", extra={"flush": True})
 
         # Update face restoration visibility
+        if diag:
+            logger.info("[DIAG] ConfigPanel.set_config: calling _toggle_face_restoration", extra={"flush": True})
         self._toggle_face_restoration()
+        if diag:
+            logger.info("[DIAG] ConfigPanel.set_config: calling _update_refiner_mapping_label", extra={"flush": True})
         try:
             self._update_refiner_mapping_label()
         except Exception:
             pass
+        if diag:
+            logger.info("[DIAG] ConfigPanel.set_config: end", extra={"flush": True})
 
     def _update_refiner_mapping_label(self):
         """Compute and display the effective switch mapping."""

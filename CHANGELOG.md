@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Critical Threading Bug**: GUI no longer hangs on second pipeline run after changing model/refiner settings. Fixed `messagebox.showerror()` being called from worker thread - now properly marshaled to main thread using `root.after(0, ...)` to prevent Tkinter threading violations. This resolves the "GUI not responding" issue that required restart between runs. (`src/gui/main_window.py`)
+
 ### Added
 - Regression tests for upscale “single” and “img2img” modes to ensure payload steps/denoise values stay in sync with the UI (`tests/pipeline/test_upscale_stage.py`).
 - README documentation covering upscale mode behavior, performance trade-offs, and the WebUI progress-bar discrepancy.

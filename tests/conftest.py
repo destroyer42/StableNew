@@ -19,6 +19,7 @@ def tk_root():
 @pytest.fixture
 def tk_pump(tk_root):
     """Pump Tk events without blocking the main thread."""
+
     def pump(duration=0.2, step=0.01):
         end = time.monotonic() + duration
         while time.monotonic() < end:
@@ -27,15 +28,35 @@ def tk_pump(tk_root):
             except Exception:
                 break
             time.sleep(step)
+
     return pump
 
 
-"""Test configuration"""
+"""Global test configuration and monkeypatches"""
 
 
-# Test configuration
+@pytest.fixture(autouse=True)
+def _mock_webui_discovery(monkeypatch):
+    """Prevent tests from launching or probing real WebUI services.
+
+    This avoids background threads calling Tkinter/after() which crash on Windows CI.
+    """
+    try:
+        import src.utils.webui_discovery as wd  # type: ignore
+    except Exception:
+        return
+
+    def fake_find_port(*_args, **_kwargs):
+        return None
+
+    def fake_launch_safely(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(wd, "find_webui_api_port", fake_find_port, raising=False)
+    monkeypatch.setattr(wd, "launch_webui_safely", fake_launch_safely, raising=False)
 
 
+# Preserve existing tmp_path fixture override
 @pytest.fixture
 def tmp_path(tmp_path_factory):
     """Provide a temporary directory for tests"""

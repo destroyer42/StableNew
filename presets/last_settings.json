@@ -1,8 +1,6 @@
 {
   "preset": "Heroes13",
-  "selected_packs": [
-    "Test_Epic_Castle_And_Village.txt"
-  ],
+  "selected_packs": [],
   "override_pack": false,
   "pipeline_controls": {
     "txt2img_enabled": true,
@@ -10,10 +8,6 @@
     "adetailer_enabled": false,
     "upscale_enabled": true,
     "video_enabled": false,
-    "apply_global_negative_txt2img": true,
-    "apply_global_negative_img2img": true,
-    "apply_global_negative_upscale": true,
-    "apply_global_negative_adetailer": true,
     "loop_type": "single",
     "loop_count": 1,
     "pack_mode": "selected",
@@ -34,7 +28,7 @@
       "clip_skip": 2,
       "model": "",
       "vae": "",
-      "negative_prompt": "blurry, bad quality, distorted",
+      "negative_prompt": "",
       "hypernetwork": "None",
       "hypernetwork_strength": 1.0,
       "enable_hr": false,
@@ -46,7 +40,7 @@
       "face_restoration_enabled": false,
       "face_restoration_model": "GFPGAN",
       "face_restoration_weight": 0.5,
-      "refiner_checkpoint": "",
+      "refiner_checkpoint": "None",
       "refiner_switch_at": 0.8,
       "refiner_switch_steps": 0,
       "hr_second_pass_steps": 0
@@ -73,32 +67,14 @@
       "steps": 20,
       "sampler_name": "Euler a",
       "scheduler": "Normal",
-      "denoising_strength": 0.35,
+      "denoising_strength": 0.2,
       "gfpgan_visibility": 0.0,
       "codeformer_visibility": 0.0,
       "codeformer_weight": 0.5
     },
     "api": {
       "base_url": "http://127.0.0.1:7860",
-      "timeout": 300
-    },
-    "pipeline": {
-      "txt2img_enabled": true,
-      "img2img_enabled": true,
-      "adetailer_enabled": false,
-      "upscale_enabled": true,
-      "video_enabled": false,
-      "apply_global_negative_txt2img": true,
-      "apply_global_negative_img2img": true,
-      "apply_global_negative_upscale": true,
-      "apply_global_negative_adetailer": true,
-      "loop_type": "single",
-      "loop_count": 1,
-      "pack_mode": "selected",
-      "images_per_prompt": 1,
-      "model_matrix": [],
-      "hypernetworks": [],
-      "variant_mode": "fanout"
+      "timeout": 30
     },
     "adetailer": {
       "adetailer_enabled": false,
@@ -127,34 +103,13 @@
         "raw_text": ""
       },
       "matrix": {
-        "enabled": true,
-        "mode": "rotate",
+        "enabled": false,
+        "mode": "fanout",
+        "prompt_mode": "replace",
         "limit": 8,
-        "slots": [
-          {
-            "name": "job",
-            "values": [
-              "enchantress",
-              "babe"
-            ]
-          },
-          {
-            "name": "clothes",
-            "values": [
-              "bikini armor",
-              "bikini"
-            ]
-          },
-          {
-            "name": "style",
-            "values": [
-              "sexy",
-              "gorgeous"
-            ]
-          }
-        ],
-        "raw_text": "# Base: a female [[job]] wearing [[clothes]] and looking [[style]]\njob: enchantress | babe\nclothes: bikini armor | bikini\nstyle: sexy | gorgeous",
-        "base_prompt": "a female [[job]] wearing [[clothes]] and looking [[style]]"
+        "slots": [],
+        "raw_text": "",
+        "base_prompt": ""
       }
     },
     "aesthetic": {

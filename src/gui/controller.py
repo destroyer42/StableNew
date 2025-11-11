@@ -95,6 +95,10 @@ class PipelineController:
         with self._epoch_lock:
             self._epoch_id += 1
             eid = self._epoch_id
+        try:
+            self._log(f"[controller] Starting pipeline epoch {eid}", "DEBUG")
+        except Exception:
+            pass
 
         # 3) Reset per-run signals (allocate new Event)
         self._cleanup_done = threading.Event()
@@ -188,6 +192,10 @@ class PipelineController:
         self.state_change_event.clear()
 
         # Signal “done” last
+        try:
+            self._log(f"[controller] Cleanup complete for epoch {eid} (error={error_occurred})", "DEBUG")
+        except Exception:
+            pass
         self.lifecycle_event.set()
         self._cleanup_done.set()
 
