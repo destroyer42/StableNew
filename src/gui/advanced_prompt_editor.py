@@ -490,6 +490,22 @@ class AdvancedPromptEditor:
         self.validation_text.tag_configure("success", foreground="#66bb6a")
         self.validation_text.tag_configure("info", foreground="#42a5f5")
 
+    def _build_status_bar(self, parent):
+        """Build status bar at bottom of editor window"""
+        status_frame = ttk.Frame(parent, style="Dark.TFrame")
+        status_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
+
+        # Recreate status_text within the editor window (not parent)
+        self._status_var = tk.StringVar(value="Ready")
+        self.status_text = ttk.Label(
+            status_frame,
+            textvariable=self._status_var,
+            style="Dark.TLabel",
+            anchor=tk.W,
+            font=("Segoe UI", 9)
+        )
+        self.status_text.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
     def _build_models_tab(self):
         """Build the models browser tab"""
         models_frame = ttk.Frame(self.notebook, style="Dark.TFrame")
@@ -641,22 +657,6 @@ Errors and warnings appear in the Validation tab.
         help_text.config(state=tk.NORMAL)
         help_text.insert(tk.END, help_content)
         help_text.config(state=tk.DISABLED)
-
-    def _build_status_bar(self, parent):
-        """Build the status bar"""
-        self.status_bar = ttk.Frame(parent, style="Dark.TFrame")
-        self.status_bar.pack(fill=tk.X, pady=(10, 0))
-
-        self.status_text = ttk.Label(self.status_bar, text="Ready", style="Dark.TLabel")
-        self.status_text.pack(side=tk.LEFT)
-
-        # Progress bar for operations
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(
-            self.status_bar, variable=self.progress_var, length=200, mode="determinate"
-        )
-        self.progress_bar.pack(side=tk.RIGHT, padx=(10, 0))
-        self.progress_bar.pack_forget()  # Hide initially
 
     def _candidate_model_roots(self) -> list[Path]:
         """Return likely Stable Diffusion WebUI roots for model discovery."""
@@ -1005,8 +1005,8 @@ neg: malformed, bad anatomy, low quality"""
             self.is_modified = False
             if self.window:
                 self.window.title(f"Advanced Prompt Pack Editor - {path.name}")
-            if hasattr(self, 'status_text'):
-                self.status_text.config(text=f"Saved: {path.name}")
+            if hasattr(self, '_status_var'):
+                self._status_var.set(f"Saved: {path.name}")
 
             # Notify parent of changes
             if self.on_packs_changed:
@@ -1036,8 +1036,8 @@ neg: malformed, bad anatomy, low quality"""
         self.is_modified = True
         if self.window:
             self.window.title(f"Advanced Prompt Pack Editor - {clone_name} (Clone) *")
-        if hasattr(self, 'status_text'):
-            self.status_text.config(text=f"Cloned as: {clone_name}")
+        if hasattr(self, '_status_var'):
+            self._status_var.set(f"Cloned as: {clone_name}")
 
     def _delete_pack(self):
         """Delete the current pack"""
@@ -1450,8 +1450,8 @@ neg: malformed, bad anatomy, low quality"""
             return
 
         self.global_neg_content = content
-        if hasattr(self, 'status_text'):
-            self.status_text.config(text="Global negative prompt updated")
+        if hasattr(self, '_status_var'):
+            self._status_var.set("Global negative prompt updated")
         messagebox.showinfo("Success", "Global negative prompt has been updated.")
 
     def _reset_global_negative(self):
@@ -1467,8 +1467,8 @@ neg: malformed, bad anatomy, low quality"""
 
         self.global_neg_content = default_neg
         self._refresh_global_negative_display()
-        if hasattr(self, 'status_text'):
-            self.status_text.config(text="Global negative reset to default")
+        if hasattr(self, '_status_var'):
+            self._status_var.set("Global negative reset to default")
 
     def _check_unsaved_changes(self):
         """Check for unsaved changes and prompt user"""

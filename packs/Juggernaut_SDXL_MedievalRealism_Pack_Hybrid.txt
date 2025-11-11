@@ -11,7 +11,7 @@ neg: deformed hands, extra digits, fused fingers, asymmetrical eyes, melted face
 
 # 2. The Falcon Huntress
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-female huntress, incredibly cute, long dirty blonde hair, hazel eyes, athletic build, freckles across nose, middle-aged
+female huntress, long dirty blonde hair partially greying, hazel eyes, athletic build, freckles across nose, middle-aged
 wearing green cloak and leather tunic, holding falcon in misty forest clearing at dawn, soft natural light filtering through trees, sharp cinematic focus, fantasy realism
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:stable_yogis_anatomy_negatives_v1-neg>
@@ -29,7 +29,7 @@ neg: deformed face, lowres, poor lighting, distorted anatomy, asymmetry
 
 # 4. The Golden Commander
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-male commander, light-skinned African-American, dark curly hair, golden-brown eyes, strong build, middle-aged, short-cropped hair
+male commander, light-skinned African-American, super-short curly hair, golden-brown eyes, strong build, middle-aged
 wearing ornate gold armor and red cloak, inside medieval war tent lit by lanterns, confident posture, maps on wooden table, dramatic light, high realism
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:stable_yogis_anatomy_negatives_v1-neg>
@@ -47,7 +47,7 @@ neg: unsharp, flat color, low detail, deformed hands
 
 # 6. The Mountain Guard
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-male warrior, olive skin, curly brown hair, short muscular build, wide nose, big lips, brown eyes, middle-aged, dashing
+male warrior, olive skin, curly brown hair, short muscular build, wide nose, big lips, brown eyes, middle-aged, polynesian
 wearing chainmail and heavy leather armor, standing on rocky mountain pass under storm clouds, strong expression, cinematic realism, heroic atmosphere
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands>
@@ -56,7 +56,7 @@ neg: blurred details, distorted anatomy, bad metal texture, fake reflections
 
 # 7. The Sapphire Maiden
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-female maiden, olive skin, curly black hair, light blue eyes, youthful beauty, large bust, small waist, hourglass figure
+female maiden, olive skin, curly black hair, light blue eyes, youthful beauty
 wearing royal blue gown with silver embroidery, standing in flower-filled castle courtyard, soft daylight, painterly realism, serene expression
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands>
@@ -65,7 +65,7 @@ neg: plastic look, overexposed, cartoon style, poor anatomy
 
 # 8. The Lion Knight
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
-male knight, darker olive skin, dark brown hair, moss-green eyes, tall and muscular, strong jawline, normal hands
+male knight, olive skin, dark brown hair, moss-green eyes, tall and muscular, strong jawline, caucasian
 wearing steel armor embossed with lion crest, battlefield at sunset, medieval fortress background, warm cinematic lighting, photorealistic heroism
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands>

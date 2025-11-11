@@ -1243,6 +1243,10 @@ class Pipeline:
         # ------------------------------------------------------------------
         txt_cfg = config.get("txt2img", {})
         refiner_checkpoint = txt_cfg.get("refiner_checkpoint")
+        # Defensive: ensure refiner_checkpoint is string or None
+        if refiner_checkpoint is not None:
+            refiner_checkpoint = str(refiner_checkpoint)
+        logger.debug(f"🔍 Refiner checkpoint raw value: {repr(refiner_checkpoint)} (type: {type(refiner_checkpoint).__name__})")
         refiner_switch_at = txt_cfg.get("refiner_switch_at", 0.8)
         compare_mode = bool(config.get("pipeline", {}).get("refiner_compare_mode", False))
         use_refiner = (
@@ -1251,6 +1255,7 @@ class Pipeline:
             and str(refiner_checkpoint).strip() != ""
             and 0.0 < float(refiner_switch_at) < 1.0
         )
+        logger.debug(f"🔍 use_refiner={use_refiner}, compare_mode={compare_mode}, switch_at={refiner_switch_at}")
         img2img_enabled = config.get("pipeline", {}).get("img2img_enabled", True)
         adetailer_enabled = config.get("pipeline", {}).get("adetailer_enabled", False)
         upscale_enabled = config.get("pipeline", {}).get("upscale_enabled", True)
@@ -1286,9 +1291,11 @@ class Pipeline:
             if compare_mode and use_refiner:
                 candidates: list[dict[str, str]] = [{"label": "base", "path": txt2img_meta["path"]}]
                 try:
-                    ref_clean = refiner_checkpoint.split(" [")[0] if " [" in refiner_checkpoint else refiner_checkpoint
+                    # Defensive: ensure refiner_checkpoint is string before split
+                    ref_str = str(refiner_checkpoint) if refiner_checkpoint else ""
+                    ref_clean = ref_str.split(" [")[0] if " [" in ref_str else ref_str
                 except Exception:
-                    ref_clean = refiner_checkpoint
+                    ref_clean = str(refiner_checkpoint) if refiner_checkpoint else ""
                 forced_i2i_cfg = dict(config.get("img2img", {}))
                 forced_i2i_cfg["model"] = ref_clean or forced_i2i_cfg.get("model", "")
                 forced_i2i_cfg.setdefault("denoising_strength", 0.25)
@@ -1632,7 +1639,12 @@ class Pipeline:
             # Add refiner support (SDXL native API - top-level parameters)
             if use_refiner:
                 # Strip hash from checkpoint name if present (e.g., "model.safetensors [abc123]" -> "model.safetensors")
-                refiner_checkpoint_clean = refiner_checkpoint.split(" [")[0] if " [" in refiner_checkpoint else refiner_checkpoint
+                # Defensive: ensure refiner_checkpoint is string before split
+                try:
+                    ref_str = str(refiner_checkpoint) if refiner_checkpoint else ""
+                    refiner_checkpoint_clean = ref_str.split(" [")[0] if " [" in ref_str else ref_str
+                except Exception:
+                    refiner_checkpoint_clean = str(refiner_checkpoint) if refiner_checkpoint else ""
                 # Refiner parameters go at the top level of the payload
                 payload["refiner_checkpoint"] = refiner_checkpoint_clean
                 payload["refiner_switch_at"] = refiner_switch_at
