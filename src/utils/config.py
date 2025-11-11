@@ -8,7 +8,7 @@ from typing import Any
 
 DEFAULT_GLOBAL_NEGATIVE_PROMPT = (
     "blurry, bad quality, distorted, ugly, malformed, nsfw, nude, naked, explicit, "
-    "sexual content, adult content, inappropriate, offensive, disturbing, violent, graphic"
+    "sexual content, adult content, immodest"
 )
 
 logger = logging.getLogger(__name__)
