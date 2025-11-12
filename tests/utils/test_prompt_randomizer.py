@@ -1,7 +1,5 @@
 import random
 
-import pytest
-
 from src.utils.randomizer import PromptRandomizer
 
 

@@ -41,9 +41,7 @@ class PromptRandomizer:
         if self._wildcard_config.get("enabled"):
             raw_tokens = self._wildcard_config.get("tokens") or []
             self._wildcard_tokens = [
-                token
-                for token in raw_tokens
-                if token.get("token") and token.get("values")
+                token for token in raw_tokens if token.get("token") and token.get("values")
             ]
         self._wildcard_mode = (self._wildcard_config.get("mode") or "random").lower()
         self._wildcard_indices = {token["token"]: 0 for token in self._wildcard_tokens}
@@ -67,7 +65,7 @@ class PromptRandomizer:
 
     def generate(self, prompt_text: str) -> list[PromptVariant]:
         """Return one or more prompt variants for the supplied text.
-        
+
         Matrix prompt_mode behavior:
         - "replace": base_prompt replaces pack prompt (default for backward compatibility)
         - "append": base_prompt is appended to pack prompt with ", " separator

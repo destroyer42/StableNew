@@ -7,8 +7,9 @@ getting/setting configuration and validation.
 
 import logging
 import tkinter as tk
+from collections.abc import Iterable
 from tkinter import ttk
-from typing import Any, Iterable
+from typing import Any
 
 from .adetailer_config_panel import ADetailerConfigPanel
 
@@ -95,7 +96,6 @@ class ConfigPanel(ttk.Frame):
             return "Normal"
         normalized = str(value).strip()
         return mapping.get(normalized.lower(), normalized)
-
 
     def _build_ui(self):
         """Build the panel UI."""
@@ -454,9 +454,7 @@ class ConfigPanel(ttk.Frame):
         refiner_frame.pack(fill=tk.X, padx=10, pady=5)
 
         row = 0
-        ttk.Label(refiner_frame, text="Refiner Model:").grid(
-            row=row, column=0, sticky=tk.W, pady=2
-        )
+        ttk.Label(refiner_frame, text="Refiner Model:").grid(row=row, column=0, sticky=tk.W, pady=2)
         refiner_combo = ttk.Combobox(
             refiner_frame,
             textvariable=self.txt2img_vars["refiner_checkpoint"],
@@ -481,7 +479,9 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_widgets["refiner_switch_at"] = refiner_switch_spin
         row += 1
 
-        ttk.Label(refiner_frame, text="Switch step (abs):").grid(row=row, column=0, sticky=tk.W, pady=2)
+        ttk.Label(refiner_frame, text="Switch step (abs):").grid(
+            row=row, column=0, sticky=tk.W, pady=2
+        )
         refiner_steps_spin = ttk.Spinbox(
             refiner_frame,
             from_=0,
@@ -495,8 +495,10 @@ class ConfigPanel(ttk.Frame):
         row += 1
 
         # Live computed mapping label
-        self.refiner_mapping_label = ttk.Label(refiner_frame, text="", font=("Segoe UI", 8), foreground="#888888")
-        self.refiner_mapping_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0,2))
+        self.refiner_mapping_label = ttk.Label(
+            refiner_frame, text="", font=("Segoe UI", 8), foreground="#888888"
+        )
+        self.refiner_mapping_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 2))
         row += 1
 
         # Helper text for refiner
@@ -768,7 +770,9 @@ class ConfigPanel(ttk.Frame):
         self.upscale_widgets["upscaling_resize"] = resize_spin
         row += 1
 
-        ttk.Label(settings_frame, text="Steps (img2img):").grid(row=row, column=0, sticky=tk.W, pady=2)
+        ttk.Label(settings_frame, text="Steps (img2img):").grid(
+            row=row, column=0, sticky=tk.W, pady=2
+        )
         upscale_steps = ttk.Spinbox(
             settings_frame,
             from_=1,
@@ -831,7 +835,9 @@ class ConfigPanel(ttk.Frame):
         self.upscale_widgets["gfpgan_visibility"] = gfpgan_spin
         row += 1
 
-        ttk.Label(settings_frame, text="CodeFormer Vis:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        ttk.Label(settings_frame, text="CodeFormer Vis:").grid(
+            row=row, column=0, sticky=tk.W, pady=2
+        )
         codeformer_vis = ttk.Spinbox(
             settings_frame,
             from_=0.0,
@@ -844,7 +850,9 @@ class ConfigPanel(ttk.Frame):
         self.upscale_widgets["codeformer_visibility"] = codeformer_vis
         row += 1
 
-        ttk.Label(settings_frame, text="CodeFormer Weight:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        ttk.Label(settings_frame, text="CodeFormer Weight:").grid(
+            row=row, column=0, sticky=tk.W, pady=2
+        )
         codeformer_weight = ttk.Spinbox(
             settings_frame,
             from_=0.0,
@@ -1005,11 +1013,15 @@ class ConfigPanel(ttk.Frame):
         try:
             # Map hires_steps spinbox to hr_second_pass_steps used by WebUI
             if "hires_steps" in config["txt2img"]:
-                config["txt2img"]["hr_second_pass_steps"] = int(config["txt2img"].get("hires_steps", 0))
+                config["txt2img"]["hr_second_pass_steps"] = int(
+                    config["txt2img"].get("hires_steps", 0)
+                )
             # Pass through refiner absolute steps if provided (>0)
             if int(config["txt2img"].get("refiner_switch_steps", 0) or 0) > 0:
                 # Keep as user-set; executor converts this to ratio
-                config["txt2img"]["refiner_switch_steps"] = int(config["txt2img"].get("refiner_switch_steps", 0))
+                config["txt2img"]["refiner_switch_steps"] = int(
+                    config["txt2img"].get("refiner_switch_steps", 0)
+                )
         except Exception:
             pass
 
@@ -1049,7 +1061,9 @@ class ConfigPanel(ttk.Frame):
         except Exception:
             pass
 
-    def _add_stage_toggle(self, parent: tk.Widget, label: str, variable: tk.BooleanVar | None) -> None:
+    def _add_stage_toggle(
+        self, parent: tk.Widget, label: str, variable: tk.BooleanVar | None
+    ) -> None:
         """Add a stage enable checkbox to the provided container."""
         if not isinstance(variable, tk.BooleanVar):
             return
@@ -1149,7 +1163,7 @@ class ConfigPanel(ttk.Frame):
             # Auto-apply when the coordinator enables it
             auto = False
             try:
-                auto = bool(getattr(self.coordinator, "auto_apply_var").get())
+                auto = bool(self.coordinator.auto_apply_var.get())
             except Exception:
                 auto = bool(getattr(self.coordinator, "auto_apply_enabled", False))
             if auto and hasattr(self.coordinator, "on_config_save"):
@@ -1166,20 +1180,26 @@ class ConfigPanel(ttk.Frame):
             config: Dictionary containing configuration values
         """
         import os
+
         diag = os.environ.get("STABLENEW_DIAG", "").lower() in {"1", "true", "yes"}
         if diag:
             import logging
+
             logger = logging.getLogger(__name__)
             logger.info("[DIAG] ConfigPanel.set_config: start", extra={"flush": True})
         # Set txt2img config
         if "txt2img" in config:
             if diag:
-                logger.info("[DIAG] ConfigPanel.set_config: processing txt2img", extra={"flush": True})
+                logger.info(
+                    "[DIAG] ConfigPanel.set_config: processing txt2img", extra={"flush": True}
+                )
             # Pre-map hr_second_pass_steps to hires_steps for the UI control
             txt_cfg = dict(config["txt2img"])  # shallow copy
             try:
                 if "hr_second_pass_steps" in txt_cfg and "hires_steps" in self.txt2img_vars:
-                    self.txt2img_vars["hires_steps"].set(int(txt_cfg.get("hr_second_pass_steps") or 0))
+                    self.txt2img_vars["hires_steps"].set(
+                        int(txt_cfg.get("hr_second_pass_steps") or 0)
+                    )
             except Exception:
                 pass
             for key, value in txt_cfg.items():
@@ -1198,7 +1218,9 @@ class ConfigPanel(ttk.Frame):
         # Set img2img config
         if "img2img" in config:
             if diag:
-                logger.info("[DIAG] ConfigPanel.set_config: processing img2img", extra={"flush": True})
+                logger.info(
+                    "[DIAG] ConfigPanel.set_config: processing img2img", extra={"flush": True}
+                )
             for key, value in config["img2img"].items():
                 if key in self.img2img_vars:
                     if key == "scheduler":
@@ -1210,7 +1232,9 @@ class ConfigPanel(ttk.Frame):
         # Set upscale config
         if "upscale" in config:
             if diag:
-                logger.info("[DIAG] ConfigPanel.set_config: processing upscale", extra={"flush": True})
+                logger.info(
+                    "[DIAG] ConfigPanel.set_config: processing upscale", extra={"flush": True}
+                )
             for key, value in config["upscale"].items():
                 if key in self.upscale_vars:
                     if key == "scheduler":
@@ -1231,10 +1255,16 @@ class ConfigPanel(ttk.Frame):
 
         # Update face restoration visibility
         if diag:
-            logger.info("[DIAG] ConfigPanel.set_config: calling _toggle_face_restoration", extra={"flush": True})
+            logger.info(
+                "[DIAG] ConfigPanel.set_config: calling _toggle_face_restoration",
+                extra={"flush": True},
+            )
         self._toggle_face_restoration()
         if diag:
-            logger.info("[DIAG] ConfigPanel.set_config: calling _update_refiner_mapping_label", extra={"flush": True})
+            logger.info(
+                "[DIAG] ConfigPanel.set_config: calling _update_refiner_mapping_label",
+                extra={"flush": True},
+            )
         try:
             self._update_refiner_mapping_label()
         except Exception:
@@ -1268,13 +1298,16 @@ class ConfigPanel(ttk.Frame):
 
     def _attach_change_traces(self) -> None:
         """Attach variable traces to flag unsaved changes (extended to update refiner mapping)."""
+
         def attach(d: dict[str, tk.Variable]):
             for k, v in d.items():
                 try:
+
                     def _cb(*_):
                         self._mark_unsaved()
                         if k in {"refiner_switch_at", "refiner_switch_steps", "steps"}:
                             self._update_refiner_mapping_label()
+
                     v.trace_add("write", _cb)
                 except Exception:
                     try:
@@ -1407,9 +1440,7 @@ class ConfigPanel(ttk.Frame):
 
     def set_scheduler_options(self, schedulers: Iterable[str]) -> None:
         """Update scheduler dropdowns."""
-        normalized = [
-            self._normalize_scheduler_value(s) for s in schedulers or [] if s is not None
-        ]
+        normalized = [self._normalize_scheduler_value(s) for s in schedulers or [] if s is not None]
         if not normalized:
             normalized = list(self._scheduler_options)
         self._set_combobox_values(self.txt2img_widgets.get("scheduler"), normalized)

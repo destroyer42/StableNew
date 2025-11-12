@@ -18,27 +18,27 @@ class ADetailerConfigPanel:
 
     # Available ADetailer models
     AVAILABLE_MODELS = [
-        'face_yolov8n.pt',
-        'face_yolov8s.pt',
-        'hand_yolov8n.pt',
-        'person_yolov8n-seg.pt',
-        'mediapipe_face_full',
-        'mediapipe_face_short',
-        'mediapipe_face_mesh'
+        "face_yolov8n.pt",
+        "face_yolov8s.pt",
+        "hand_yolov8n.pt",
+        "person_yolov8n-seg.pt",
+        "mediapipe_face_full",
+        "mediapipe_face_short",
+        "mediapipe_face_mesh",
     ]
 
     # Default configuration
     DEFAULT_CONFIG = {
-        'adetailer_enabled': False,
-        'adetailer_model': 'face_yolov8n.pt',
-        'adetailer_confidence': 0.3,
-        'adetailer_mask_feather': 4,
-        'adetailer_sampler': 'DPM++ 2M',
-        'adetailer_steps': 28,
-        'adetailer_denoise': 0.4,
-        'adetailer_cfg': 7.0,
-        'adetailer_prompt': '',
-        'adetailer_negative_prompt': ''
+        "adetailer_enabled": False,
+        "adetailer_model": "face_yolov8n.pt",
+        "adetailer_confidence": 0.3,
+        "adetailer_mask_feather": 4,
+        "adetailer_sampler": "DPM++ 2M",
+        "adetailer_steps": 28,
+        "adetailer_denoise": 0.4,
+        "adetailer_cfg": 7.0,
+        "adetailer_prompt": "",
+        "adetailer_negative_prompt": "",
     }
 
     def __init__(self, parent: tk.Widget):
@@ -53,14 +53,14 @@ class ADetailerConfigPanel:
         self.frame = ttk.LabelFrame(parent, text="ADetailer Configuration", padding=10)
 
         # Initialize variables
-        self.enabled_var = tk.BooleanVar(value=self.DEFAULT_CONFIG['adetailer_enabled'])
-        self.model_var = tk.StringVar(value=self.DEFAULT_CONFIG['adetailer_model'])
-        self.confidence_var = tk.DoubleVar(value=self.DEFAULT_CONFIG['adetailer_confidence'])
-        self.mask_feather_var = tk.IntVar(value=self.DEFAULT_CONFIG['adetailer_mask_feather'])
-        self.sampler_var = tk.StringVar(value=self.DEFAULT_CONFIG['adetailer_sampler'])
-        self.steps_var = tk.IntVar(value=self.DEFAULT_CONFIG['adetailer_steps'])
-        self.denoise_var = tk.DoubleVar(value=self.DEFAULT_CONFIG['adetailer_denoise'])
-        self.cfg_var = tk.DoubleVar(value=self.DEFAULT_CONFIG['adetailer_cfg'])
+        self.enabled_var = tk.BooleanVar(value=self.DEFAULT_CONFIG["adetailer_enabled"])
+        self.model_var = tk.StringVar(value=self.DEFAULT_CONFIG["adetailer_model"])
+        self.confidence_var = tk.DoubleVar(value=self.DEFAULT_CONFIG["adetailer_confidence"])
+        self.mask_feather_var = tk.IntVar(value=self.DEFAULT_CONFIG["adetailer_mask_feather"])
+        self.sampler_var = tk.StringVar(value=self.DEFAULT_CONFIG["adetailer_sampler"])
+        self.steps_var = tk.IntVar(value=self.DEFAULT_CONFIG["adetailer_steps"])
+        self.denoise_var = tk.DoubleVar(value=self.DEFAULT_CONFIG["adetailer_denoise"])
+        self.cfg_var = tk.DoubleVar(value=self.DEFAULT_CONFIG["adetailer_cfg"])
 
         # Build UI
         self._build_ui()
@@ -78,7 +78,7 @@ class ADetailerConfigPanel:
             enable_frame,
             text="Enable ADetailer (Automatic face/detail enhancement)",
             variable=self.enabled_var,
-            command=self._on_enabled_changed
+            command=self._on_enabled_changed,
         )
         self.enable_check.pack(side=tk.LEFT)
 
@@ -90,8 +90,8 @@ class ADetailerConfigPanel:
             self.frame,
             textvariable=self.model_var,
             values=self.AVAILABLE_MODELS,
-            state='readonly',
-            width=25
+            state="readonly",
+            width=25,
         )
         self.model_combo.grid(row=1, column=1, sticky=tk.W, pady=2, padx=(5, 0))
 
@@ -108,7 +108,7 @@ class ADetailerConfigPanel:
             to=1.0,
             orient=tk.HORIZONTAL,
             variable=self.confidence_var,
-            length=150
+            length=150,
         )
         self.confidence_scale.pack(side=tk.LEFT)
 
@@ -121,11 +121,7 @@ class ADetailerConfigPanel:
         feather_label.grid(row=3, column=0, sticky=tk.W, pady=2)
 
         self.feather_spin = ttk.Spinbox(
-            self.frame,
-            from_=0,
-            to=64,
-            textvariable=self.mask_feather_var,
-            width=10
+            self.frame, from_=0, to=64, textvariable=self.mask_feather_var, width=10
         )
         self.feather_spin.grid(row=3, column=1, sticky=tk.W, pady=2, padx=(5, 0))
 
@@ -136,8 +132,8 @@ class ADetailerConfigPanel:
         self.sampler_combo = ttk.Combobox(
             self.frame,
             textvariable=self.sampler_var,
-            values=['DPM++ 2M', 'DPM++ SDE', 'Euler a', 'Euler', 'DDIM', 'PLMS'],
-            width=15
+            values=["DPM++ 2M", "DPM++ SDE", "Euler a", "Euler", "DDIM", "PLMS"],
+            width=15,
         )
         self.sampler_combo.grid(row=4, column=1, sticky=tk.W, pady=2, padx=(5, 0))
 
@@ -146,11 +142,7 @@ class ADetailerConfigPanel:
         steps_label.grid(row=5, column=0, sticky=tk.W, pady=2)
 
         self.steps_spin = ttk.Spinbox(
-            self.frame,
-            from_=1,
-            to=150,
-            textvariable=self.steps_var,
-            width=10
+            self.frame, from_=1, to=150, textvariable=self.steps_var, width=10
         )
         self.steps_spin.grid(row=5, column=1, sticky=tk.W, pady=2, padx=(5, 0))
 
@@ -167,7 +159,7 @@ class ADetailerConfigPanel:
             to=1.0,
             orient=tk.HORIZONTAL,
             variable=self.denoise_var,
-            length=150
+            length=150,
         )
         self.denoise_scale.pack(side=tk.LEFT)
 
@@ -180,12 +172,7 @@ class ADetailerConfigPanel:
         cfg_label.grid(row=7, column=0, sticky=tk.W, pady=2)
 
         self.cfg_spin = ttk.Spinbox(
-            self.frame,
-            from_=1.0,
-            to=30.0,
-            textvariable=self.cfg_var,
-            width=10,
-            increment=0.5
+            self.frame, from_=1.0, to=30.0, textvariable=self.cfg_var, width=10, increment=0.5
         )
         self.cfg_spin.grid(row=7, column=1, sticky=tk.W, pady=2, padx=(5, 0))
 
@@ -214,13 +201,13 @@ class ADetailerConfigPanel:
     def _on_enabled_changed(self):
         """Handle enable/disable toggle."""
         enabled = self.enabled_var.get()
-        state = 'normal' if enabled else 'disabled'
+        state = "normal" if enabled else "disabled"
 
         # Update all controls
-        self.model_combo.configure(state='readonly' if enabled else 'disabled')
+        self.model_combo.configure(state="readonly" if enabled else "disabled")
         self.confidence_scale.configure(state=state)
         self.feather_spin.configure(state=state)
-        self.sampler_combo.configure(state='readonly' if enabled else 'disabled')
+        self.sampler_combo.configure(state="readonly" if enabled else "disabled")
         self.steps_spin.configure(state=state)
         self.denoise_scale.configure(state=state)
         self.cfg_spin.configure(state=state)
@@ -234,16 +221,16 @@ class ADetailerConfigPanel:
             Dictionary of ADetailer configuration
         """
         return {
-            'adetailer_enabled': self.enabled_var.get(),
-            'adetailer_model': self.model_var.get(),
-            'adetailer_confidence': self.confidence_var.get(),
-            'adetailer_mask_feather': self.mask_feather_var.get(),
-            'adetailer_sampler': self.sampler_var.get(),
-            'adetailer_steps': self.steps_var.get(),
-            'adetailer_denoise': self.denoise_var.get(),
-            'adetailer_cfg': self.cfg_var.get(),
-            'adetailer_prompt': self.prompt_text.get('1.0', tk.END).strip(),
-            'adetailer_negative_prompt': self.neg_prompt_text.get('1.0', tk.END).strip()
+            "adetailer_enabled": self.enabled_var.get(),
+            "adetailer_model": self.model_var.get(),
+            "adetailer_confidence": self.confidence_var.get(),
+            "adetailer_mask_feather": self.mask_feather_var.get(),
+            "adetailer_sampler": self.sampler_var.get(),
+            "adetailer_steps": self.steps_var.get(),
+            "adetailer_denoise": self.denoise_var.get(),
+            "adetailer_cfg": self.cfg_var.get(),
+            "adetailer_prompt": self.prompt_text.get("1.0", tk.END).strip(),
+            "adetailer_negative_prompt": self.neg_prompt_text.get("1.0", tk.END).strip(),
         }
 
     def set_config(self, config: dict[str, Any]) -> None:
@@ -252,30 +239,30 @@ class ADetailerConfigPanel:
         Args:
             config: Dictionary of ADetailer configuration
         """
-        if 'adetailer_enabled' in config:
-            self.enabled_var.set(config['adetailer_enabled'])
-        if 'adetailer_model' in config:
-            self.model_var.set(config['adetailer_model'])
-        if 'adetailer_confidence' in config:
-            self.confidence_var.set(config['adetailer_confidence'])
-            self._update_confidence_label(config['adetailer_confidence'])
-        if 'adetailer_mask_feather' in config:
-            self.mask_feather_var.set(config['adetailer_mask_feather'])
-        if 'adetailer_sampler' in config:
-            self.sampler_var.set(config['adetailer_sampler'])
-        if 'adetailer_steps' in config:
-            self.steps_var.set(config['adetailer_steps'])
-        if 'adetailer_denoise' in config:
-            self.denoise_var.set(config['adetailer_denoise'])
-            self._update_denoise_label(config['adetailer_denoise'])
-        if 'adetailer_cfg' in config:
-            self.cfg_var.set(config['adetailer_cfg'])
-        if 'adetailer_prompt' in config:
-            self.prompt_text.delete('1.0', tk.END)
-            self.prompt_text.insert('1.0', config['adetailer_prompt'])
-        if 'adetailer_negative_prompt' in config:
-            self.neg_prompt_text.delete('1.0', tk.END)
-            self.neg_prompt_text.insert('1.0', config['adetailer_negative_prompt'])
+        if "adetailer_enabled" in config:
+            self.enabled_var.set(config["adetailer_enabled"])
+        if "adetailer_model" in config:
+            self.model_var.set(config["adetailer_model"])
+        if "adetailer_confidence" in config:
+            self.confidence_var.set(config["adetailer_confidence"])
+            self._update_confidence_label(config["adetailer_confidence"])
+        if "adetailer_mask_feather" in config:
+            self.mask_feather_var.set(config["adetailer_mask_feather"])
+        if "adetailer_sampler" in config:
+            self.sampler_var.set(config["adetailer_sampler"])
+        if "adetailer_steps" in config:
+            self.steps_var.set(config["adetailer_steps"])
+        if "adetailer_denoise" in config:
+            self.denoise_var.set(config["adetailer_denoise"])
+            self._update_denoise_label(config["adetailer_denoise"])
+        if "adetailer_cfg" in config:
+            self.cfg_var.set(config["adetailer_cfg"])
+        if "adetailer_prompt" in config:
+            self.prompt_text.delete("1.0", tk.END)
+            self.prompt_text.insert("1.0", config["adetailer_prompt"])
+        if "adetailer_negative_prompt" in config:
+            self.neg_prompt_text.delete("1.0", tk.END)
+            self.neg_prompt_text.insert("1.0", config["adetailer_negative_prompt"])
 
         self._on_enabled_changed()
 
@@ -289,22 +276,22 @@ class ADetailerConfigPanel:
             True if valid, False otherwise
         """
         # Check confidence is in valid range
-        if 'adetailer_confidence' in config:
-            conf = config['adetailer_confidence']
+        if "adetailer_confidence" in config:
+            conf = config["adetailer_confidence"]
             if not 0.0 <= conf <= 1.0:
                 logger.error(f"Invalid confidence: {conf} (must be 0.0-1.0)")
                 return False
 
         # Check denoise is in valid range
-        if 'adetailer_denoise' in config:
-            denoise = config['adetailer_denoise']
+        if "adetailer_denoise" in config:
+            denoise = config["adetailer_denoise"]
             if not 0.0 <= denoise <= 1.0:
                 logger.error(f"Invalid denoise: {denoise} (must be 0.0-1.0)")
                 return False
 
         # Check steps is positive
-        if 'adetailer_steps' in config:
-            steps = config['adetailer_steps']
+        if "adetailer_steps" in config:
+            steps = config["adetailer_steps"]
             if steps < 1:
                 logger.error(f"Invalid steps: {steps} (must be >= 1)")
                 return False
@@ -329,13 +316,13 @@ class ADetailerConfigPanel:
 
         # Map to API parameter names
         return {
-            'adetailer_model': config['adetailer_model'],
-            'adetailer_conf': config['adetailer_confidence'],
-            'adetailer_mask_blur': config['adetailer_mask_feather'],
-            'adetailer_sampler': config['adetailer_sampler'],
-            'adetailer_steps': config['adetailer_steps'],
-            'adetailer_denoise': config['adetailer_denoise'],
-            'adetailer_cfg_scale': config['adetailer_cfg'],
-            'adetailer_prompt': config['adetailer_prompt'],
-            'adetailer_negative_prompt': config['adetailer_negative_prompt']
+            "adetailer_model": config["adetailer_model"],
+            "adetailer_conf": config["adetailer_confidence"],
+            "adetailer_mask_blur": config["adetailer_mask_feather"],
+            "adetailer_sampler": config["adetailer_sampler"],
+            "adetailer_steps": config["adetailer_steps"],
+            "adetailer_denoise": config["adetailer_denoise"],
+            "adetailer_cfg_scale": config["adetailer_cfg"],
+            "adetailer_prompt": config["adetailer_prompt"],
+            "adetailer_negative_prompt": config["adetailer_negative_prompt"],
         }

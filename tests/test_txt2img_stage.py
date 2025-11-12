@@ -1,8 +1,10 @@
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import patch, Mock
-from pathlib import Path
+
 from src.pipeline.executor import Pipeline
 from src.utils import StructuredLogger
+
 
 @pytest.fixture
 def mock_client():
@@ -13,13 +15,16 @@ def mock_client():
     client.set_vae = Mock()
     return client
 
+
 @pytest.fixture
 def structured_logger(tmp_path):
     return StructuredLogger(output_dir=tmp_path)
 
+
 @pytest.fixture
 def pipeline(mock_client, structured_logger):
     return Pipeline(mock_client, structured_logger)
+
 
 def test_run_txt2img_stage_basic(pipeline, tmp_path):
     prompt = "castle on a hill"

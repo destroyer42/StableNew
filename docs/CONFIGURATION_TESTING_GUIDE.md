@@ -58,7 +58,7 @@ python tests/test_config_passthrough.py
 
 3. **Update Pipeline Methods** (`src/pipeline/executor.py`):
    - Add parameter to appropriate payload in `run_txt2img()`, `run_img2img()`, or upscale methods
-   
+
 4. **Test Configuration Pass-Through**:
    ```bash
    python tests/test_config_passthrough.py

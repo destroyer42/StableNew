@@ -171,10 +171,18 @@ class PipelineControlsPanel(ttk.Frame):
             value=bool(state.get("video_enabled", False))
         )
         # Global negative per-stage toggles (default True for backward compatibility)
-        self.global_neg_txt2img = tk.BooleanVar(value=bool(state.get("apply_global_negative_txt2img", True)))
-        self.global_neg_img2img = tk.BooleanVar(value=bool(state.get("apply_global_negative_img2img", True)))
-        self.global_neg_upscale = tk.BooleanVar(value=bool(state.get("apply_global_negative_upscale", True)))
-        self.global_neg_adetailer = tk.BooleanVar(value=bool(state.get("apply_global_negative_adetailer", True)))
+        self.global_neg_txt2img = tk.BooleanVar(
+            value=bool(state.get("apply_global_negative_txt2img", True))
+        )
+        self.global_neg_img2img = tk.BooleanVar(
+            value=bool(state.get("apply_global_negative_img2img", True))
+        )
+        self.global_neg_upscale = tk.BooleanVar(
+            value=bool(state.get("apply_global_negative_upscale", True))
+        )
+        self.global_neg_adetailer = tk.BooleanVar(
+            value=bool(state.get("apply_global_negative_adetailer", True))
+        )
 
         # Loop configuration
         self.loop_type_var = tk.StringVar(value=str(state.get("loop_type", "single")))
@@ -182,9 +190,7 @@ class PipelineControlsPanel(ttk.Frame):
 
         # Batch configuration
         self.pack_mode_var = tk.StringVar(value=str(state.get("pack_mode", "selected")))
-        self.images_per_prompt_var = tk.StringVar(
-            value=str(state.get("images_per_prompt", 1))
-        )
+        self.images_per_prompt_var = tk.StringVar(value=str(state.get("images_per_prompt", 1)))
         matrix_state = state.get("model_matrix", [])
         if isinstance(matrix_state, list):
             matrix_display = ", ".join(matrix_state)
@@ -351,15 +357,11 @@ class PipelineControlsPanel(ttk.Frame):
             text="Hypernetworks (name:strength, separated by commas):",
             style="Dark.TLabel",
         ).pack(anchor=tk.W, pady=(4, 2))
-        ttk.Entry(variant_frame, textvariable=self.hypernetworks_var, width=40).pack(
-            fill=tk.X
-        )
+        ttk.Entry(variant_frame, textvariable=self.hypernetworks_var, width=40).pack(fill=tk.X)
 
         mode_frame = ttk.Frame(variant_frame, style="Dark.TFrame")
         mode_frame.pack(fill=tk.X, pady=(6, 0))
-        ttk.Label(mode_frame, text="Variant strategy:", style="Dark.TLabel").pack(
-            anchor=tk.W
-        )
+        ttk.Label(mode_frame, text="Variant strategy:", style="Dark.TLabel").pack(anchor=tk.W)
         ttk.Radiobutton(
             mode_frame,
             text="Fan-out (run every combo)",
@@ -377,13 +379,18 @@ class PipelineControlsPanel(ttk.Frame):
 
     def _build_global_negative_toggles(self, parent):
         """Build per-stage Global Negative enable toggles."""
-        frame = ttk.LabelFrame(parent, text="Global Negative (per stage)", style="Dark.TFrame", padding=5)
+        frame = ttk.LabelFrame(
+            parent, text="Global Negative (per stage)", style="Dark.TFrame", padding=5
+        )
         frame.pack(fill=tk.X, pady=(0, 5))
 
         def _mk(cb_text, var, key):
             def _log():
                 logger.info(f"PipelineControlsPanel: {key} set to {var.get()}")
-            ttk.Checkbutton(frame, text=cb_text, variable=var, style="Dark.TCheckbutton", command=_log).pack(anchor=tk.W)
+
+            ttk.Checkbutton(
+                frame, text=cb_text, variable=var, style="Dark.TCheckbutton", command=_log
+            ).pack(anchor=tk.W)
 
         _mk("Apply to txt2img", self.global_neg_txt2img, "apply_global_negative_txt2img")
         _mk("Apply to img2img", self.global_neg_img2img, "apply_global_negative_img2img")

@@ -1,18 +1,22 @@
 # --- Compatibility shim class for GUI code expecting a service object ---
 
 
-
 # --- Compatibility shim class for GUI code expecting a service object ---
 
 import logging
 import subprocess
 import time
 from pathlib import Path
+
 import requests
+
 # --- Compatibility shim class for GUI code expecting a service object ---
 
+
 class WebUIDiscovery:
-    def __init__(self, base_url: str = "http://127.0.0.1", start_port: int = 7860, max_attempts: int = 5):
+    def __init__(
+        self, base_url: str = "http://127.0.0.1", start_port: int = 7860, max_attempts: int = 5
+    ):
         self.base_url = base_url
         self.start_port = start_port
         self.max_attempts = max_attempts
@@ -36,7 +40,9 @@ class WebUIDiscovery:
                 "accessible": False,
                 "models_loaded": False,
                 "samplers_available": False,
-                "errors": [f"WebUI not found on ports {self.start_port}-{self.start_port + self.max_attempts - 1}"],
+                "errors": [
+                    f"WebUI not found on ports {self.start_port}-{self.start_port + self.max_attempts - 1}"
+                ],
             }
 
         # Optionally tighten requests' per-call timeouts by overriding requests.Session defaults,
@@ -58,12 +64,14 @@ class WebUIDiscovery:
             return True
         return launch_webui_safely(webui_path, wait_time=wait_time)
 
+
 """Utility functions for WebUI API discovery"""
 
 import logging
 import subprocess
 import time
 from pathlib import Path
+
 import requests
 
 logger = logging.getLogger(__name__)

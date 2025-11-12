@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 import time
 from typing import Any
-import json
 
 import requests
 
 logger = logging.getLogger(__name__)
-
 
 
 class SDWebUIClient:
@@ -88,9 +87,7 @@ class SDWebUIClient:
 
         for attempt in range(retries):
             try:
-                response = requests.request(
-                    method.upper(), url, timeout=timeout_value, **kwargs
-                )
+                response = requests.request(method.upper(), url, timeout=timeout_value, **kwargs)
                 response.raise_for_status()
                 return response
             except Exception as exc:  # noqa: BLE001 - broad to ensure retries
@@ -586,7 +583,9 @@ class SDWebUIClient:
                 clamped = max(0.0, min(2.0, float(strength)))
                 payload["sd_hypernetwork_strength"] = clamped
             else:
-                logger.info("Hypernetwork strength option not supported by API; skipping strength set")
+                logger.info(
+                    "Hypernetwork strength option not supported by API; skipping strength set"
+                )
 
         response = self._perform_request(
             "post",
@@ -625,7 +624,6 @@ class SDWebUIClient:
             logger.error(f"Failed to parse models response: {exc}")
             return []
 
-
     def get_current_model(self) -> str | None:
         """
         Get the currently loaded model.
@@ -652,6 +650,7 @@ def validate_webui_health(base_url: str = "http://127.0.0.1:7860", timeout: int 
     Minimal health check for SD WebUI API. Returns True if /sdapi/v1/sd-models responds.
     """
     import requests
+
     try:
         response = requests.get(f"{base_url.rstrip('/')}/sdapi/v1/sd-models", timeout=timeout)
         response.raise_for_status()
@@ -659,6 +658,7 @@ def validate_webui_health(base_url: str = "http://127.0.0.1:7860", timeout: int 
     except Exception as exc:
         logging.error(f"validate_webui_health failed: {exc}")
         return False
+
 
 # --- Restored missing stub for find_webui_api_port ---
 def find_webui_api_port() -> int:

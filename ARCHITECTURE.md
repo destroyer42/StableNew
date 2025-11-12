@@ -52,19 +52,19 @@ The pipeline consists of five configurable stages with per-image stage selection
 │                    Enhanced Pipeline Flow                        │
 └─────────────────────────────────────────────────────────────────┘
 
-  1. txt2img               
-  ┌──────────┐            
-  │ Prompt   │            
-  │   +      │            
-  │ Config   │            
-  └──────────┘            
-       │                  
-       ▼                  
-  ┌──────────┐            
-  │  Image   │────────┐   
-  │   File   │        │   
-  └──────────┘        │   
-                      ▼   
+  1. txt2img
+  ┌──────────┐
+  │ Prompt   │
+  │   +      │
+  │ Config   │
+  └──────────┘
+       │
+       ▼
+  ┌──────────┐
+  │  Image   │────────┐
+  │   File   │        │
+  └──────────┘        │
+                      ▼
                 ┌────────────┐
                 │   Stage    │
                 │  Chooser   │ ◄─── User selects next stage
@@ -115,7 +115,7 @@ The pipeline consists of five configurable stages with per-image stage selection
 #### 2. Stage Chooser - Per-Image Selection (New)
 - **Type:** Non-blocking modal dialog
 - **Triggers:** After each txt2img generation
-- **Options:** 
+- **Options:**
   - img2img (cleanup/refinement)
   - ADetailer (face/detail enhancement)
   - Upscale (quality enhancement)
@@ -295,7 +295,7 @@ AdvancedPromptEditor.open_editor()
 **Validation Callback:**
 When a pack is validated in the editor, the callback sends results to the main GUI:
 - Error count and first 3 errors
-- Warning count and first 2 warnings  
+- Warning count and first 2 warnings
 - Statistics (prompt count, embeddings, LoRAs)
 
 This provides visibility into pack quality without switching windows.
@@ -409,15 +409,15 @@ class CancelToken:
     """Thread-safe cancellation token"""
     def __init__(self):
         self._cancelled = threading.Event()
-    
+
     def cancel(self):
         """Request cancellation"""
         self._cancelled.set()
-    
+
     def is_cancelled(self) -> bool:
         """Check if cancellation requested"""
         return self._cancelled.is_set()
-    
+
     def check_cancelled(self):
         """Raise exception if cancelled"""
         if self._cancelled.is_set():

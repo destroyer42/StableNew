@@ -32,8 +32,8 @@ Execute a focused set of stability/UX PRs: enforce coverage threshold in CI, rou
 ## Plan of Execution (4 PRs, smallest first)
 
 ### PR #1 — CI coverage floor
-**Change**: Add `--cov-fail-under=75` to pytest step in Linux/Xvfb job.  
-**File**: `.github/workflows/ci.yml`  
+**Change**: Add `--cov-fail-under=75` to pytest step in Linux/Xvfb job.
+**File**: `.github/workflows/ci.yml`
 **Diff concept**:
 ```yaml
 - pytest --cov=src --cov-report=xml --cov-report=term-missing -q
@@ -96,11 +96,11 @@ def show_pipeline_error(error: Exception, stage: str = "") -> None:
 ```
 **Migrate** (repo-wide):
 - Replace `from tkinter import messagebox, filedialog` → `from src.gui import dialogs`
-- Replace direct calls:  
-  `messagebox.showerror(...)` → `dialogs.show_error(...)`  
-  `messagebox.showinfo(...)` → `dialogs.show_info(...)`  
-  `messagebox.showwarning(...)` → `dialogs.show_warning(...)`  
-  `filedialog.askdirectory(...)` → `dialogs.ask_directory(...)`  
+- Replace direct calls:
+  `messagebox.showerror(...)` → `dialogs.show_error(...)`
+  `messagebox.showinfo(...)` → `dialogs.show_info(...)`
+  `messagebox.showwarning(...)` → `dialogs.show_warning(...)`
+  `filedialog.askdirectory(...)` → `dialogs.ask_directory(...)`
   …and similar for `ask_open_filename(s)`, `ask_save_as_filename`.
 
 **Tests** (if not already present): `tests/gui/conftest.py` autouse stubs
@@ -133,19 +133,19 @@ def _request(self, method: str, endpoint: str, ..., backoff_factor: float|None=N
                 continue
             raise
 ```
-Wire `cancel_token` from callers as available.  
+Wire `cancel_token` from callers as available.
 **Commit**: `feat(api): make retries cancel-aware`
 
 ## Working Rules (Agent)
-1. Create a branch per PR from the active integration branch (`postGemini` or `MajorRefactor`).  
-2. Keep diffs surgical; avoid reformat-only churn.  
+1. Create a branch per PR from the active integration branch (`postGemini` or `MajorRefactor`).
+2. Keep diffs surgical; avoid reformat-only churn.
 3. Validate locally:
    ```bash
    pre-commit run --all-files
    pytest -q
    pytest -k "gui or error or backoff" -q
    ```
-4. Open PRs with the commit messages above as titles; include a short body (what/why/testing).  
+4. Open PRs with the commit messages above as titles; include a short body (what/why/testing).
 5. Ensure CI is green before moving to the next PR.
 
 ## Reporting Format (return to user)

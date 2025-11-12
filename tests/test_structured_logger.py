@@ -7,7 +7,6 @@ from src.utils.logger import StructuredLogger
 
 
 class TestStructuredLogger:
-
     def test_init(self, tmp_path):
         """Test StructuredLogger initialization"""
         logger = StructuredLogger(str(tmp_path))

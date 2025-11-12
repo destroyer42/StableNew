@@ -1,7 +1,8 @@
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Optional
 
-def detect_aesthetic_extension(candidates: list[Path]) -> Tuple[bool, Optional[Path]]:
+
+def detect_aesthetic_extension(candidates: list[Path]) -> tuple[bool, Optional[Path]]:
     """
     Scan candidate directories for an 'extensions/Aesthetic-Gradient' subdir.
     Returns (found, extension_dir) where extension_dir is the Path if found.

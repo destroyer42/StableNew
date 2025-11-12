@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
 
 from src.pipeline.executor import Pipeline
 from src.utils.logger import StructuredLogger
@@ -8,7 +9,11 @@ from src.utils.logger import StructuredLogger
 @pytest.fixture
 def pipeline(tmp_path):
     client = Mock()
-    client.txt2img.return_value = {"images": ["iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAEklEQVR42mP8/5+hHgAHggJ/lTp12wAAAABJRU5ErkJggg=="]}
+    client.txt2img.return_value = {
+        "images": [
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAEklEQVR42mP8/5+hHgAHggJ/lTp12wAAAABJRU5ErkJggg=="
+        ]
+    }
     client.set_model = Mock()
     client.set_vae = Mock()
     logger = StructuredLogger(output_dir=tmp_path / "logs")

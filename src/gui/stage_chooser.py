@@ -73,7 +73,7 @@ class StageChooser:
         self.window = tk.Toplevel(self.root)
         self.window.title(f"Choose Next Stage - Image {image_index} of {total_images}")
         self.window.geometry("700x600")
-        self.window.configure(bg='#2b2b2b')
+        self.window.configure(bg="#2b2b2b")
 
         # Make modal
         self.window.transient(root)
@@ -96,7 +96,7 @@ class StageChooser:
 
     def _build_ui(self):
         """Build the chooser UI."""
-        main_frame = ttk.Frame(self.window, style='Dark.TFrame')
+        main_frame = ttk.Frame(self.window, style="Dark.TFrame")
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
         # Apply dark theme
@@ -120,71 +120,64 @@ class StageChooser:
     def _apply_dark_theme(self):
         """Apply dark theme to widgets."""
         style = ttk.Style()
-        style.theme_use('clam')
+        style.theme_use("clam")
 
-        style.configure('Dark.TFrame', background='#2b2b2b')
-        style.configure('Dark.TLabel', background='#2b2b2b', foreground='white')
-        style.configure('Dark.TButton', background='#404040', foreground='white')
-        style.configure('Dark.TCheckbutton', background='#2b2b2b', foreground='white')
+        style.configure("Dark.TFrame", background="#2b2b2b")
+        style.configure("Dark.TLabel", background="#2b2b2b", foreground="white")
+        style.configure("Dark.TButton", background="#404040", foreground="white")
+        style.configure("Dark.TCheckbutton", background="#2b2b2b", foreground="white")
 
     def _build_header(self, parent):
         """Build header with title and info."""
-        header_frame = ttk.Frame(parent, style='Dark.TFrame')
+        header_frame = ttk.Frame(parent, style="Dark.TFrame")
         header_frame.pack(fill=tk.X, pady=(0, 15))
 
         title = ttk.Label(
             header_frame,
             text="Choose Next Processing Stage",
-            style='Dark.TLabel',
-            font=('Segoe UI', 14, 'bold')
+            style="Dark.TLabel",
+            font=("Segoe UI", 14, "bold"),
         )
         title.pack(anchor=tk.W)
 
         info = ttk.Label(
             header_frame,
             text=f"Select how to process this image (Image {self.image_index} of {self.total_images})",
-            style='Dark.TLabel',
-            font=('Segoe UI', 10)
+            style="Dark.TLabel",
+            font=("Segoe UI", 10),
         )
         info.pack(anchor=tk.W, pady=(5, 0))
 
     def _build_preview(self, parent):
         """Build image preview area."""
-        preview_frame = ttk.Frame(parent, style='Dark.TFrame')
+        preview_frame = ttk.Frame(parent, style="Dark.TFrame")
         preview_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
 
         # Preview label
         self.preview_label = ttk.Label(
-            preview_frame,
-            text="Loading preview...",
-            style='Dark.TLabel',
-            anchor=tk.CENTER
+            preview_frame, text="Loading preview...", style="Dark.TLabel", anchor=tk.CENTER
         )
         self.preview_label.pack(fill=tk.BOTH, expand=True)
 
     def _build_choices(self, parent):
         """Build stage choice buttons."""
-        choices_frame = ttk.LabelFrame(
-            parent,
-            text="Processing Options",
-            style='Dark.TFrame'
-        )
+        choices_frame = ttk.LabelFrame(parent, text="Processing Options", style="Dark.TFrame")
         choices_frame.pack(fill=tk.X, pady=(0, 15))
 
         # Grid layout for buttons
-        btn_frame = ttk.Frame(choices_frame, style='Dark.TFrame')
+        btn_frame = ttk.Frame(choices_frame, style="Dark.TFrame")
         btn_frame.pack(padx=10, pady=10)
 
         # img2img button
         img2img_btn = tk.Button(
             btn_frame,
             text="🎨 img2img\n(Cleanup/Refine)",
-            bg='#0078d4',
-            fg='white',
-            font=('Segoe UI', 11, 'bold'),
+            bg="#0078d4",
+            fg="white",
+            font=("Segoe UI", 11, "bold"),
             width=18,
             height=3,
-            command=lambda: self._select_choice(StageChoice.IMG2IMG)
+            command=lambda: self._select_choice(StageChoice.IMG2IMG),
         )
         img2img_btn.grid(row=0, column=0, padx=5, pady=5)
 
@@ -192,12 +185,12 @@ class StageChooser:
         adetailer_btn = tk.Button(
             btn_frame,
             text="✨ ADetailer\n(Face/Detail Fix)",
-            bg='#7c4dff',
-            fg='white',
-            font=('Segoe UI', 11, 'bold'),
+            bg="#7c4dff",
+            fg="white",
+            font=("Segoe UI", 11, "bold"),
             width=18,
             height=3,
-            command=lambda: self._select_choice(StageChoice.ADETAILER)
+            command=lambda: self._select_choice(StageChoice.ADETAILER),
         )
         adetailer_btn.grid(row=0, column=1, padx=5, pady=5)
 
@@ -205,12 +198,12 @@ class StageChooser:
         upscale_btn = tk.Button(
             btn_frame,
             text="🔍 Upscale\n(Enhance Quality)",
-            bg='#00897b',
-            fg='white',
-            font=('Segoe UI', 11, 'bold'),
+            bg="#00897b",
+            fg="white",
+            font=("Segoe UI", 11, "bold"),
             width=18,
             height=3,
-            command=lambda: self._select_choice(StageChoice.UPSCALE)
+            command=lambda: self._select_choice(StageChoice.UPSCALE),
         )
         upscale_btn.grid(row=1, column=0, padx=5, pady=5)
 
@@ -218,35 +211,35 @@ class StageChooser:
         none_btn = tk.Button(
             btn_frame,
             text="⏭️ None\n(Skip to Next)",
-            bg='#5d4037',
-            fg='white',
-            font=('Segoe UI', 11, 'bold'),
+            bg="#5d4037",
+            fg="white",
+            font=("Segoe UI", 11, "bold"),
             width=18,
             height=3,
-            command=lambda: self._select_choice(StageChoice.NONE)
+            command=lambda: self._select_choice(StageChoice.NONE),
         )
         none_btn.grid(row=1, column=1, padx=5, pady=5)
 
     def _build_batch_toggle(self, parent):
         """Build batch application toggle."""
-        batch_frame = ttk.Frame(parent, style='Dark.TFrame')
+        batch_frame = ttk.Frame(parent, style="Dark.TFrame")
         batch_frame.pack(fill=tk.X, pady=(0, 15))
 
         batch_check = ttk.Checkbutton(
             batch_frame,
             text="Apply this choice to all remaining images in this batch",
             variable=self.batch_var,
-            style='Dark.TCheckbutton'
+            style="Dark.TCheckbutton",
         )
         batch_check.pack(anchor=tk.W)
 
         # Show only if there are more images
         if self.image_index >= self.total_images:
-            batch_check.configure(state='disabled')
+            batch_check.configure(state="disabled")
 
     def _build_actions(self, parent):
         """Build action buttons."""
-        action_frame = ttk.Frame(parent, style='Dark.TFrame')
+        action_frame = ttk.Frame(parent, style="Dark.TFrame")
         action_frame.pack(fill=tk.X)
 
         # Re-tune settings link (if callback provided)
@@ -254,12 +247,12 @@ class StageChooser:
             retune_btn = tk.Button(
                 action_frame,
                 text="⚙️ Re-tune Settings",
-                bg='#2b2b2b',
-                fg='#42a5f5',
-                font=('Segoe UI', 10, 'underline'),
+                bg="#2b2b2b",
+                fg="#42a5f5",
+                font=("Segoe UI", 10, "underline"),
                 relief=tk.FLAT,
-                cursor='hand2',
-                command=self._on_retune
+                cursor="hand2",
+                command=self._on_retune,
             )
             retune_btn.pack(side=tk.LEFT)
 
@@ -267,10 +260,10 @@ class StageChooser:
         cancel_btn = tk.Button(
             action_frame,
             text="Cancel Remaining",
-            bg='#d32f2f',
-            fg='white',
-            font=('Segoe UI', 10),
-            command=self._on_cancel
+            bg="#d32f2f",
+            fg="white",
+            font=("Segoe UI", 10),
+            command=self._on_cancel,
         )
         cancel_btn.pack(side=tk.RIGHT, padx=(10, 0))
 
@@ -306,7 +299,7 @@ class StageChooser:
         height = self.window.winfo_height()
         x = (self.window.winfo_screenwidth() // 2) - (width // 2)
         y = (self.window.winfo_screenheight() // 2) - (height // 2)
-        self.window.geometry(f'{width}x{height}+{x}+{y}')
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
 
     def _select_choice(self, choice: StageChoice):
         """Handle stage choice selection.
@@ -322,7 +315,7 @@ class StageChooser:
             "choice": choice,
             "apply_to_batch": self.apply_to_batch,
             "cancelled": False,
-            "image_index": self.image_index
+            "image_index": self.image_index,
         }
         self.result_queue.put(result)
 
@@ -340,7 +333,7 @@ class StageChooser:
             "choice": None,
             "apply_to_batch": False,
             "cancelled": True,
-            "image_index": self.image_index
+            "image_index": self.image_index,
         }
         self.result_queue.put(result)
 

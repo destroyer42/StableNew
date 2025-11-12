@@ -23,7 +23,9 @@ def pipeline_with_mock_client(tmp_path):
     return pipeline, mock_client
 
 
-def test_refiner_adds_override_settings_to_payload(tmp_path, pipeline_with_mock_client, monkeypatch):
+def test_refiner_adds_override_settings_to_payload(
+    tmp_path, pipeline_with_mock_client, monkeypatch
+):
     """Test that refiner configuration is passed to API via override_settings."""
     pipeline, mock_client = pipeline_with_mock_client
 

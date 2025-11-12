@@ -1,21 +1,23 @@
 """
 Test GUI error dialog marshaling and controller lifecycle signaling on pipeline exception.
 """
-import os
 import threading
 import time
-import pytest
 import tkinter as tk
-from src.gui.main_window import StableNewGUI, GUIState
+
+from src.gui.main_window import GUIState, StableNewGUI
+
 
 def test_pipeline_error_marshaling(monkeypatch):
     # Suppress error dialogs for test
     monkeypatch.setenv("STABLENEW_NO_ERROR_DIALOG", "1")
     root = tk.Tk()
     gui = StableNewGUI(root)
+
     # Simulate pipeline error from worker thread
     def raise_error():
         gui.on_error(RuntimeError("Simulated pipeline failure"))
+
     t = threading.Thread(target=raise_error)
     t.start()
     t.join(timeout=2)

@@ -2,6 +2,7 @@
 Stub for PipelineController to enable test discovery and imports.
 """
 
+
 class PipelineController:
     def __init__(self, *args, **kwargs):
         pass

@@ -1,6 +1,7 @@
-
 # --- logging bypass ---
-import os, logging
+import logging
+import os
+
 if os.getenv("STABLENEW_LOGGING_BYPASS") == "1":
     root = logging.getLogger()
     root.handlers.clear()

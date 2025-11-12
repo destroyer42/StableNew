@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from src.gui.advanced_prompt_editor import AdvancedPromptEditor
 
 

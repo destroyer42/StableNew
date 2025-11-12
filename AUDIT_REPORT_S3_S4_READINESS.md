@@ -1,8 +1,8 @@
 # StableNew Audit — MajorRefactor
 
-**Branch**: MajorRefactor  
-**Date**: 2025-11-09  
-**Auditor**: GitHub Copilot Agent  
+**Branch**: MajorRefactor
+**Date**: 2025-11-09
+**Auditor**: GitHub Copilot Agent
 **Scope**: S3/S4 Readiness Assessment per Top-10 Recommendations
 
 ---
@@ -94,7 +94,7 @@ src/gui/main_window.py:3564-3576 (separate log viewer in archive, uses direct lo
 
 ### Fix
 
-**File**: `src/gui/main_window.py`  
+**File**: `src/gui/main_window.py`
 **Lines**: 3571-3576
 
 Replace direct `self.log_text` usage in archive viewer with safe proxy:
@@ -490,10 +490,10 @@ class PreferencesManager:
         if path is None:
             path = Path("presets") / "last_settings.json"
         self.path = Path(path)
-        
+
     def load_preferences(self, default_config: dict[str, Any]) -> dict[str, Any]:
         # Lines 55-90: Loads from JSON, merges with defaults
-        
+
     def save_preferences(self, preferences: dict[str, Any]) -> bool:
         # Lines 92-102: Persists to JSON
 ```
@@ -618,7 +618,7 @@ class APIClient:
     def __init__(self, ..., backoff_factor: float = 1.0, max_backoff: float = 30.0, ...):
         self.backoff_factor = max(0.0, backoff_factor)
         self.max_backoff = max(0.0, max_backoff)
-        
+
     def _calculate_backoff(self, attempt: int, backoff_factor: float | None = None) -> float:
         """Calculate the backoff delay for a retry attempt."""
         base = self.backoff_factor if backoff_factor is None else max(0.0, backoff_factor)
@@ -688,7 +688,7 @@ pytest -k backoff -q
 
 Optional enhancement for explicit cancel support in backoff:
 
-**File**: `src/api/client.py`  
+**File**: `src/api/client.py`
 **Line**: ~105 (in retry loop)
 
 ```python
@@ -763,7 +763,7 @@ def _request(self, ..., cancel_token=None) -> Any:
 
 ### Fix
 
-**File**: `.github/workflows/ci.yml`  
+**File**: `.github/workflows/ci.yml`
 **Line**: 31
 
 Add coverage threshold:
@@ -918,5 +918,5 @@ python -m src.main --upscale-only --input ./test_image.png --seed 123 --out ./ru
 
 ---
 
-**Audit completed**: 2025-11-09  
+**Audit completed**: 2025-11-09
 **Next review**: After implementing PR #1-3 recommendations

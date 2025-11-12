@@ -8,7 +8,7 @@ description: see below
 
 
 # GUI Stage Chooser + Editor Polish + ADetailer Integration Agent
-**Date:** 2025-11-03  
+**Date:** 2025-11-03
 **Scope:** PRs F→H continuation after ConfigPanel/APIStatusPanel/LogPanel merge
 
 ---

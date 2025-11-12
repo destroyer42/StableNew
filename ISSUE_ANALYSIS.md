@@ -61,7 +61,7 @@ Remove line 200 OR restructure to check BEFORE appending at line 190.
 # Check BEFORE appending
 if len(self.log_records) >= self.max_log_lines:
     self.log_records.pop(0)
-    
+
 self.log_records.append((message, normalized_level))
 
 if len(self.log_records) > self.max_log_lines:
@@ -69,7 +69,7 @@ if len(self.log_records) > self.max_log_lines:
     self.log_records = self.log_records[-self.max_log_lines:]
     self._refresh_display()
     return
-    
+
 if self._should_display(normalized_level):
     self._insert_message(message, normalized_level)
 ```
@@ -92,7 +92,7 @@ def _poll_controller_logs(self):
     for msg in messages:
         self.log_message(msg.message, msg.level)
         self._apply_status_text(msg.message)  # ⚠️ CLOBBERS PROGRESS!
-    
+
     # Schedule next poll
     self.root.after(100, self._poll_controller_logs)
 ```
@@ -124,7 +124,7 @@ In `src/gui/main_window.py`:
 # Line 3292: VAE update uses root.after with partial
 self.root.after(0, partial(self.config_panel.set_vae_options, list(self.vae_names)))
 
-# Line 3353: Upscaler update uses root.after with partial  
+# Line 3353: Upscaler update uses root.after with partial
 self.root.after(0, partial(self.config_panel.set_upscaler_options, list(self.upscaler_names)))
 
 # Line 3411: Scheduler update uses root.after with partial
@@ -162,7 +162,7 @@ This is a GitHub Actions workflow security vulnerability, not a code issue.
 - OR validate comment author before running
 - OR run without secrets
 
-**Recommendation:** 
+**Recommendation:**
 - Requires workflow admin/security expertise
 - Out of scope for code changes
 - Should be handled by repository owner/security team
@@ -184,7 +184,7 @@ This is a GitHub Actions workflow security vulnerability, not a code issue.
 
 1. **Close #56** - Already complete
 2. **Fix #37** - Remove duplicate append at line 200
-3. **Fix #49** - Remove `_apply_status_text` call from log polling  
+3. **Fix #49** - Remove `_apply_status_text` call from log polling
 4. **Verify #27** - Grep for any remaining thread safety issues
 5. **Document #29** - Note requires workflow admin, not code fix
 

@@ -7,7 +7,6 @@ import pytest
 
 from src.gui.main_window import StableNewGUI
 
-
 _shared_root: tk.Tk | None = None
 
 
@@ -78,12 +77,12 @@ def tk_pump(tk_root):
 
 def wait_until(pred, timeout=5.0, step=0.02):
     """Wait until a predicate becomes True or timeout expires.
-    
+
     Args:
         pred: Callable that returns True when condition is met
         timeout: Maximum time to wait in seconds
         step: Time between predicate checks in seconds
-        
+
     Returns:
         True if predicate became True, False if timeout expired
     """

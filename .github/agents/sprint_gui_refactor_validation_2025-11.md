@@ -4,7 +4,7 @@ description: addressing the findings of the audit
 ---
 
 
-**Role**  
+**Role**
 
 Agent: Stabilization & UX Reliability
 

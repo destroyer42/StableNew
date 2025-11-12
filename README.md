@@ -105,7 +105,7 @@ Control pipeline stages by setting flags in your configuration:
 ### User Interface
 
 - **Modern GUI**: Dark-themed Tkinter interface with component-based architecture
-- **Component Architecture**: 
+- **Component Architecture**:
   - Prompt Pack Panel - Multi-select with custom list management
   - Pipeline Controls Panel - Loop config, batch settings, and API options
   - Tabbed Config Center - Pipeline, img2img, ADetailer, Upscale, Randomization, and General tabs each with inline help and per-stage toggles
@@ -320,7 +320,7 @@ young warrior, confident expression, detailed armor and weapons
 neg: <embedding:bad_anatomy> <embedding:low_quality-neg>
 neg: deformed hands, ugly face, blurry, low quality
 
-# Landscape with style enhancement  
+# Landscape with style enhancement
 beautiful mountain landscape at golden hour, dramatic clouds
 majestic peaks, crystal clear lake reflection, cinematic composition
 <lora:landscape_realism:0.8> <lora:dramatic_sky:0.6>

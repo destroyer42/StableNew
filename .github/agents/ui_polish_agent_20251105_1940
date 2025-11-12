@@ -4,10 +4,10 @@ description: Python GURU
 ---
 
 
-**Owner:** Codex / Copilot Agent  
-**Base Branch:** `origin/postGemini`  
-**Feature Branch:** `ui/ttkbootstrap-facelift`  
-**PR Target:** `postGemini`  
+**Owner:** Codex / Copilot Agent
+**Base Branch:** `origin/postGemini`
+**Feature Branch:** `ui/ttkbootstrap-facelift`
+**PR Target:** `postGemini`
 **Goal:** Modernize the Tkinter GUI’s look & feel (rounded corners, consistent spacing, dark/light themes, better resizing), with minimal disruption to existing logic.
 
 ---
@@ -149,4 +149,3 @@ description: Python GURU
 - Revert `ui/ttkbootstrap-facelift` PR.
 - Remove new deps and files.
 - Keep test fixtures; they are safe to retain.
-

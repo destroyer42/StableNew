@@ -19,12 +19,9 @@ def test_append_mode_hero_portraits():
             "slots": [
                 {
                     "name": "lighting",
-                    "values": ["soft rim light", "dramatic shadows", "golden hour glow"]
+                    "values": ["soft rim light", "dramatic shadows", "golden hour glow"],
                 },
-                {
-                    "name": "angle",
-                    "values": ["close-up", "medium shot"]
-                },
+                {"name": "angle", "values": ["close-up", "medium shot"]},
             ],
             "base_prompt": "[[lighting]], [[angle]]",
         },
@@ -54,7 +51,10 @@ def test_append_mode_hero_portraits():
             # Should contain both pack prompt and matrix expansions
             assert pack_prompt in v.text
             assert ", " in v.text  # Separator between pack and matrix
-            assert any(lighting in v.text for lighting in ["soft rim light", "dramatic shadows", "golden hour glow"])
+            assert any(
+                lighting in v.text
+                for lighting in ["soft rim light", "dramatic shadows", "golden hour glow"]
+            )
             assert any(angle in v.text for angle in ["close-up", "medium shot"])
 
     # Total: 2 prompts × 6 variants each = 12 variants
@@ -62,11 +62,20 @@ def test_append_mode_hero_portraits():
 
     # Example outputs to verify format
     knight_variants = [v.text for v in all_variants if "knight" in v.text]
-    assert "portrait of a noble medieval knight in ornate armor, scarred but determined expression, detailed metal texture, cinematic tone, soft rim light, close-up" in knight_variants
-    assert "portrait of a noble medieval knight in ornate armor, scarred but determined expression, detailed metal texture, cinematic tone, dramatic shadows, medium shot" in knight_variants
+    assert (
+        "portrait of a noble medieval knight in ornate armor, scarred but determined expression, detailed metal texture, cinematic tone, soft rim light, close-up"
+        in knight_variants
+    )
+    assert (
+        "portrait of a noble medieval knight in ornate armor, scarred but determined expression, detailed metal texture, cinematic tone, dramatic shadows, medium shot"
+        in knight_variants
+    )
 
     mage_variants = [v.text for v in all_variants if "mage" in v.text]
-    assert "portrait of a wise elven mage with flowing robes, arcane symbols glowing, ethereal atmosphere, golden hour glow, close-up" in mage_variants
+    assert (
+        "portrait of a wise elven mage with flowing robes, arcane symbols glowing, ethereal atmosphere, golden hour glow, close-up"
+        in mage_variants
+    )
 
 
 def test_prepend_mode_style_prefix():
@@ -82,14 +91,8 @@ def test_prepend_mode_style_prefix():
             "prompt_mode": "prepend",
             "limit": 6,
             "slots": [
-                {
-                    "name": "style",
-                    "values": ["oil painting", "watercolor", "digital art"]
-                },
-                {
-                    "name": "mood",
-                    "values": ["vibrant", "dark"]
-                },
+                {"name": "style", "values": ["oil painting", "watercolor", "digital art"]},
+                {"name": "mood", "values": ["vibrant", "dark"]},
             ],
             "base_prompt": "[[style]], [[mood]]",
         },

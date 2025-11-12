@@ -4,12 +4,12 @@ Advanced Prompt Pack Editor with validation, embedding/LoRA discovery, and smart
 
 import os
 import re
-from pathlib import Path
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-from .tooltip import Tooltip
 from ..utils.config import DEFAULT_GLOBAL_NEGATIVE_PROMPT
+from .tooltip import Tooltip
 
 
 class AdvancedPromptEditor:
@@ -37,6 +37,7 @@ class AdvancedPromptEditor:
             class _Dummy:
                 def config(self, **kwargs):
                     return None
+
             self.status_text = _Dummy()
 
         # Ensure key Tk variables exist early to avoid attribute errors during load
@@ -51,10 +52,13 @@ class AdvancedPromptEditor:
             class _Var:
                 def __init__(self, value=""):
                     self._v = value
+
                 def get(self):
                     return self._v
+
                 def set(self, v):
                     self._v = v
+
             if not hasattr(self, "pack_name_var"):
                 self.pack_name_var = _Var()
             if not hasattr(self, "format_var"):
@@ -210,7 +214,9 @@ class AdvancedPromptEditor:
             validation_frame, text="Refresh Models", command=self._refresh_models, width=14
         )
         models_btn.pack(side=tk.LEFT, padx=2, pady=2)
-        self._attach_tooltip(models_btn, "Reload available embeddings and LoRAs for validation checks.")
+        self._attach_tooltip(
+            models_btn, "Reload available embeddings and LoRAs for validation checks."
+        )
 
     def _build_pack_info_panel(self, parent):
         """Build pack information panel"""
@@ -356,21 +362,29 @@ class AdvancedPromptEditor:
             quick_frame, text="Quality Tags", command=lambda: self._insert_template("quality")
         )
         quality_btn.pack(side=tk.LEFT, padx=2)
-        self._attach_tooltip(quality_btn, "Insert a template of quality/clarity tags at the cursor.")
+        self._attach_tooltip(
+            quality_btn, "Insert a template of quality/clarity tags at the cursor."
+        )
 
         style_btn = ttk.Button(
             quick_frame, text="Style Tags", command=lambda: self._insert_template("style")
         )
         style_btn.pack(side=tk.LEFT, padx=2)
-        self._attach_tooltip(style_btn, "Insert common style descriptors (e.g., cinematic, photorealistic).")
+        self._attach_tooltip(
+            style_btn, "Insert common style descriptors (e.g., cinematic, photorealistic)."
+        )
 
         negative_btn = ttk.Button(
             quick_frame, text="Negative", command=lambda: self._insert_template("negative")
         )
         negative_btn.pack(side=tk.LEFT, padx=2)
-        self._attach_tooltip(negative_btn, "Insert a negative prompt scaffold for the current block.")
+        self._attach_tooltip(
+            negative_btn, "Insert a negative prompt scaffold for the current block."
+        )
 
-        lora_btn = ttk.Button(quick_frame, text="LoRA", command=lambda: self._insert_template("lora"))
+        lora_btn = ttk.Button(
+            quick_frame, text="LoRA", command=lambda: self._insert_template("lora")
+        )
         lora_btn.pack(side=tk.LEFT, padx=2)
         self._attach_tooltip(lora_btn, "Insert a LoRA template (name and optional weight).")
 
@@ -502,7 +516,7 @@ class AdvancedPromptEditor:
             textvariable=self._status_var,
             style="Dark.TLabel",
             anchor=tk.W,
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
         )
         self.status_text.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
@@ -783,7 +797,7 @@ Errors and warnings appear in the Validation tab.
         embed_count = len(embeddings)
         lora_count = len(loras)
 
-        if hasattr(self, 'status_text'):
+        if hasattr(self, "status_text"):
             if embed_count or lora_count:
                 status = f"Models: {embed_count} embeddings, {lora_count} LoRAs"
             else:
@@ -807,10 +821,11 @@ Errors and warnings appear in the Validation tab.
 
     def _refresh_models(self):
         """Refresh the model caches"""
-        if hasattr(self, 'status_text'):
+        if hasattr(self, "status_text"):
             self.status_text.config(text="Refreshing models...")
         self._load_model_caches()
         self._populate_model_lists()
+
     def _insert_embedding(self, event=None):
         """Insert selected embedding into prompt"""
         selection = self.embeddings_listbox.curselection()
@@ -1005,7 +1020,7 @@ neg: malformed, bad anatomy, low quality"""
             self.is_modified = False
             if self.window:
                 self.window.title(f"Advanced Prompt Pack Editor - {path.name}")
-            if hasattr(self, '_status_var'):
+            if hasattr(self, "_status_var"):
                 self._status_var.set(f"Saved: {path.name}")
 
             # Notify parent of changes
@@ -1025,7 +1040,10 @@ neg: malformed, bad anatomy, low quality"""
         clone_name = f"{original_name}_copy"
 
         # Find available name within packs directory
-        ext = (self.format_var.get() or (self.current_pack_path.suffix[1:] if self.current_pack_path else "txt")).lower()
+        ext = (
+            self.format_var.get()
+            or (self.current_pack_path.suffix[1:] if self.current_pack_path else "txt")
+        ).lower()
         counter = 1
         while (Path("packs") / f"{clone_name}.{ext}").exists():
             clone_name = f"{original_name}_copy_{counter}"
@@ -1036,7 +1054,7 @@ neg: malformed, bad anatomy, low quality"""
         self.is_modified = True
         if self.window:
             self.window.title(f"Advanced Prompt Pack Editor - {clone_name} (Clone) *")
-        if hasattr(self, '_status_var'):
+        if hasattr(self, "_status_var"):
             self._status_var.set(f"Cloned as: {clone_name}")
 
     def _delete_pack(self):
@@ -1057,7 +1075,7 @@ neg: malformed, bad anatomy, low quality"""
                 self.prompts_text.delete("1.0", tk.END)
                 self.is_modified = False
                 self.window.title("Advanced Prompt Pack Editor - Deleted")
-                if hasattr(self, 'status_text'):
+                if hasattr(self, "status_text"):
                     self.status_text.config(text=f"Deleted: {deleted_name}")
                 # Notify parent of changes
                 if self.on_packs_changed:
@@ -1450,7 +1468,7 @@ neg: malformed, bad anatomy, low quality"""
             return
 
         self.global_neg_content = content
-        if hasattr(self, '_status_var'):
+        if hasattr(self, "_status_var"):
             self._status_var.set("Global negative prompt updated")
         messagebox.showinfo("Success", "Global negative prompt has been updated.")
 
@@ -1467,7 +1485,7 @@ neg: malformed, bad anatomy, low quality"""
 
         self.global_neg_content = default_neg
         self._refresh_global_negative_display()
-        if hasattr(self, '_status_var'):
+        if hasattr(self, "_status_var"):
             self._status_var.set("Global negative reset to default")
 
     def _check_unsaved_changes(self):

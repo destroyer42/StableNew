@@ -1,69 +1,72 @@
 from __future__ import annotations
-import logging
-import os
-import sys
-import time
+
 import json
-import traceback
-import subprocess
-import threading
-from copy import deepcopy
-from pathlib import Path
-from typing import Any
-
-import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, ttk
-from copy import deepcopy
-from pathlib import Path
-from typing import Any
-from tkinter import filedialog, messagebox, scrolledtext, ttk
 import logging
 import os
+import subprocess
+import sys
 import threading
+import time
+import tkinter as tk
+from copy import deepcopy
+from enum import Enum, auto
+from pathlib import Path
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
+from typing import Any
 
-from src.gui.config_panel import ConfigPanel
-from src.gui.log_panel import LogPanel, TkinterLogHandler
+from src.api.client import SDWebUIClient, find_webui_api_port, validate_webui_health
+from src.controller.pipeline_controller import PipelineController
 from src.gui.advanced_prompt_editor import AdvancedPromptEditor
-from src.gui.enhanced_slider import EnhancedSlider
+from src.gui.api_status_panel import APIStatusPanel
 from src.gui.center_panel import CenterPanel
-from src.utils.aesthetic_detection import detect_aesthetic_extension
-from src.gui.tooltip import Tooltip
-from src.utils.state import CancellationError
-from src.api.client import SDWebUIClient, validate_webui_health, find_webui_api_port
-from src.pipeline.executor import Pipeline
-from src.utils.prompt_pack import get_prompt_packs, read_prompt_pack
-from src.utils.randomizer import PromptRandomizer, build_variant_plan, PromptVariant, apply_variant_to_config
-from src.utils.webui_launcher import launch_webui_safely
-from src.gui.prompt_pack_panel import PromptPackPanel
+from src.gui.config_panel import ConfigPanel
+from src.gui.enhanced_slider import EnhancedSlider
+from src.gui.log_panel import LogPanel, TkinterLogHandler
 from src.gui.pipeline_controls_panel import PipelineControlsPanel
+from src.gui.state import GUIState, StateManager
+from src.gui.tooltip import Tooltip
+from src.pipeline.executor import Pipeline
+from src.services.config_service import ConfigService
+from src.utils.aesthetic_detection import detect_aesthetic_extension
 from src.utils.config import ConfigManager
 from src.utils.preferences import PreferencesManager
-from src.utils.webui_discovery import WebUIDiscovery
-from src.gui.state import GUIState, StateManager
-from src.controller.pipeline_controller import PipelineController
-
-from src.gui.config_panel import ConfigPanel
-from src.gui.log_panel import LogPanel, TkinterLogHandler
-from src.gui.advanced_prompt_editor import AdvancedPromptEditor
-from src.gui.enhanced_slider import EnhancedSlider
-from src.gui.center_panel import CenterPanel
-from src.utils.aesthetic_detection import detect_aesthetic_extension
-from src.gui.tooltip import Tooltip
-from src.utils.state import CancellationError
-from src.api.client import SDWebUIClient, validate_webui_health, find_webui_api_port
-from src.pipeline.executor import Pipeline
 from src.utils.prompt_pack import get_prompt_packs, read_prompt_pack
-from src.utils.randomizer import PromptRandomizer, build_variant_plan, PromptVariant, apply_variant_to_config
-from src.utils.webui_launcher import launch_webui_safely
-from src.gui.prompt_pack_panel import PromptPackPanel
-from src.gui.pipeline_controls_panel import PipelineControlsPanel
-from src.utils.config import ConfigManager
-from src.utils.preferences import PreferencesManager
+from src.utils.randomizer import (
+    PromptRandomizer,
+    PromptVariant,
+    apply_variant_to_config,
+    build_variant_plan,
+)
+from src.utils.state import CancellationError
 from src.utils.webui_discovery import WebUIDiscovery
-from src.gui.state import GUIState, StateManager
-from src.controller.pipeline_controller import PipelineController
+from src.utils.webui_launcher import launch_webui_safely
+
+
+# Config source state machine
+class ConfigSource(Enum):
+    PACK = auto()
+    PRESET = auto()
+    GLOBAL_LOCK = auto()
+
+
+class ConfigContext:
+    def __init__(
+        self,
+        source=ConfigSource.PACK,
+        editor_cfg=None,
+        locked_cfg=None,
+        active_preset=None,
+        active_list=None,
+    ):
+        self.source = source
+        self.editor_cfg = editor_cfg or {}
+        self.locked_cfg = locked_cfg
+        self.active_preset = active_preset
+        self.active_list = active_list
+
 
 logger = logging.getLogger(__name__)
+
 
 class StableNewGUI:
     def __init__(
@@ -90,8 +93,36 @@ class StableNewGUI:
             self.root = tk.Tk()
         self.root.title(title)
         self.root.geometry(geometry)
+        
+        # Initialize ttk style and theme colors
+        self.style = ttk.Style()
+        self.bg_color = "#1e1e1e"  # Dark background
+        self.fg_color = "#ffffff"  # White text
+        self.button_bg = "#2d2d2d"  # Darker button background
+        self.entry_bg = "#3c3c3c"  # Entry field background
+        self.button_active = "#404040"  # Active button color
+        
         self._apply_style()
-        # ...existing code...
+
+        # --- ConfigService and ConfigContext wiring ---
+        packs_dir = Path("packs")
+        presets_dir = Path("presets")
+        lists_dir = Path("lists")
+        self.config_service = ConfigService(packs_dir, presets_dir, lists_dir)
+        self.ctx = ConfigContext()
+        self.config_source_banner = None
+        self.current_selected_packs = []
+        self.is_locked = False
+        self.previous_source = None
+        self.previous_banner_text = "Using: Global Config"
+        self.current_preset_name = None
+
+        # Initialize progress-related attributes
+        self._progress_eta_default = "ETA: --:--"
+        self._progress_idle_message = "Ready"
+
+        # Build the user interface
+        self._build_ui()
 
     def _apply_style(self):
         """Apply ttk theme and style settings. (Restored stub for compatibility)"""
@@ -113,6 +144,172 @@ class StableNewGUI:
         except Exception:
             logger.exception("Failed to apply WebUI error")
 
+    def _update_config_source_banner(self, text: str) -> None:
+        """Update the config source banner with the given text."""
+        self.config_source_banner.config(text=text)
+
+    def _effective_cfg_for_pack(self, pack: str) -> dict[str, Any]:
+        """Get the effective config for a pack based on current ctx.source."""
+        if self.ctx.source is ConfigSource.GLOBAL_LOCK and self.ctx.locked_cfg is not None:
+            return deepcopy(self.ctx.locked_cfg)
+        if self.ctx.source is ConfigSource.PRESET:
+            return deepcopy(self.ctx.editor_cfg)
+        cfg = self.config_service.load_pack_config(pack)
+        return cfg if cfg else deepcopy(self.ctx.editor_cfg)  # fallback to editor defaults
+
+    def _ui_preview_payload(self) -> None:
+        """Preview payload for selected packs (dry-run assembly)."""
+        if not self.current_selected_packs:
+            self._safe_messagebox("warning", "No Packs Selected", "Please select packs to preview.")
+            return
+
+        # Run in background thread to avoid blocking UI
+        def preview_worker():
+            try:
+                results = []
+                for pack in self.current_selected_packs:
+                    cfg = self._effective_cfg_for_pack(pack)
+                    pack_result = self._preview_pack_payload(pack, cfg)
+                    results.append(pack_result)
+
+                # Format results
+                output = self._format_preview_results(results)
+
+                # Update UI on main thread
+                self.root.after(0, lambda: self._display_preview_output(output))
+            except Exception as e:
+                self.root.after(
+                    0, lambda err=e: self._safe_messagebox("error", "Preview Error", str(err))
+                )
+
+        threading.Thread(target=preview_worker, daemon=True).start()
+
+    def _preview_pack_payload(self, pack: str, cfg: dict[str, Any]) -> dict[str, Any]:
+        """Generate preview for a single pack."""
+        from ..utils.prompt_pack import read_prompt_pack
+        from ..utils.randomizer import PromptRandomizer
+
+        # Read pack data
+        pack_data = read_prompt_pack(pack)
+        if not pack_data:
+            return {"pack": pack, "error": "Failed to read pack"}
+
+        prompt_text = pack_data.get("prompt", "")
+        if not prompt_text:
+            return {"pack": pack, "error": "No prompt in pack"}
+
+        # Create randomizer
+        randomizer_cfg = cfg.get("randomizer", {})
+        randomizer = PromptRandomizer(randomizer_cfg)
+
+        # Generate variants (limit to 3 for preview)
+        variants = randomizer.generate(prompt_text)
+        preview_variants = variants[:3]
+
+        # Check for diagnostics
+        diagnostics = self._check_prompt_diagnostics(prompt_text, randomizer_cfg)
+
+        return {
+            "pack": pack,
+            "variants": [{"text": v.text, "label": v.label} for v in preview_variants],
+            "total_variants": len(variants),
+            "diagnostics": diagnostics,
+        }
+
+    def _check_prompt_diagnostics(
+        self, prompt_text: str, randomizer_cfg: dict[str, Any]
+    ) -> list[str]:
+        """Check for issues in prompt and config."""
+        issues = []
+
+        # Check for unresolved tokens
+        import re
+
+        unresolved = re.findall(r"\[\[([^\]]+)\]\]", prompt_text)
+        if unresolved:
+            issues.append(f"Unresolved tokens: {', '.join(unresolved)}")
+
+        # Check randomizer config
+        if randomizer_cfg.get("enabled"):
+            # Check S/R rules
+            sr_config = randomizer_cfg.get("prompt_sr", {})
+            if sr_config.get("enabled"):
+                rules = sr_config.get("rules", [])
+                for i, rule in enumerate(rules):
+                    if not rule.get("search") or not rule.get("replacements"):
+                        issues.append(f"S/R rule {i+1}: missing search or replacements")
+
+            # Check wildcards
+            wildcard_config = randomizer_cfg.get("wildcards", {})
+            if wildcard_config.get("enabled"):
+                tokens = wildcard_config.get("tokens", [])
+                for i, token in enumerate(tokens):
+                    if not token.get("token") or not token.get("values"):
+                        issues.append(f"Wildcard {i+1}: missing token or values")
+
+            # Check matrix
+            matrix_config = randomizer_cfg.get("matrix", {})
+            if matrix_config.get("enabled"):
+                slots = matrix_config.get("slots", [])
+                empty_slots = [
+                    slot.get("name", f"slot {i+1}")
+                    for i, slot in enumerate(slots)
+                    if not slot.get("values")
+                ]
+                if empty_slots:
+                    issues.append(f"Matrix slots with no values: {', '.join(empty_slots)}")
+
+                # Count combinations
+                if slots:
+                    combo_count = 1
+                    for slot in slots:
+                        values = slot.get("values", [])
+                        if values:
+                            combo_count *= len(values)
+                    issues.append(f"Matrix will generate {combo_count} combinations")
+
+        return issues
+
+    def _format_preview_results(self, results: list[dict[str, Any]]) -> str:
+        """Format preview results for display."""
+        output = ["=== Payload Preview (Dry Run) ===\n"]
+
+        for result in results:
+            pack = result["pack"]
+            output.append(f"Pack: {pack}")
+
+            if "error" in result:
+                output.append(f"  Error: {result['error']}")
+                output.append("")
+                continue
+
+            variants = result["variants"]
+            total = result["total_variants"]
+            diagnostics = result["diagnostics"]
+
+            output.append(f"  Total variants: {total}")
+            output.append("  Preview variants:")
+
+            for i, variant in enumerate(variants, 1):
+                text = variant["text"]
+                label = variant["label"]
+                label_str = f" ({label})" if label else ""
+                output.append(f"    {i}. {text}{label_str}")
+
+            if diagnostics:
+                output.append("  Diagnostics:")
+                for diag in diagnostics:
+                    output.append(f"    ⚠️ {diag}")
+
+            output.append("")
+
+        return "\n".join(output)
+
+    def _display_preview_output(self, output: str) -> None:
+        """Display preview output in the UI."""
+        # For now, show in messagebox; later integrate into preview panel
+        self._safe_messagebox("info", "Preview Results", output)
+
     # -------- mediator selection -> config refresh --------
     def _on_pack_selection_changed_mediator(self, packs: list[str]) -> None:
         """
@@ -120,13 +317,21 @@ class StableNewGUI:
         We keep this handler strictly non-blocking and UI-only.
         """
         try:
+            self.current_selected_packs = packs
             count = len(packs)
             if count == 0:
                 logger.info("📦 No pack selected")
-                return
-            logger.info("📦 Selected pack: %s", packs[0] if count == 1 else f"{count} packs")
-            # Defer config refresh to keep handler short
-            self.root.after(0, lambda: self._refresh_config(packs))
+            else:
+                logger.info("📦 Selected pack: %s", packs[0] if count == 1 else f"{count} packs")
+            # Update banner instead of refreshing config
+            if packs:
+                if len(packs) == 1:
+                    text = "Using: Pack Config"
+                else:
+                    text = "Using: Multi-Pack Config"
+            else:
+                text = "Using: Global Config"
+            self._update_config_source_banner(text)
         except Exception:
             logger.exception("Mediator selection handler failed")
 
@@ -164,7 +369,9 @@ class StableNewGUI:
         try:
             selected = self.prompt_pack_panel.get_selected_packs()
             if not selected:
-                self._safe_messagebox("warning", "No Pack Selected", "Please select a prompt pack first.")
+                self._safe_messagebox(
+                    "warning", "No Pack Selected", "Please select a prompt pack first."
+                )
                 return
             packs_str = selected[0] if len(selected) == 1 else f"{len(selected)} packs"
             logger.info("▶️ Starting pipeline execution for %s", packs_str)
@@ -206,7 +413,10 @@ class StableNewGUI:
         Respects STABLENEW_NO_ERROR_DIALOG for CI/headless runs.
         """
         # Respect modal suppression for tests/headless
-        if os.getenv("STABLENEW_NO_ERROR_DIALOG") in {"1", "true", "TRUE"} and kind.lower() in {"error", "warning"}:
+        if os.getenv("STABLENEW_NO_ERROR_DIALOG") in {"1", "true", "TRUE"} and kind.lower() in {
+            "error",
+            "warning",
+        }:
             logger.warning("[DIAG] Messagebox suppressed: %s: %s", title, text)
             return
 
@@ -248,7 +458,9 @@ class StableNewGUI:
 
             # 2) Attempt to launch WebUI if path exists
             if webui_path.exists():
-                self.root.after(0, lambda: self.log_message("🚀 Launching Stable Diffusion WebUI...", "INFO"))
+                self.root.after(
+                    0, lambda: self.log_message("🚀 Launching Stable Diffusion WebUI...", "INFO")
+                )
                 success = launch_webui_safely(webui_path, wait_time=15)
                 if success:
                     # Find the actual URL and update UI
@@ -259,13 +471,20 @@ class StableNewGUI:
                     else:
                         self.root.after(
                             0,
-                            lambda: self.log_message("⚠️ WebUI launched but API not found", "WARNING"),
+                            lambda: self.log_message(
+                                "⚠️ WebUI launched but API not found", "WARNING"
+                            ),
                         )
                 else:
                     self.root.after(0, lambda: self.log_message("❌ WebUI launch failed", "ERROR"))
             else:
                 logger.warning("WebUI not found at expected location")
-                self.root.after(0, lambda: self.log_message("⚠️ WebUI not found - please start manually", "WARNING"))
+                self.root.after(
+                    0,
+                    lambda: self.log_message(
+                        "⚠️ WebUI not found - please start manually", "WARNING"
+                    ),
+                )
                 self.root.after(
                     0,
                     lambda: messagebox.showinfo(
@@ -305,6 +524,15 @@ class StableNewGUI:
         main_frame = ttk.Frame(self.root, style="Dark.TFrame")
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
+        # Config source banner at the top
+        self.config_source_banner = ttk.Label(
+            main_frame, text="Using: Global Config", style="Dark.TLabel"
+        )
+        self.config_source_banner.pack(anchor=tk.W, padx=5, pady=(0, 5))
+
+        # Action bar for explicit config loading
+        self._build_action_bar(main_frame)
+
         # Compact top frame for API status
         self._build_api_status_frame(main_frame)
 
@@ -317,7 +545,9 @@ class StableNewGUI:
         vertical_split.add(content_frame, weight=4)
 
         # Configure grid for better space utilization
-        content_frame.columnconfigure(0, weight=0, minsize=280)  # Left: wider pack list for long names
+        content_frame.columnconfigure(
+            0, weight=0, minsize=280
+        )  # Left: wider pack list for long names
         content_frame.columnconfigure(1, weight=1)  # Center: flexible config
         content_frame.columnconfigure(2, weight=0, minsize=260)  # Right: pipeline controls
         content_frame.rowconfigure(0, weight=1)
@@ -344,6 +574,337 @@ class StableNewGUI:
 
         # Setup state callbacks
         self._setup_state_callbacks()
+
+    def _build_api_status_frame(self, parent):
+        """Build the API status frame using APIStatusPanel."""
+        # Create API status panel
+        self.api_status_panel = APIStatusPanel(parent, coordinator=self, style="Dark.TFrame")
+        self.api_status_panel.pack(fill=tk.X, padx=5, pady=(0, 5))
+
+    def _build_prompt_pack_panel(self, parent):
+        """Build the prompt pack selection panel."""
+        # Create a simple frame for now
+        pack_frame = ttk.Frame(parent, style="Dark.TFrame")
+        pack_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 5))
+        
+        ttk.Label(pack_frame, text="Prompt Packs", style="Dark.TLabel").pack(anchor=tk.W, padx=5, pady=5)
+
+    def _build_config_pipeline_panel(self, parent):
+        """Build the configuration and pipeline controls panel."""
+        # Create a simple frame for now
+        config_frame = ttk.Frame(parent, style="Dark.TFrame")
+        config_frame.grid(row=0, column=1, sticky=tk.NSEW, padx=(0, 5))
+        
+        ttk.Label(config_frame, text="Configuration", style="Dark.TLabel").pack(anchor=tk.W, padx=5, pady=5)
+
+    def _initialize_ui_state_async(self):
+        """Initialize UI state asynchronously after mainloop starts."""
+        # Simple implementation for now
+        pass
+
+    def _build_action_bar(self, parent):
+        """Build the action bar with explicit load controls."""
+        action_bar = ttk.Frame(parent, style="Dark.TFrame")
+        action_bar.pack(fill=tk.X, padx=5, pady=(0, 5))
+
+        # Load Pack Config button
+        load_pack_btn = ttk.Button(
+            action_bar, text="Load Pack Config", command=self._ui_load_pack_config
+        )
+        load_pack_btn.pack(side=tk.LEFT, padx=(0, 10))
+
+        # Preset dropdown and load button
+        ttk.Label(action_bar, text="Preset:", style="Dark.TLabel").pack(side=tk.LEFT)
+        self.preset_combobox = ttk.Combobox(
+            action_bar, values=self.config_service.list_presets(), state="readonly", width=20
+        )
+        self.preset_combobox.pack(side=tk.LEFT, padx=(5, 10))
+        load_preset_btn = ttk.Button(action_bar, text="Load Preset", command=self._ui_load_preset)
+        load_preset_btn.pack(side=tk.LEFT, padx=(0, 10))
+
+        # Preset CRUD buttons
+        save_preset_btn = ttk.Button(
+            action_bar, text="Save Editor → Preset…", command=self._ui_save_preset
+        )
+        save_preset_btn.pack(side=tk.LEFT, padx=(0, 5))
+        delete_preset_btn = ttk.Button(
+            action_bar, text="Delete Preset…", command=self._ui_delete_preset
+        )
+        delete_preset_btn.pack(side=tk.LEFT, padx=(0, 20))
+
+        # List management
+        ttk.Label(action_bar, text="List:", style="Dark.TLabel").pack(side=tk.LEFT)
+        self.list_combobox = ttk.Combobox(
+            action_bar, values=self.config_service.list_lists(), state="readonly", width=15
+        )
+        self.list_combobox.pack(side=tk.LEFT, padx=(5, 10))
+        load_list_btn = ttk.Button(action_bar, text="Load List", command=self._ui_load_list)
+        load_list_btn.pack(side=tk.LEFT, padx=(0, 5))
+        save_list_btn = ttk.Button(
+            action_bar, text="Save Selection as List…", command=self._ui_save_list
+        )
+        save_list_btn.pack(side=tk.LEFT, padx=(0, 5))
+        overwrite_list_btn = ttk.Button(
+            action_bar, text="Overwrite Current List", command=self._ui_overwrite_list
+        )
+        overwrite_list_btn.pack(side=tk.LEFT, padx=(0, 5))
+        delete_list_btn = ttk.Button(action_bar, text="Delete List…", command=self._ui_delete_list)
+        delete_list_btn.pack(side=tk.LEFT)
+
+        # Lock Config button
+        self.lock_button = ttk.Button(
+            action_bar, text="Lock This Config", command=self._ui_toggle_lock
+        )
+        self.lock_button.pack(side=tk.LEFT, padx=(20, 10))
+
+        # Apply Editor to Packs button
+        apply_btn = ttk.Button(
+            action_bar, text="Apply Editor → Pack(s)…", command=self._ui_apply_editor_to_packs
+        )
+        apply_btn.pack(side=tk.LEFT)
+
+        # Preview Payload button
+        preview_btn = ttk.Button(
+            action_bar, text="Preview Payload (Dry Run)", command=self._ui_preview_payload
+        )
+        preview_btn.pack(side=tk.LEFT, padx=(10, 0))
+
+    def _apply_editor_from_cfg(self, cfg: dict) -> None:
+        """Apply config to the editor (pipeline controls panel)."""
+        self.pipeline_controls_panel.apply_config(cfg)
+
+    def _ui_toggle_lock(self) -> None:
+        """Toggle the config lock state."""
+        if self.is_locked:
+            self._unlock_config()
+        else:
+            self._lock_config()
+
+    def _lock_config(self) -> None:
+        """Lock the current config."""
+        self.previous_source = self.ctx.source
+        self.previous_banner_text = self.config_source_banner.cget("text")
+        self.ctx.source = ConfigSource.GLOBAL_LOCK
+        self.ctx.locked_cfg = deepcopy(self.pipeline_controls_panel.get_settings())
+        self.is_locked = True
+        self.lock_button.config(text="Unlock Config")
+        self._update_config_source_banner("Using: Global Lock")
+
+    def _unlock_config(self) -> None:
+        """Unlock the config."""
+        self.ctx.source = self.previous_source
+        self.ctx.locked_cfg = None
+        self.is_locked = False
+        self.lock_button.config(text="Lock This Config")
+        self._update_config_source_banner(self.previous_banner_text)
+
+    def _ui_load_pack_config(self) -> None:
+        """Load config from the first selected pack into the editor."""
+        if self._check_lock_before_load():
+            if not self.current_selected_packs:
+                return
+            pack = self.current_selected_packs[0]
+            cfg = self.config_service.load_pack_config(pack)
+            self._apply_editor_from_cfg(cfg)
+            self._update_config_source_banner("Using: Pack Config (view)")
+
+    def _ui_load_preset(self) -> None:
+        """Load selected preset into the editor."""
+        if self._check_lock_before_load():
+            name = self.preset_combobox.get()
+            if not name:
+                return
+            cfg = self.config_service.load_preset(name)
+            self._apply_editor_from_cfg(cfg)
+            self.current_preset_name = name
+            self._update_config_source_banner(f"Using: Preset: {name}")
+
+    def _check_lock_before_load(self) -> bool:
+        """Check if locked and prompt to unlock. Returns True if should proceed."""
+        if not self.is_locked:
+            return True
+        result = messagebox.askyesno("Config Locked", "Unlock to proceed?")
+        if result:
+            self._unlock_config()
+            return True
+        return False
+
+    def _ui_apply_editor_to_packs(self) -> None:
+        """Apply current editor config to selected packs."""
+        if not self.current_selected_packs:
+            messagebox.showwarning("No Selection", "Please select one or more packs first.")
+            return
+
+        num_packs = len(self.current_selected_packs)
+        result = messagebox.askyesno(
+            "Confirm Overwrite",
+            f"Overwrite configs for {num_packs} pack{'s' if num_packs > 1 else ''}?",
+        )
+        if not result:
+            return
+
+        # Get current editor config
+        editor_cfg = self.pipeline_controls_panel.get_settings()
+
+        # Save in worker thread
+        def save_worker():
+            try:
+                for pack in self.current_selected_packs:
+                    self.config_service.save_pack_config(pack, editor_cfg)
+                # Success callback on UI thread
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Success", f"Applied to {num_packs} pack{'s' if num_packs > 1 else ''}."
+                    ),
+                )
+            except Exception as exc:
+                error_msg = str(exc)
+                # Error callback on UI thread
+                self.root.after(
+                    0, lambda: messagebox.showerror("Error", f"Failed to save configs: {error_msg}")
+                )
+
+    def _refresh_preset_dropdown(self) -> None:
+        """Refresh the preset dropdown with current presets."""
+        self.preset_combobox["values"] = self.config_service.list_presets()
+
+    def _refresh_list_dropdown(self) -> None:
+        """Refresh the list dropdown with current lists."""
+        self.list_combobox["values"] = self.config_service.list_lists()
+
+    def _ui_save_preset(self) -> None:
+        """Save current editor config as a new preset."""
+        name = simpledialog.askstring("Save Preset", "Enter preset name:")
+        if not name:
+            return
+        if name in self.config_service.list_presets():
+            if not messagebox.askyesno(
+                "Overwrite Preset", f"Preset '{name}' already exists. Overwrite?"
+            ):
+                return
+        editor_cfg = self.pipeline_controls_panel.get_settings()
+        try:
+            self.config_service.save_preset(name, editor_cfg, overwrite=True)
+            self._refresh_preset_dropdown()
+            messagebox.showinfo("Success", f"Preset '{name}' saved.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save preset: {e}")
+
+    def _ui_delete_preset(self) -> None:
+        """Delete the selected preset."""
+        name = self.preset_combobox.get()
+        if not name:
+            messagebox.showwarning("No Selection", "Please select a preset to delete.")
+            return
+        if not messagebox.askyesno("Delete Preset", f"Delete preset '{name}'?"):
+            return
+        try:
+            self.config_service.delete_preset(name)
+            self._refresh_preset_dropdown()
+            # Clear selection
+            self.preset_combobox.set("")
+            # If it was the current preset, revert banner
+            if self.current_preset_name == name:
+                self.current_preset_name = None
+                if self.current_selected_packs:
+                    self._update_config_source_banner("Using: Pack Config (view)")
+                else:
+                    self._update_config_source_banner("Using: Global Config")
+            messagebox.showinfo("Success", f"Preset '{name}' deleted.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to delete preset: {e}")
+
+    def _ui_load_list(self) -> None:
+        """Load selected list and set pack selection."""
+        name = self.list_combobox.get()
+        if not name:
+            messagebox.showwarning("No Selection", "Please select a list to load.")
+            return
+        try:
+            packs = self.config_service.load_list(name)
+            # Clear current selection
+            self.prompt_pack_panel.packs_listbox.selection_clear(0, tk.END)
+            # Select the packs from the list
+            all_packs = list(self.prompt_pack_panel.packs_listbox.get(0, tk.END))
+            for pack in packs:
+                try:
+                    index = all_packs.index(pack)
+                    self.prompt_pack_panel.packs_listbox.selection_set(index)
+                except ValueError:
+                    logger.warning(
+                        f"Pack '{pack}' from list '{name}' not found in available packs."
+                    )
+            self.ctx.active_list = name
+            messagebox.showinfo("Success", f"List '{name}' loaded ({len(packs)} packs).")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load list: {e}")
+
+    def _ui_save_list(self) -> None:
+        """Save current pack selection as a new list."""
+        if not self.current_selected_packs:
+            messagebox.showwarning("No Selection", "Please select packs to save as list.")
+            return
+        name = simpledialog.askstring("Save List", "Enter list name:")
+        if not name:
+            return
+        if name in self.config_service.list_lists():
+            if not messagebox.askyesno(
+                "Overwrite List", f"List '{name}' already exists. Overwrite?"
+            ):
+                return
+        try:
+            self.config_service.save_list(name, self.current_selected_packs, overwrite=True)
+            self.ctx.active_list = name
+            self._refresh_list_dropdown()
+            messagebox.showinfo(
+                "Success", f"List '{name}' saved ({len(self.current_selected_packs)} packs)."
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save list: {e}")
+
+    def _ui_overwrite_list(self) -> None:
+        """Overwrite the current active list with current selection."""
+        if not self.ctx.active_list:
+            messagebox.showwarning(
+                "No Active List", "No list is currently active. Use 'Save Selection as List' first."
+            )
+            return
+        if not self.current_selected_packs:
+            messagebox.showwarning("No Selection", "Please select packs to save.")
+            return
+        if not messagebox.askyesno(
+            "Overwrite List", f"Overwrite list '{self.ctx.active_list}' with current selection?"
+        ):
+            return
+        try:
+            self.config_service.save_list(
+                self.ctx.active_list, self.current_selected_packs, overwrite=True
+            )
+            messagebox.showinfo(
+                "Success",
+                f"List '{self.ctx.active_list}' updated ({len(self.current_selected_packs)} packs).",
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to overwrite list: {e}")
+
+    def _ui_delete_list(self) -> None:
+        """Delete the selected list."""
+        name = self.list_combobox.get()
+        if not name:
+            messagebox.showwarning("No Selection", "Please select a list to delete.")
+            return
+        if not messagebox.askyesno("Delete List", f"Delete list '{name}'?"):
+            return
+        try:
+            self.config_service.delete_list(name)
+            self._refresh_list_dropdown()
+            self.list_combobox.set("")
+            if self.ctx.active_list == name:
+                self.ctx.active_list = None
+            messagebox.showinfo("Success", f"List '{name}' deleted.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to delete list: {e}")
 
     def _setup_theme(self):
         self.style.configure(
@@ -399,14 +960,17 @@ class StableNewGUI:
             foreground=[("active", self.fg_color)],
         )
         self.style.map(
-            "Dark.TNotebook.Tab", background=[("selected", "#0078d4"), ("active", self.button_active)]
+            "Dark.TNotebook.Tab",
+            background=[("selected", "#0078d4"), ("active", self.button_active)],
         )
 
     def _layout_panels(self):
         # Example layout for preset bar and dropdown
         preset_bar = ttk.Frame(self.root, style="Dark.TFrame")
         preset_bar.grid(row=0, column=0, sticky=tk.W)
-        ttk.Label(preset_bar, text="Preset:", style="Dark.TLabel").grid(row=0, column=0, sticky=tk.W, padx=(2, 4))
+        ttk.Label(preset_bar, text="Preset:", style="Dark.TLabel").grid(
+            row=0, column=0, sticky=tk.W, padx=(2, 4)
+        )
         self.preset_dropdown = ttk.Combobox(
             preset_bar,
             textvariable=self.preset_var,
@@ -416,7 +980,9 @@ class StableNewGUI:
         )
         self.preset_dropdown.grid(row=0, column=1, sticky=tk.W)
         self.preset_dropdown.grid(row=0, column=1, sticky=tk.W)
-        self.preset_dropdown.bind("<<ComboboxSelected>>", lambda _e: self._on_preset_dropdown_changed())
+        self.preset_dropdown.bind(
+            "<<ComboboxSelected>>", lambda _e: self._on_preset_dropdown_changed()
+        )
         self._attach_tooltip(
             self.preset_dropdown,
             "Select a preset to load its settings into the active configuration (spans all tabs).",
@@ -430,7 +996,10 @@ class StableNewGUI:
             style="Dark.TButton",
         )
         apply_default_btn.grid(row=0, column=2, padx=(8, 4))
-        self._attach_tooltip(apply_default_btn, "Load the 'default' preset into the form (not saved until you click Save to Pack(s)).")
+        self._attach_tooltip(
+            apply_default_btn,
+            "Load the 'default' preset into the form (not saved until you click Save to Pack(s)).",
+        )
 
         # Right-aligned action strip
         actions_strip = ttk.Frame(preset_bar, style="Dark.TFrame")
@@ -456,7 +1025,9 @@ class StableNewGUI:
             width=16,
         )
         save_as_btn.pack(side=tk.LEFT, padx=2)
-        self._attach_tooltip(save_as_btn, "Create a new preset from the current configuration state.")
+        self._attach_tooltip(
+            save_as_btn, "Create a new preset from the current configuration state."
+        )
 
         set_default_btn = ttk.Button(
             actions_strip,
@@ -475,9 +1046,12 @@ class StableNewGUI:
             width=10,
         )
         del_preset_btn.pack(side=tk.LEFT, padx=2)
-        self._attach_tooltip(del_preset_btn, "Delete the selected preset (cannot delete 'default').")
+        self._attach_tooltip(
+            del_preset_btn, "Delete the selected preset (cannot delete 'default')."
+        )
 
         # Notebook sits below preset bar
+
     def _setup_panels(self):
         self.center_panel = CenterPanel(self.root)
         notebook = ttk.Notebook(self.center_panel, style="Dark.TNotebook")
@@ -590,7 +1164,9 @@ class StableNewGUI:
             general_body, text="API Configuration", style="Dark.TFrame", padding=8
         )
         api_frame.pack(fill=tk.X, pady=(10, 10))
-        ttk.Label(api_frame, text="Base URL:", style="Dark.TLabel").grid(row=0, column=0, sticky=tk.W, pady=2)
+        ttk.Label(api_frame, text="Base URL:", style="Dark.TLabel").grid(
+            row=0, column=0, sticky=tk.W, pady=2
+        )
         ttk.Entry(
             api_frame,
             textvariable=self.api_vars.get("base_url"),
@@ -613,7 +1189,9 @@ class StableNewGUI:
             child.configure(style="Dark.TLabel")
 
         # Sidebar actions & utilities
-        actions_box = ttk.LabelFrame(sidebar, text="Pipeline Actions", style="Dark.TFrame", padding=8)
+        actions_box = ttk.LabelFrame(
+            sidebar, text="Pipeline Actions", style="Dark.TFrame", padding=8
+        )
         actions_box.pack(fill=tk.X, pady=(0, 10))
 
         def add_action_button(parent, text, command, tooltip, style="Dark.TButton"):
@@ -801,7 +1379,9 @@ class StableNewGUI:
 
         wildcard_mode_frame = ttk.Frame(wildcard_frame, style="Dark.TFrame")
         wildcard_mode_frame.pack(fill=tk.X, pady=(0, 4))
-        ttk.Label(wildcard_mode_frame, text="Selection mode:", style="Dark.TLabel").pack(side=tk.LEFT)
+        ttk.Label(wildcard_mode_frame, text="Selection mode:", style="Dark.TLabel").pack(
+            side=tk.LEFT
+        )
         ttk.Radiobutton(
             wildcard_mode_frame,
             text="Random per prompt",
@@ -1035,7 +1615,9 @@ class StableNewGUI:
 
         embedding_row = ttk.Frame(aesthetic_frame, style="Dark.TFrame")
         embedding_row.pack(fill=tk.X, pady=(2, 4))
-        ttk.Label(embedding_row, text="Embedding:", style="Dark.TLabel", width=14).pack(side=tk.LEFT)
+        ttk.Label(embedding_row, text="Embedding:", style="Dark.TLabel", width=14).pack(
+            side=tk.LEFT
+        )
         self.aesthetic_embedding_combo = ttk.Combobox(
             embedding_row,
             textvariable=self.aesthetic_embedding_var,
@@ -1097,7 +1679,9 @@ class StableNewGUI:
             command=self._update_aesthetic_states,
         )
         slerp_check.pack(side=tk.LEFT)
-        ttk.Label(slerp_row, text="Angle:", style="Dark.TLabel", width=8).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Label(slerp_row, text="Angle:", style="Dark.TLabel", width=8).pack(
+            side=tk.LEFT, padx=(10, 0)
+        )
         slerp_angle_slider = EnhancedSlider(
             slerp_row,
             from_=0.0,
@@ -1150,29 +1734,53 @@ class StableNewGUI:
         self.aesthetic_widgets["prompt"].append(fallback_entry)
         self.aesthetic_widgets["all"].append(fallback_entry)
         self.aesthetic_widgets["all"].extend(
-            [weight_slider, steps_slider, lr_entry, slerp_check, slerp_angle_slider, text_entry, text_neg_check]
+            [
+                weight_slider,
+                steps_slider,
+                lr_entry,
+                slerp_check,
+                slerp_angle_slider,
+                text_entry,
+                text_neg_check,
+            ]
         )
 
         for key in ("enabled", "prompt_sr_enabled", "wildcards_enabled", "matrix_enabled"):
             try:
+
                 def _rand_trace_cb(*_args, _k=key):
                     self._update_randomization_states()
                     if _k.endswith("enabled"):
                         self._autosave_preferences_if_needed()
+
                 self.randomization_vars[key].trace_add("write", _rand_trace_cb)
             except Exception:
                 pass
         # Persist changes to modes/limits too
-        for key in ("prompt_sr_mode", "wildcard_mode", "matrix_mode", "matrix_prompt_mode", "matrix_limit"):
+        for key in (
+            "prompt_sr_mode",
+            "wildcard_mode",
+            "matrix_mode",
+            "matrix_prompt_mode",
+            "matrix_limit",
+        ):
             try:
-                self.randomization_vars[key].trace_add("write", lambda *_: self._autosave_preferences_if_needed())
+                self.randomization_vars[key].trace_add(
+                    "write", lambda *_: self._autosave_preferences_if_needed()
+                )
             except Exception:
                 pass
 
         try:
-            self.aesthetic_vars["enabled"].trace_add("write", lambda *_: self._aesthetic_autosave_handler())
-            self.aesthetic_vars["mode"].trace_add("write", lambda *_: self._aesthetic_autosave_handler())
-            self.aesthetic_vars["slerp"].trace_add("write", lambda *_: self._aesthetic_autosave_handler())
+            self.aesthetic_vars["enabled"].trace_add(
+                "write", lambda *_: self._aesthetic_autosave_handler()
+            )
+            self.aesthetic_vars["mode"].trace_add(
+                "write", lambda *_: self._aesthetic_autosave_handler()
+            )
+            self.aesthetic_vars["slerp"].trace_add(
+                "write", lambda *_: self._aesthetic_autosave_handler()
+            )
             # Also persist other aesthetic fields on change
             for _k, _var in self.aesthetic_vars.items():
                 try:
@@ -1196,8 +1804,10 @@ class StableNewGUI:
 
         master = bool(vars_dict.get("enabled", tk.BooleanVar(value=False)).get())
         section_enabled = {
-            "prompt_sr_text": master and bool(vars_dict.get("prompt_sr_enabled", tk.BooleanVar()).get()),
-            "wildcard_text": master and bool(vars_dict.get("wildcards_enabled", tk.BooleanVar()).get()),
+            "prompt_sr_text": master
+            and bool(vars_dict.get("prompt_sr_enabled", tk.BooleanVar()).get()),
+            "wildcard_text": master
+            and bool(vars_dict.get("wildcards_enabled", tk.BooleanVar()).get()),
             "matrix_text": master and bool(vars_dict.get("matrix_enabled", tk.BooleanVar()).get()),
         }
 
@@ -1360,7 +1970,9 @@ class StableNewGUI:
             if embed_dir.exists():
                 for file in sorted(embed_dir.glob("*.pt")):
                     embeddings.append(file.stem)
-        self.aesthetic_embeddings = sorted(dict.fromkeys(embeddings), key=lambda name: (name != "None", name.lower()))
+        self.aesthetic_embeddings = sorted(
+            dict.fromkeys(embeddings), key=lambda name: (name != "None", name.lower())
+        )
 
         if self.aesthetic_embedding_var.get() not in self.aesthetic_embeddings:
             self.aesthetic_embedding_var.set("None")
@@ -1453,7 +2065,9 @@ class StableNewGUI:
         wildcards = data.get("wildcards", {})
         vars_dict["wildcards_enabled"].set(bool(wildcards.get("enabled", False)))
         vars_dict["wildcard_mode"].set(wildcards.get("mode", "random"))
-        wildcard_text = wildcards.get("raw_text") or self._format_token_lines(wildcards.get("tokens", []))
+        wildcard_text = wildcards.get("raw_text") or self._format_token_lines(
+            wildcards.get("tokens", [])
+        )
         self._set_randomization_text("wildcard_text", wildcard_text)
 
         matrix = data.get("matrix", {})
@@ -1600,7 +2214,9 @@ class StableNewGUI:
             values = token.get("values", [])
             if not name or not values:
                 continue
-            stripped_name = name.strip("_") if name.startswith("__") and name.endswith("__") else name
+            stripped_name = (
+                name.strip("_") if name.startswith("__") and name.endswith("__") else name
+            )
             lines.append(f"{stripped_name}: {' | '.join(values)}")
         return "\n".join(lines)
 
@@ -1653,7 +2269,9 @@ class StableNewGUI:
         self._bind_autosave_entry(name_entry)
 
         # Values entry
-        ttk.Label(row_frame, text="Options (| separated):", style="Dark.TLabel").pack(side=tk.LEFT, padx=(4, 2))
+        ttk.Label(row_frame, text="Options (| separated):", style="Dark.TLabel").pack(
+            side=tk.LEFT, padx=(4, 2)
+        )
         values_entry = ttk.Entry(row_frame)
         values_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 4))
         if slot_values:
@@ -1736,7 +2354,12 @@ class StableNewGUI:
             name = row["name_entry"].get().strip()
             values_text = row["values_entry"].get().strip()
             if name and values_text:
-                slots.append({"name": name, "values": [v.strip() for v in values_text.split("|") if v.strip()]})
+                slots.append(
+                    {
+                        "name": name,
+                        "values": [v.strip() for v in values_text.split("|") if v.strip()],
+                    }
+                )
 
         # Build legacy format: base prompt on first line, then slots
         lines = []
@@ -2207,7 +2830,9 @@ class StableNewGUI:
             style="Dark.TButton",
         )
         open_output_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self._attach_tooltip(open_output_btn, "Open the output directory in your system file browser.")
+        self._attach_tooltip(
+            open_output_btn, "Open the output directory in your system file browser."
+        )
 
         stop_btn = ttk.Button(
             util_buttons, text="Stop", command=self._stop_execution, style="Danger.TButton"
@@ -2223,7 +2848,6 @@ class StableNewGUI:
         )
         exit_btn.pack(side=tk.LEFT)
         self._attach_tooltip(exit_btn, "Gracefully stop background work and close StableNew.")
-
 
         # Reparent early log panel to bottom_frame
         # (log_panel was created early in __init__ to avoid AttributeError)
@@ -2493,7 +3117,7 @@ class StableNewGUI:
 
                     # Update URL field and status
                     self.root.after(0, lambda: self.api_url_var.set(discovered_url))
-                    self.root.after(0, lambda: self._update_api_status(True, discovered_url))
+                    self.root.after(1000, self._check_api_connection)
 
                     if health["models_loaded"]:
                         self.log_message(
@@ -2676,7 +3300,9 @@ class StableNewGUI:
         # If override mode is NOT enabled, load the pack's config
         if not self.override_pack_var.get():
             # Ensure pack has a config file
-            pack_config = self.config_manager.ensure_pack_config(pack_name, self.preset_var.get() or "default")
+            pack_config = self.config_manager.ensure_pack_config(
+                pack_name, self.preset_var.get() or "default"
+            )
 
             # Load pack's individual config into forms
             self._load_config_into_forms(pack_config)
@@ -2693,7 +3319,9 @@ class StableNewGUI:
         # Update status
         if hasattr(self, "current_pack_label"):
             if self.override_pack_var.get():
-                self.current_pack_label.configure(text=f"Pack: {pack_name} (Override)", foreground="#ffa500")
+                self.current_pack_label.configure(
+                    text=f"Pack: {pack_name} (Override)", foreground="#ffa500"
+                )
             else:
                 self.current_pack_label.configure(text=f"Pack: {pack_name}", foreground="#00ff00")
 
@@ -2709,7 +3337,9 @@ class StableNewGUI:
         # If override mode is NOT enabled, load the first pack's config
         if not self.override_pack_var.get():
             first_pack = selected_packs[0]
-            pack_config = self.config_manager.ensure_pack_config(first_pack, self.preset_var.get() or "default")
+            pack_config = self.config_manager.ensure_pack_config(
+                first_pack, self.preset_var.get() or "default"
+            )
 
             # Load first pack's config into forms
             self._load_config_into_forms(pack_config)
@@ -2718,7 +3348,9 @@ class StableNewGUI:
             self.log_message(f"Showing config from first selected pack: {first_pack}", "INFO")
         else:
             # Override mode: keep current config visible
-            self.log_message(f"Override mode: current config will apply to {len(selected_packs)} packs", "INFO")
+            self.log_message(
+                f"Override mode: current config will apply to {len(selected_packs)} packs", "INFO"
+            )
 
         # Enable config controls
         self._set_config_editable(True)
@@ -2817,11 +3449,13 @@ class StableNewGUI:
             config["aesthetic"] = {}
 
         return config
+
     def _attach_summary_traces(self) -> None:
         """Attach change traces to update live summaries."""
         if getattr(self, "_summary_traces_attached", False):
             return
         try:
+
             def attach_dict(dct: dict):
                 for var in dct.values():
                     try:
@@ -2861,15 +3495,21 @@ class StableNewGUI:
                 cfg = t.get("cfg_scale").get() if "cfg_scale" in t else "-"
                 width = t.get("width").get() if "width" in t else "-"
                 height = t.get("height").get() if "height" in t else "-"
-                self.txt2img_summary_var.set(f"Next run: steps {steps}, sampler {sampler}, cfg {cfg}, size {width}x{height}")
+                self.txt2img_summary_var.set(
+                    f"Next run: steps {steps}, sampler {sampler}, cfg {cfg}, size {width}x{height}"
+                )
 
             # img2img summary
             if hasattr(self, "img2img_vars") and hasattr(self, "img2img_summary_var"):
                 i2i = self.img2img_vars
                 steps = i2i.get("steps").get() if "steps" in i2i else "-"
-                denoise = i2i.get("denoising_strength").get() if "denoising_strength" in i2i else "-"
+                denoise = (
+                    i2i.get("denoising_strength").get() if "denoising_strength" in i2i else "-"
+                )
                 sampler = i2i.get("sampler_name").get() if "sampler_name" in i2i else "-"
-                self.img2img_summary_var.set(f"Next run: steps {steps}, denoise {denoise}, sampler {sampler}")
+                self.img2img_summary_var.set(
+                    f"Next run: steps {steps}, denoise {denoise}, sampler {sampler}"
+                )
 
             # upscale summary
             if hasattr(self, "upscale_vars") and hasattr(self, "upscale_summary_var"):
@@ -2878,14 +3518,18 @@ class StableNewGUI:
                 scale = up.get("upscaling_resize").get() if "upscaling_resize" in up else "-"
                 if mode == "img2img":
                     steps = up.get("steps").get() if "steps" in up else "-"
-                    denoise = up.get("denoising_strength").get() if "denoising_strength" in up else "-"
+                    denoise = (
+                        up.get("denoising_strength").get() if "denoising_strength" in up else "-"
+                    )
                     sampler = up.get("sampler_name").get() if "sampler_name" in up else "-"
                     self.upscale_summary_var.set(
                         f"Mode: img2img — steps {steps}, denoise {denoise}, sampler {sampler}, scale {scale}x"
                     )
                 else:
                     upscaler = up.get("upscaler").get() if "upscaler" in up else "-"
-                    self.upscale_summary_var.set(f"Mode: single — upscaler {upscaler}, scale {scale}x")
+                    self.upscale_summary_var.set(
+                        f"Mode: single — upscaler {upscaler}, scale {scale}x"
+                    )
         except Exception:
             pass
 
@@ -3031,7 +3675,12 @@ class StableNewGUI:
         except Exception:
             batch_size_snapshot = 1
 
-        config_snapshot = config_snapshot or {"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}
+        config_snapshot = config_snapshot or {
+            "txt2img": {},
+            "img2img": {},
+            "upscale": {},
+            "api": {},
+        }
         pipeline_overrides = deepcopy(config_snapshot.get("pipeline", {}))
         api_overrides = deepcopy(config_snapshot.get("api", {}))
         try:
@@ -3063,7 +3712,9 @@ class StableNewGUI:
                 merged.setdefault("api", {}).update(api_overrides)
             # Always honor runtime-only sections from the current form (they are not stored per-pack)
             for runtime_key in ("randomization", "aesthetic"):
-                snapshot_section = deepcopy(config_snapshot.get(runtime_key)) if config_snapshot else None
+                snapshot_section = (
+                    deepcopy(config_snapshot.get(runtime_key)) if config_snapshot else None
+                )
                 if snapshot_section:
                     merged[runtime_key] = snapshot_section
 
@@ -3083,7 +3734,9 @@ class StableNewGUI:
                         if isinstance(val, str) and val.strip():
                             merged.setdefault("img2img", {})[k] = val.strip()
             except Exception as exc:
-                self.log_message(f"⚠️ Failed to overlay live model/VAE selections: {exc}", "WARNING")
+                self.log_message(
+                    f"⚠️ Failed to overlay live model/VAE selections: {exc}", "WARNING"
+                )
 
             if merged:
                 return merged
@@ -3114,13 +3767,19 @@ class StableNewGUI:
                     wc_count = len((rand_cfg.get("wildcards", {}) or {}).get("tokens", []) or [])
                     mx_slots = len((rand_cfg.get("matrix", {}) or {}).get("slots", []) or [])
                     mx_base = (rand_cfg.get("matrix", {}) or {}).get("base_prompt", "")
-                    mx_prompt_mode = (rand_cfg.get("matrix", {}) or {}).get("prompt_mode", "replace")
+                    mx_prompt_mode = (rand_cfg.get("matrix", {}) or {}).get(
+                        "prompt_mode", "replace"
+                    )
                     self.log_message(
                         f"🎲 Randomization active: S/R={sr_count}, wildcards={wc_count}, matrix slots={mx_slots}",
                         "INFO",
                     )
                     if mx_base:
-                        mode_verb = {"replace": "replace", "append": "append to", "prepend": "prepend to"}
+                        mode_verb = {
+                            "replace": "replace",
+                            "append": "append to",
+                            "prepend": "prepend to",
+                        }
                         verb = mode_verb.get(mx_prompt_mode, "replace")
                         self.log_message(
                             f"🎯 Matrix base_prompt will {verb} pack prompts: {mx_base[:60]}...",
@@ -3191,17 +3850,27 @@ class StableNewGUI:
                             # Log effective model/VAE selections for visibility in live log
                             try:
                                 t2i_cfg = (effective_config or {}).get("txt2img", {}) or {}
-                                model_name = t2i_cfg.get("model") or t2i_cfg.get("sd_model_checkpoint") or ""
+                                model_name = (
+                                    t2i_cfg.get("model") or t2i_cfg.get("sd_model_checkpoint") or ""
+                                )
                                 vae_name = t2i_cfg.get("vae") or ""
                                 if model_name or vae_name:
                                     self.log_message(
                                         f"🎛️ txt2img weights → model: {model_name or '(unchanged)'}; VAE: {vae_name or '(unchanged)'}",
                                         "INFO",
                                     )
-                                i2i_enabled = bool((effective_config or {}).get("pipeline", {}).get("img2img_enabled", False))
+                                i2i_enabled = bool(
+                                    (effective_config or {})
+                                    .get("pipeline", {})
+                                    .get("img2img_enabled", False)
+                                )
                                 if i2i_enabled:
                                     i2i_cfg = (effective_config or {}).get("img2img", {}) or {}
-                                    i2i_model = i2i_cfg.get("model") or i2i_cfg.get("sd_model_checkpoint") or ""
+                                    i2i_model = (
+                                        i2i_cfg.get("model")
+                                        or i2i_cfg.get("sd_model_checkpoint")
+                                        or ""
+                                    )
                                     i2i_vae = i2i_cfg.get("vae") or ""
                                     if i2i_model or i2i_vae:
                                         self.log_message(
@@ -3589,7 +4258,7 @@ class StableNewGUI:
         # Log validation summary
         error_count = len(results.get("errors", []))
         warning_count = len(results.get("warnings", []))
-    # info_count = len(results.get("info", []))  # Removed unused variable
+        # info_count = len(results.get("info", []))  # Removed unused variable
 
         if error_count == 0 and warning_count == 0:
             self.log_message("✅ Pack validation passed - no issues found", "SUCCESS")
@@ -3642,7 +4311,11 @@ class StableNewGUI:
 
         # Attempt to stop any running pipeline cleanly
         try:
-            if hasattr(self, "controller") and self.controller is not None and not self.controller.is_terminal:
+            if (
+                hasattr(self, "controller")
+                and self.controller is not None
+                and not self.controller.is_terminal
+            ):
                 try:
                     self.controller.stop_pipeline()
                 except Exception:
@@ -3692,7 +4365,6 @@ class StableNewGUI:
         # Start the visibility checker
         self.root.after(5000, check_window_visibility)  # First check after 5 seconds
 
-
     def run(self):
         """Start the Tkinter main loop with diagnostics."""
         logger.info("[DIAG] About to enter Tkinter mainloop", extra={"flush": True})
@@ -3709,6 +4381,9 @@ class StableNewGUI:
 
         ttk.Label(
             pack_status_frame, text="Current Pack:", style="Dark.TLabel", font=("Arial", 9, "bold")
+        ).pack(side=tk.LEFT)
+        self.current_pack_label = ttk.Label(
+            pack_status_frame,
             text="No pack selected",
             style="Dark.TLabel",
             font=("Arial", 9),
@@ -3718,7 +4393,6 @@ class StableNewGUI:
 
         # Override controls
         override_frame = ttk.Frame(tab_frame, style="Dark.TFrame")
-        override_frame.pack(fill=tk.X, padx=10, pady=5)
 
         self.override_pack_var = tk.BooleanVar(value=False)
         override_checkbox = ttk.Checkbutton(
@@ -4733,7 +5407,9 @@ class StableNewGUI:
         self.preset_var.set("default")
         self.current_preset = "default"
 
-        self.log_message("✓ Loaded default preset (click Save to apply to selected pack)", "SUCCESS")
+        self.log_message(
+            "✓ Loaded default preset (click Save to apply to selected pack)", "SUCCESS"
+        )
 
     def _save_config_to_packs(self):
         """Save current configuration to selected pack(s)"""
@@ -4754,7 +5430,9 @@ class StableNewGUI:
             if len(selected_packs) == 1:
                 self.log_message(f"✓ Saved config to pack: {selected_packs[0]}", "SUCCESS")
             else:
-                self.log_message(f"✓ Saved config to {saved_count}/{len(selected_packs)} pack(s)", "SUCCESS")
+                self.log_message(
+                    f"✓ Saved config to {saved_count}/{len(selected_packs)} pack(s)", "SUCCESS"
+                )
         else:
             self.log_message("Failed to save config to packs", "ERROR")
 
@@ -4835,7 +5513,7 @@ class StableNewGUI:
         if preset_name == "default":
             messagebox.showwarning(
                 "Cannot Delete Default",
-                "The 'default' preset is protected and cannot be deleted.\n\nYou can overwrite it with different settings, but it cannot be removed."
+                "The 'default' preset is protected and cannot be deleted.\n\nYou can overwrite it with different settings, but it cannot be removed.",
             )
             return
 
@@ -4910,9 +5588,7 @@ class StableNewGUI:
                 "📝 Override mode enabled - current config will apply to all selected packs", "INFO"
             )
         else:
-            self.log_message(
-                "📝 Override mode disabled - packs will use individual configs", "INFO"
-            )
+            self.log_message("📝 Override mode disabled - packs will use individual configs", "INFO")
 
     def _preserve_pack_selection(self):
         """Preserve pack selection when config changes"""
@@ -4940,33 +5616,55 @@ class StableNewGUI:
         try:
             if hasattr(self, "config_panel"):
                 if getattr(self, "_diag_enabled", False):
-                    logger.info("[DIAG] _load_config_into_forms: calling config_panel.set_config", extra={"flush": True})
+                    logger.info(
+                        "[DIAG] _load_config_into_forms: calling config_panel.set_config",
+                        extra={"flush": True},
+                    )
                 self.config_panel.set_config(config)
                 if getattr(self, "_diag_enabled", False):
-                    logger.info("[DIAG] _load_config_into_forms: config_panel.set_config returned", extra={"flush": True})
+                    logger.info(
+                        "[DIAG] _load_config_into_forms: config_panel.set_config returned",
+                        extra={"flush": True},
+                    )
             if hasattr(self, "adetailer_panel") and self.adetailer_panel:
                 if getattr(self, "_diag_enabled", False):
-                    logger.info("[DIAG] _load_config_into_forms: calling adetailer_panel.set_config", extra={"flush": True})
+                    logger.info(
+                        "[DIAG] _load_config_into_forms: calling adetailer_panel.set_config",
+                        extra={"flush": True},
+                    )
                 self.adetailer_panel.set_config(config.get("adetailer", {}))
             if getattr(self, "_diag_enabled", False):
-                logger.info("[DIAG] _load_config_into_forms: calling _load_randomization_config", extra={"flush": True})
+                logger.info(
+                    "[DIAG] _load_config_into_forms: calling _load_randomization_config",
+                    extra={"flush": True},
+                )
             self._load_randomization_config(config)
             if getattr(self, "_diag_enabled", False):
-                logger.info("[DIAG] _load_config_into_forms: calling _load_aesthetic_config", extra={"flush": True})
+                logger.info(
+                    "[DIAG] _load_config_into_forms: calling _load_aesthetic_config",
+                    extra={"flush": True},
+                )
             self._load_aesthetic_config(config)
         except Exception as e:
             self.log_message(f"Error loading config into forms: {e}", "ERROR")
             if getattr(self, "_diag_enabled", False):
-                logger.error(f"[DIAG] _load_config_into_forms: exception {e}", exc_info=True, extra={"flush": True})
+                logger.error(
+                    f"[DIAG] _load_config_into_forms: exception {e}",
+                    exc_info=True,
+                    extra={"flush": True},
+                )
 
         # Restore pack selection if it was lost during form updates
         if selected_pack and not self.packs_listbox.curselection():
             if getattr(self, "_diag_enabled", False):
-                logger.info("[DIAG] _load_config_into_forms: restoring pack selection", extra={"flush": True})
+                logger.info(
+                    "[DIAG] _load_config_into_forms: restoring pack selection",
+                    extra={"flush": True},
+                )
             for i in range(self.packs_listbox.size()):
                 if self.packs_listbox.get(i) == selected_pack:
                     # Use unwrapped selection_set to avoid triggering callback recursively
-                    if hasattr(self.prompt_pack_panel, '_orig_selection_set'):
+                    if hasattr(self.prompt_pack_panel, "_orig_selection_set"):
                         self.prompt_pack_panel._orig_selection_set(i)
                     else:
                         self.packs_listbox.selection_set(i)
@@ -5255,6 +5953,7 @@ class StableNewGUI:
             batch_size_snapshot = int(self.images_per_prompt_var.get())
         except Exception:
             batch_size_snapshot = 1
+
         def pipeline_func():
             try:
                 # Pass cancel_token to pipeline
@@ -5301,13 +6000,15 @@ class StableNewGUI:
                 def _show_err():
                     try:
                         import os
-                        if os.environ.get("STABLENEW_NO_ERROR_DIALOG") in {"1","true","TRUE"}:
+
+                        if os.environ.get("STABLENEW_NO_ERROR_DIALOG") in {"1", "true", "TRUE"}:
                             return
                         if not getattr(self, "_error_dialog_shown", False):
                             messagebox.showerror("Pipeline Error", err_text)
                             self._error_dialog_shown = True
                     except Exception:
                         logger.exception("Unable to display error dialog")
+
                 try:
                     self.root.after(0, _show_err)
                 except Exception:
@@ -5401,10 +6102,12 @@ class StableNewGUI:
                     pass
             except Exception:
                 pass
+
             # Also schedule the standard UI error handler
             def _show_err():
                 import os
-                if os.environ.get("STABLENEW_NO_ERROR_DIALOG") in {"1","true","TRUE"}:
+
+                if os.environ.get("STABLENEW_NO_ERROR_DIALOG") in {"1", "true", "TRUE"}:
                     return
                 try:
                     if not getattr(self, "_error_dialog_shown", False):
@@ -5412,6 +6115,7 @@ class StableNewGUI:
                         self._error_dialog_shown = True
                 except Exception:
                     logger.exception("Unable to display error dialog")
+
             try:
                 self.root.after(0, _show_err)
             except Exception:
@@ -5447,6 +6151,7 @@ class StableNewGUI:
         import os
         import sys
         import threading
+
         def exit_app():
             try:
                 self.root.destroy()
@@ -5456,10 +6161,13 @@ class StableNewGUI:
                 sys.exit(1)
             except SystemExit:
                 pass
+
         def force_exit_thread():
             import time
+
             time.sleep(1)
             os._exit(1)
+
         threading.Thread(target=force_exit_thread, daemon=True).start()
 
         try:
@@ -5560,9 +6268,7 @@ class StableNewGUI:
         """Refresh available hypernetworks (thread-safe)."""
 
         if self.client is None:
-            self.root.after(
-                0, lambda: messagebox.showerror("Error", "API client not connected")
-            )
+            self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
             return
 
         def worker():
@@ -5802,7 +6508,3 @@ class StableNewGUI:
     def _randomize_img2img_seed(self):
         """Generate random seed for img2img"""
         self._randomize_seed("img2img")
-
-
-
-

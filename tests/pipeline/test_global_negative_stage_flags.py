@@ -1,9 +1,11 @@
 import base64
 from io import BytesIO
+
 from PIL import Image
 
 from src.pipeline.executor import Pipeline
 from src.utils.logger import StructuredLogger
+
 
 class StubClient:
     def __init__(self):
@@ -24,7 +26,15 @@ class StubClient:
         self.calls.append(("img2img", payload))
         return {"images": [self._png_b64((0, 0, 255))]}
 
-    def upscale_image(self, image_b64, upscaler, upscaling_resize, gfpgan_visibility, codeformer_visibility, codeformer_weight):
+    def upscale_image(
+        self,
+        image_b64,
+        upscaler,
+        upscaling_resize,
+        gfpgan_visibility,
+        codeformer_visibility,
+        codeformer_weight,
+    ):
         self.calls.append(("upscale", {"upscaler": upscaler}))
         return {"image": self._png_b64((255, 255, 0))}
 
@@ -84,14 +94,18 @@ def test_global_negative_stage_flags(tmp_path):
     assert results["txt2img"], "txt2img metadata missing"
     t_meta = results["txt2img"][0]
     assert t_meta["global_negative_applied"] is True
-    assert "GLOBAL_BAD" in t_meta["final_negative_prompt"], "Global negative should appear in txt2img final negative prompt"
+    assert (
+        "GLOBAL_BAD" in t_meta["final_negative_prompt"]
+    ), "Global negative should appear in txt2img final negative prompt"
     assert t_meta["original_negative_prompt"].startswith("local one")
 
     # img2img may or may not run depending on compare/refiner flags; if present, validate flags
     if results["img2img"]:
         i_meta = results["img2img"][0]
         assert i_meta["global_negative_applied"] is False
-        assert "GLOBAL_BAD" not in i_meta["final_negative_prompt"], "Global negative should be skipped for img2img stage"
+        assert (
+            "GLOBAL_BAD" not in i_meta["final_negative_prompt"]
+        ), "Global negative should be skipped for img2img stage"
 
     # Ensure prompt metadata structure
     assert "original_prompt" in t_meta and "final_prompt" in t_meta

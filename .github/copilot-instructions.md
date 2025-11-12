@@ -122,11 +122,11 @@ pytest tests/editor -q
 - Larger runners may be configured later; current default is ubuntu‑latest.
 
 ## 10) Working Agreements (sequence of small PRs Copilot can follow)
-1) Extract/finish panels + mediator wiring.  
-2) Stop/Cancel: controller cancel token plumbed; non‑blocking logs.  
-3) Generation params: hires steps, dimensions, face‑restore toggles.  
-4) ADetailer panel + per‑image decision loop.  
-5) Editor polish (status_text, name prefix, angle brackets, Global Negative; Save‑All UX).  
+1) Extract/finish panels + mediator wiring.
+2) Stop/Cancel: controller cancel token plumbed; non‑blocking logs.
+3) Generation params: hires steps, dimensions, face‑restore toggles.
+4) ADetailer panel + per‑image decision loop.
+5) Editor polish (status_text, name prefix, angle brackets, Global Negative; Save‑All UX).
 6) Docs/CI polish.
 
 ---

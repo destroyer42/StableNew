@@ -64,7 +64,7 @@ sd_a1111_pipeline/
     pipeline/run_upscale.py             # scans generated, writes upscaled->separate folder
     pipeline/run_video.py               # packs selected images -> MP4
     presets/overrides.json              # per-pack overrides (sampler/steps/cfg/size/HR/denoise/neg)
-    packs/                              
+    packs/
       SDXL_batch_prompts_example.txt    # sample prompts with "neg:" lines, blank-line blocks
     output/                             # generated images (per pack / runstamp)
     logs/                               # runtime logs + test logs
@@ -154,6 +154,5 @@ GUI with live console: transparency during long runs = faster triage and fewer �
 
 ## Agent Roster
 - Baseline Pipeline Agent: agents/my-agent.md  — use for core pipeline changes and API/client/pipeline work.
-- 
+-
 - GUI Revamp & Hygiene Agent (current sprint): agents/gui_revamp_archiver_agent.md — use for GUI state/cancel, Prompt Editor wiring, archiver polish, docs/CI.
-

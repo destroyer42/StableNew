@@ -14,11 +14,11 @@
 
 **Sliders Enhanced:**
 - CFG Scale (txt2img) - Resolution: 0.1, Range: 1.0-20.0
-- Denoising Strength (img2img) - Resolution: 0.01, Range: 0.0-1.0  
+- Denoising Strength (img2img) - Resolution: 0.01, Range: 0.0-1.0
 - GFPGAN Visibility (upscale) - Resolution: 0.01, Range: 0.0-1.0
 
 ### 2. Fixed Slider Default Values
-**Problem Solved:** 
+**Problem Solved:**
 - GFPGAN slider was showing position at 0.5 but displaying value as 0.0
 - This happened because GUI initialization (0.5) conflicted with config loading fallback (0.0)
 
@@ -32,7 +32,7 @@
 - `src/gui/main_window.py` - Added editor button and basic editor window
 
 **Features:**
-- **Edit Pack Button**: Added next to "Refresh Packs" button  
+- **Edit Pack Button**: Added next to "Refresh Packs" button
 - **Load Existing**: Select a pack in the list, then click "Edit Pack" to load it
 - **Create New**: Click "Edit Pack" with no selection to create new pack
 - **Save Function**: Save button with file dialog for new packs
@@ -56,7 +56,7 @@
 - **Pack Management**: Clone, delete, rename prompt packs
 - **Smart Completion**: Auto-suggest embeddings and LoRAs while typing
 
-### Enhanced Slider Features  
+### Enhanced Slider Features
 - **More Sliders**: Apply to all remaining sliders (Steps, Width, Height, etc.)
 - **Keyboard Shortcuts**: Arrow keys for fine adjustment
 - **Preset Values**: Quick buttons for common values (e.g., CFG: 7, 7.5, 8)
@@ -88,7 +88,7 @@ python -m src.main
 2. **Create New Pack**:
    - Click "✏️ Edit Pack" (no selection)
    - Enter content
-   - Click "💾 Save" 
+   - Click "💾 Save"
    - Choose filename and location
 
 ### Verifying Fixes
