@@ -119,3 +119,36 @@ def test_face_restoration_controls_toggle(tk_root):
     assert (
         visible_count_after < visible_count
     ), "Face restoration widgets should be hidden when disabled"
+
+
+def test_refiner_switch_steps_ui_and_mapping_label(tk_root):
+    panel = ConfigPanel(tk_root)
+
+    # New absolute steps var and widget exist
+    assert "refiner_switch_steps" in panel.txt2img_vars
+    assert "refiner_switch_steps" in panel.txt2img_widgets
+
+    # Set steps and ratio; verify mapping label reflects ratio path
+    panel.txt2img_vars["steps"].set(50)
+    panel.txt2img_vars["refiner_switch_at"].set(0.8)
+    panel._update_refiner_mapping_label()
+    text1 = panel.refiner_mapping_label.cget("text")
+    assert "step 40/50" in text1 or "Ratio 0.800" in text1
+
+    # Now set absolute steps and verify it takes precedence and shows both forms
+    panel.txt2img_vars["refiner_switch_steps"].set(35)
+    panel._update_refiner_mapping_label()
+    text2 = panel.refiner_mapping_label.cget("text")
+    assert "step 35/50" in text2 and "ratio=0.700" in text2
+
+
+def test_get_config_includes_refiner_switch_steps_when_positive(tk_root):
+    panel = ConfigPanel(tk_root)
+    # initially 0 -> should not force positive
+    cfg = panel.get_config()
+    assert int(cfg["txt2img"].get("refiner_switch_steps", 0)) == 0
+
+    # set positive and expect passthrough
+    panel.txt2img_vars["refiner_switch_steps"].set(12)
+    cfg2 = panel.get_config()
+    assert cfg2["txt2img"]["refiner_switch_steps"] == 12

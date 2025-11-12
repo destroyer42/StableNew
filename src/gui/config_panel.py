@@ -185,6 +185,7 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_vars["enable_hr"] = tk.BooleanVar(value=False)
         self.txt2img_vars["hr_scale"] = tk.DoubleVar(value=2.0)
         self.txt2img_vars["hr_upscaler"] = tk.StringVar(value="Latent")
+        self.txt2img_vars["hr_sampler_name"] = tk.StringVar(value="")
         self.txt2img_vars["denoising_strength"] = tk.DoubleVar(value=0.7)
         self.txt2img_vars["hires_steps"] = tk.IntVar(value=0)
 
@@ -192,6 +193,11 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_vars["face_restoration_enabled"] = tk.BooleanVar(value=False)
         self.txt2img_vars["face_restoration_model"] = tk.StringVar(value="GFPGAN")
         self.txt2img_vars["face_restoration_weight"] = tk.DoubleVar(value=0.5)
+
+        # Refiner (SDXL)
+        self.txt2img_vars["refiner_checkpoint"] = tk.StringVar(value="None")
+        self.txt2img_vars["refiner_switch_at"] = tk.DoubleVar(value=0.8)
+        self.txt2img_vars["refiner_switch_steps"] = tk.IntVar(value=0)
 
         basic_frame = ttk.LabelFrame(scrollable_frame, text="Basic Settings", padding=10)
         basic_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -269,7 +275,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.txt2img_vars["sampler_name"],
             values=["Euler a", "Euler", "DPM++ 2M", "DPM++ SDE", "LMS", "Heun"],
             state="readonly",
-            width=13,
+            width=18,  # widened for readability
         )
         sampler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.txt2img_widgets["sampler_name"] = sampler_combo
@@ -281,7 +287,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.txt2img_vars["scheduler"],
             values=self._scheduler_options,
             state="readonly",
-            width=13,
+            width=18,  # widened for readability
         )
         scheduler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.txt2img_widgets["scheduler"] = scheduler_combo
@@ -293,7 +299,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.txt2img_vars["model"],
             values=[],
             state="readonly",
-            width=25,
+            width=40,  # widened for long model names
         )
         model_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.txt2img_widgets["model"] = model_combo
@@ -305,7 +311,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.txt2img_vars["vae"],
             values=[],
             state="readonly",
-            width=25,
+            width=40,  # widened for long VAE names
         )
         vae_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.txt2img_widgets["vae"] = vae_combo
@@ -342,6 +348,47 @@ class ConfigPanel(ttk.Frame):
             width=15,
         )
         hr_scale_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
+        row += 1
+
+        ttk.Label(hires_frame, text="Upscaler:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        hr_upscaler_combo = ttk.Combobox(
+            hires_frame,
+            textvariable=self.txt2img_vars["hr_upscaler"],
+            values=[
+                "Latent",
+                "Latent (antialiased)",
+                "Latent (bicubic)",
+                "Latent (bicubic antialiased)",
+                "Latent (nearest)",
+                "Latent (nearest-exact)",
+                "None",
+                "Lanczos",
+                "Nearest",
+                "ESRGAN_4x",
+                "LDSR",
+                "R-ESRGAN 4x+",
+                "R-ESRGAN 4x+ Anime6B",
+                "ScuNET GAN",
+                "ScuNET PSNR",
+                "SwinIR 4x",
+            ],
+            state="readonly",
+            width=25,
+        )
+        hr_upscaler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["hr_upscaler"] = hr_upscaler_combo
+        row += 1
+
+        ttk.Label(hires_frame, text="Hires Sampler:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        hr_sampler_combo = ttk.Combobox(
+            hires_frame,
+            textvariable=self.txt2img_vars["hr_sampler_name"],
+            values=["", "Euler a", "Euler", "DPM++ 2M", "DPM++ SDE", "LMS", "Heun"],
+            state="readonly",
+            width=25,
+        )
+        hr_sampler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["hr_sampler_name"] = hr_sampler_combo
         row += 1
 
         ttk.Label(hires_frame, text="Denoising:").grid(row=row, column=0, sticky=tk.W, pady=2)
@@ -401,6 +448,65 @@ class ConfigPanel(ttk.Frame):
         face_weight_label.grid_remove()
         face_weight_spin.grid_remove()  # Hide initially
         row += 1
+
+        # Refiner section (SDXL)
+        refiner_frame = ttk.LabelFrame(scrollable_frame, text="🎨 Refiner (SDXL)", padding=10)
+        refiner_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        row = 0
+        ttk.Label(refiner_frame, text="Refiner Model:").grid(
+            row=row, column=0, sticky=tk.W, pady=2
+        )
+        refiner_combo = ttk.Combobox(
+            refiner_frame,
+            textvariable=self.txt2img_vars["refiner_checkpoint"],
+            values=["None"],
+            state="readonly",
+            width=25,
+        )
+        refiner_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["refiner_checkpoint"] = refiner_combo
+        row += 1
+
+        ttk.Label(refiner_frame, text="Switch ratio:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        refiner_switch_spin = ttk.Spinbox(
+            refiner_frame,
+            from_=0.0,
+            to=1.0,
+            increment=0.01,
+            textvariable=self.txt2img_vars["refiner_switch_at"],
+            width=10,
+        )
+        refiner_switch_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["refiner_switch_at"] = refiner_switch_spin
+        row += 1
+
+        ttk.Label(refiner_frame, text="Switch step (abs):").grid(row=row, column=0, sticky=tk.W, pady=2)
+        refiner_steps_spin = ttk.Spinbox(
+            refiner_frame,
+            from_=0,
+            to=999,
+            increment=1,
+            textvariable=self.txt2img_vars["refiner_switch_steps"],
+            width=10,
+        )
+        refiner_steps_spin.grid(row=row, column=1, sticky=tk.W, pady=2)
+        self.txt2img_widgets["refiner_switch_steps"] = refiner_steps_spin
+        row += 1
+
+        # Live computed mapping label
+        self.refiner_mapping_label = ttk.Label(refiner_frame, text="", font=("Segoe UI", 8), foreground="#888888")
+        self.refiner_mapping_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0,2))
+        row += 1
+
+        # Helper text for refiner
+        refiner_help = ttk.Label(
+            refiner_frame,
+            text="💡 Set either ratio or absolute step (ratio ignored if step > 0)",
+            font=("Segoe UI", 8),
+            foreground="#888888",
+        )
+        refiner_help.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=2)
 
         # Seed and advanced
         advanced_frame = ttk.LabelFrame(scrollable_frame, text="Advanced", padding=10)
@@ -515,7 +621,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.img2img_vars["sampler_name"],
             values=["Euler a", "Euler", "DPM++ 2M", "DPM++ SDE", "LMS", "Heun"],
             state="readonly",
-            width=15,
+            width=18,  # widened for readability
         )
         img_sampler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.img2img_widgets["sampler_name"] = img_sampler_combo
@@ -527,7 +633,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.img2img_vars["scheduler"],
             values=self._scheduler_options,
             state="readonly",
-            width=15,
+            width=18,  # widened for readability
         )
         img_scheduler_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.img2img_widgets["scheduler"] = img_scheduler_combo
@@ -539,7 +645,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.img2img_vars["model"],
             values=[],
             state="readonly",
-            width=25,
+            width=40,  # widened for long model names
         )
         img_model_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.img2img_widgets["model"] = img_model_combo
@@ -551,7 +657,7 @@ class ConfigPanel(ttk.Frame):
             textvariable=self.img2img_vars["vae"],
             values=[],
             state="readonly",
-            width=25,
+            width=40,  # widened for long VAE names
         )
         img_vae_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
         self.img2img_widgets["vae"] = img_vae_combo
@@ -895,6 +1001,18 @@ class ConfigPanel(ttk.Frame):
         for key, var in self.txt2img_vars.items():
             config["txt2img"][key] = var.get()
 
+        # Map UI-only keys to API config keys
+        try:
+            # Map hires_steps spinbox to hr_second_pass_steps used by WebUI
+            if "hires_steps" in config["txt2img"]:
+                config["txt2img"]["hr_second_pass_steps"] = int(config["txt2img"].get("hires_steps", 0))
+            # Pass through refiner absolute steps if provided (>0)
+            if int(config["txt2img"].get("refiner_switch_steps", 0) or 0) > 0:
+                # Keep as user-set; executor converts this to ratio
+                config["txt2img"]["refiner_switch_steps"] = int(config["txt2img"].get("refiner_switch_steps", 0))
+        except Exception:
+            pass
+
         # Extract img2img config
         for key, var in self.img2img_vars.items():
             config["img2img"][key] = var.get()
@@ -1022,20 +1140,7 @@ class ConfigPanel(ttk.Frame):
         except Exception:
             pass
 
-    def _attach_change_traces(self) -> None:
-        """Attach variable traces to flag unsaved changes."""
-        def attach(d: dict[str, tk.Variable]):
-            for v in d.values():
-                try:
-                    v.trace_add("write", self._mark_unsaved)
-                except Exception:
-                    try:
-                        v.trace("w", self._mark_unsaved)  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-
-        for var_dict in (self.txt2img_vars, self.img2img_vars, self.upscale_vars, self.api_vars):
-            attach(var_dict)
+    # (Old _attach_change_traces removed; see enhanced version later in file)
 
     def _mark_unsaved(self, *args) -> None:
         try:
@@ -1060,38 +1165,125 @@ class ConfigPanel(ttk.Frame):
         Args:
             config: Dictionary containing configuration values
         """
+        import os
+        diag = os.environ.get("STABLENEW_DIAG", "").lower() in {"1", "true", "yes"}
+        if diag:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("[DIAG] ConfigPanel.set_config: start", extra={"flush": True})
         # Set txt2img config
         if "txt2img" in config:
-            for key, value in config["txt2img"].items():
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: processing txt2img", extra={"flush": True})
+            # Pre-map hr_second_pass_steps to hires_steps for the UI control
+            txt_cfg = dict(config["txt2img"])  # shallow copy
+            try:
+                if "hr_second_pass_steps" in txt_cfg and "hires_steps" in self.txt2img_vars:
+                    self.txt2img_vars["hires_steps"].set(int(txt_cfg.get("hr_second_pass_steps") or 0))
+            except Exception:
+                pass
+            for key, value in txt_cfg.items():
                 if key in self.txt2img_vars:
                     if key == "scheduler":
                         value = self._normalize_scheduler_value(value)
                     self.txt2img_vars[key].set(value)
+            # Sync mapping label after setting fields
+            try:
+                self._update_refiner_mapping_label()
+            except Exception:
+                pass
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: txt2img done", extra={"flush": True})
 
         # Set img2img config
         if "img2img" in config:
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: processing img2img", extra={"flush": True})
             for key, value in config["img2img"].items():
                 if key in self.img2img_vars:
                     if key == "scheduler":
                         value = self._normalize_scheduler_value(value)
                     self.img2img_vars[key].set(value)
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: img2img done", extra={"flush": True})
 
         # Set upscale config
         if "upscale" in config:
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: processing upscale", extra={"flush": True})
             for key, value in config["upscale"].items():
                 if key in self.upscale_vars:
                     if key == "scheduler":
                         value = self._normalize_scheduler_value(value)
                     self.upscale_vars[key].set(value)
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: upscale done", extra={"flush": True})
 
         # Set API config
         if "api" in config:
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: processing api", extra={"flush": True})
             for key, value in config["api"].items():
                 if key in self.api_vars:
                     self.api_vars[key].set(value)
+            if diag:
+                logger.info("[DIAG] ConfigPanel.set_config: api done", extra={"flush": True})
 
         # Update face restoration visibility
+        if diag:
+            logger.info("[DIAG] ConfigPanel.set_config: calling _toggle_face_restoration", extra={"flush": True})
         self._toggle_face_restoration()
+        if diag:
+            logger.info("[DIAG] ConfigPanel.set_config: calling _update_refiner_mapping_label", extra={"flush": True})
+        try:
+            self._update_refiner_mapping_label()
+        except Exception:
+            pass
+        if diag:
+            logger.info("[DIAG] ConfigPanel.set_config: end", extra={"flush": True})
+
+    def _update_refiner_mapping_label(self):
+        """Compute and display the effective switch mapping."""
+        if not hasattr(self, "refiner_mapping_label"):
+            return
+        try:
+            steps = int(self.txt2img_vars.get("steps").get())
+        except Exception:
+            steps = 0
+        ratio = float(self.txt2img_vars.get("refiner_switch_at").get()) if steps else 0.0
+        abs_step = int(self.txt2img_vars.get("refiner_switch_steps").get())
+        if abs_step > 0 and steps > 0:
+            # Show both representations
+            computed_ratio = abs_step / float(steps)
+            self.refiner_mapping_label.configure(
+                text=f"🔀 Will switch at step {abs_step}/{steps} (ratio={computed_ratio:.3f})"
+            )
+        elif steps > 0 and 0 < ratio < 1:
+            target_step = int(round(ratio * steps))
+            self.refiner_mapping_label.configure(
+                text=f"🔀 Ratio {ratio:.3f} => switch ≈ step {target_step}/{steps}"
+            )
+        else:
+            self.refiner_mapping_label.configure(text="")
+
+    def _attach_change_traces(self) -> None:
+        """Attach variable traces to flag unsaved changes (extended to update refiner mapping)."""
+        def attach(d: dict[str, tk.Variable]):
+            for k, v in d.items():
+                try:
+                    def _cb(*_):
+                        self._mark_unsaved()
+                        if k in {"refiner_switch_at", "refiner_switch_steps", "steps"}:
+                            self._update_refiner_mapping_label()
+                    v.trace_add("write", _cb)
+                except Exception:
+                    try:
+                        v.trace("w", _cb)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+
+        for var_dict in (self.txt2img_vars, self.img2img_vars, self.upscale_vars, self.api_vars):
+            attach(var_dict)
 
     def validate(self) -> tuple[bool, list[str]]:
         """
@@ -1193,9 +1385,16 @@ class ConfigPanel(ttk.Frame):
             )
 
     def set_model_options(self, models: Iterable[str]) -> None:
-        """Update base model selections for txt2img/img2img."""
+        """Update base model selections for txt2img/img2img and refiner."""
         self._set_combobox_values(self.txt2img_widgets.get("model"), models)
         self._set_combobox_values(self.img2img_widgets.get("model"), models)
+
+        # Also populate refiner dropdown with models (prepend "None" option)
+        refiner_models = ["None"]
+        for m in models or []:
+            if m and str(m).strip():
+                refiner_models.append(str(m).strip())
+        self._set_combobox_values(self.txt2img_widgets.get("refiner_checkpoint"), refiner_models)
 
     def set_vae_options(self, vae_models: Iterable[str]) -> None:
         """Update VAE selections for txt2img/img2img."""

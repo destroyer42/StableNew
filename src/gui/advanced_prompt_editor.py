@@ -2,12 +2,14 @@
 Advanced Prompt Pack Editor with validation, embedding/LoRA discovery, and smart features
 """
 
+import os
 import re
-import tkinter as tk
 from pathlib import Path
+import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from .tooltip import Tooltip
+from ..utils.config import DEFAULT_GLOBAL_NEGATIVE_PROMPT
 
 
 class AdvancedPromptEditor:
@@ -59,8 +61,13 @@ class AdvancedPromptEditor:
                 self.format_var = _Var("txt")
 
         # Default global negative content storage
-        if not hasattr(self, "global_neg_content"):
-            self.global_neg_content = ""
+        try:
+            if self.config_manager and hasattr(self.config_manager, "get_global_negative_prompt"):
+                self.global_neg_content = self.config_manager.get_global_negative_prompt()
+            else:
+                self.global_neg_content = DEFAULT_GLOBAL_NEGATIVE_PROMPT
+        except Exception:
+            self.global_neg_content = DEFAULT_GLOBAL_NEGATIVE_PROMPT
 
     def _attach_tooltip(self, widget: tk.Widget, text: str, delay: int = 1500) -> None:
         """Attach a tooltip to a widget when Tk is available."""
@@ -92,6 +99,13 @@ class AdvancedPromptEditor:
 
         # Build the UI
         self._build_advanced_ui()
+
+        # Ensure persisted global negative and model caches are displayed
+        self._refresh_global_negative_display()
+        try:
+            self._refresh_models()
+        except Exception:
+            pass
 
         # Load pack if specified
         if pack_path:
@@ -476,6 +490,22 @@ class AdvancedPromptEditor:
         self.validation_text.tag_configure("success", foreground="#66bb6a")
         self.validation_text.tag_configure("info", foreground="#42a5f5")
 
+    def _build_status_bar(self, parent):
+        """Build status bar at bottom of editor window"""
+        status_frame = ttk.Frame(parent, style="Dark.TFrame")
+        status_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
+
+        # Recreate status_text within the editor window (not parent)
+        self._status_var = tk.StringVar(value="Ready")
+        self.status_text = ttk.Label(
+            status_frame,
+            textvariable=self._status_var,
+            style="Dark.TLabel",
+            anchor=tk.W,
+            font=("Segoe UI", 9)
+        )
+        self.status_text.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
     def _build_models_tab(self):
         """Build the models browser tab"""
         models_frame = ttk.Frame(self.notebook, style="Dark.TFrame")
@@ -628,45 +658,114 @@ Errors and warnings appear in the Validation tab.
         help_text.insert(tk.END, help_content)
         help_text.config(state=tk.DISABLED)
 
-    def _build_status_bar(self, parent):
-        """Build the status bar"""
-        self.status_bar = ttk.Frame(parent, style="Dark.TFrame")
-        self.status_bar.pack(fill=tk.X, pady=(10, 0))
+    def _candidate_model_roots(self) -> list[Path]:
+        """Return likely Stable Diffusion WebUI roots for model discovery."""
 
-        self.status_text = ttk.Label(self.status_bar, text="Ready", style="Dark.TLabel")
-        self.status_text.pack(side=tk.LEFT)
+        roots: list[Path] = []
+        seen: set[str] = set()
 
-        # Progress bar for operations
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(
-            self.status_bar, variable=self.progress_var, length=200, mode="determinate"
-        )
-        self.progress_bar.pack(side=tk.RIGHT, padx=(10, 0))
-        self.progress_bar.pack_forget()  # Hide initially
+        def add(path_like):
+            if not path_like:
+                return
+            try:
+                candidate = Path(path_like).expanduser()
+            except Exception:
+                return
+            try:
+                resolved = candidate.resolve()
+            except Exception:
+                resolved = candidate
+            key = str(resolved).lower()
+            if key in seen or not resolved.exists():
+                return
+            seen.add(key)
+            roots.append(resolved)
+
+        # Environment overrides
+        for env_var in ("STABLENEW_MODEL_ROOT", "STABLENEW_MODELS_ROOT", "WEBUI_ROOT"):
+            try:
+                add(os.environ.get(env_var))
+            except Exception:
+                continue
+
+        # Common install locations
+        add(Path.home() / "stable-diffusion-webui")
+        add(Path.cwd() / "stable-diffusion-webui")
+        try:
+            add(Path(__file__).resolve().parents[3] / "stable-diffusion-webui")
+        except Exception:
+            pass
+
+        return roots
+
+    @staticmethod
+    def _collect_model_names(directory: Path, suffixes: set[str]) -> set[str]:
+        """Collect model file stems from a directory tree."""
+
+        names: set[str] = set()
+        if not directory or not directory.exists():
+            return names
+        try:
+            for file in directory.rglob("*"):
+                if file.is_file() and file.suffix.lower() in suffixes:
+                    names.add(file.stem)
+        except Exception:
+            return names
+        return names
 
     def _load_model_caches(self):
         """Load embeddings and LoRAs into local caches.
 
-        In this lightweight implementation we simply ensure the caches exist.
-        A future enhancement can query the pipeline or scan model folders.
+        Scans known WebUI folders (or overrides) so the editor can offer
+        up-to-date insertion menus and validation for embeddings/LoRAs.
         """
-        if not hasattr(self, "embeddings_cache"):
-            self.embeddings_cache = set()
-        if not hasattr(self, "loras_cache"):
-            self.loras_cache = set()
+        embedding_suffixes = {".pt", ".bin", ".ckpt", ".safetensors", ".embedding"}
+        lora_suffixes = {".safetensors", ".ckpt", ".pt"}
+
+        embeddings: set[str] = set()
+        loras: set[str] = set()
+
+        for root in self._candidate_model_roots():
+            embeddings_dir_candidates = [
+                root / "embeddings",
+                root / "models" / "embeddings",
+            ]
+            for directory in embeddings_dir_candidates:
+                embeddings.update(self._collect_model_names(directory, embedding_suffixes))
+
+            lora_dir_candidates = [
+                root / "loras",
+                root / "models" / "Lora",
+                root / "models" / "LoRA",
+                root / "models" / "LORA",
+                root / "models" / "lycoris",
+                root / "models" / "LyCORIS",
+            ]
+            for directory in lora_dir_candidates:
+                loras.update(self._collect_model_names(directory, lora_suffixes))
+
+        self.embeddings_cache = embeddings
+        self.loras_cache = loras
 
     def _refresh_global_negative_display(self):
         """Refresh the global negative text editor from stored content."""
         try:
+            if self.config_manager and hasattr(self.config_manager, "get_global_negative_prompt"):
+                latest = self.config_manager.get_global_negative_prompt()
+                self.global_neg_content = latest
+            else:
+                latest = getattr(self, "global_neg_content", DEFAULT_GLOBAL_NEGATIVE_PROMPT)
             if hasattr(self, "global_neg_text") and self.global_neg_text:
                 self.global_neg_text.delete("1.0", tk.END)
-                self.global_neg_text.insert("1.0", getattr(self, "global_neg_content", ""))
+                self.global_neg_text.insert("1.0", latest)
         except Exception:
             # Non-fatal in headless or partial UI scenarios
             pass
 
     def _populate_model_lists(self):
         """Populate the embeddings and LoRAs lists"""
+        if not hasattr(self, "embeddings_listbox") or not hasattr(self, "loras_listbox"):
+            return
         # Clear existing items
         self.embeddings_listbox.delete(0, tk.END)
         self.loras_listbox.delete(0, tk.END)
@@ -679,10 +778,32 @@ Errors and warnings appear in the Validation tab.
         for lora in sorted(self.loras_cache):
             self.loras_listbox.insert(tk.END, lora)
         # Update counts in status
-        embed_count = len(self.embeddings_cache)
-        lora_count = len(self.loras_cache)
-        if hasattr(self, 'status_text') and (embed_count or lora_count):
-            self.status_text.config(text=f"Models: {embed_count} embeddings, {lora_count} LoRAs")
+        embeddings = sorted(getattr(self, "embeddings_cache", set()))
+        loras = sorted(getattr(self, "loras_cache", set()))
+        embed_count = len(embeddings)
+        lora_count = len(loras)
+
+        if hasattr(self, 'status_text'):
+            if embed_count or lora_count:
+                status = f"Models: {embed_count} embeddings, {lora_count} LoRAs"
+            else:
+                status = "Models refreshed (none found)"
+            self.status_text.config(text=status)
+
+        if not hasattr(self, "embeddings_listbox") or not hasattr(self, "loras_listbox"):
+            return
+
+        # Clear existing items
+        self.embeddings_listbox.delete(0, tk.END)
+        self.loras_listbox.delete(0, tk.END)
+
+        # Add embeddings
+        for embedding in embeddings:
+            self.embeddings_listbox.insert(tk.END, embedding)
+
+        # Add LoRAs
+        for lora in loras:
+            self.loras_listbox.insert(tk.END, lora)
 
     def _refresh_models(self):
         """Refresh the model caches"""
@@ -690,8 +811,6 @@ Errors and warnings appear in the Validation tab.
             self.status_text.config(text="Refreshing models...")
         self._load_model_caches()
         self._populate_model_lists()
-        if hasattr(self, 'status_text'):
-            self.status_text.config(text="Models refreshed")
     def _insert_embedding(self, event=None):
         """Insert selected embedding into prompt"""
         selection = self.embeddings_listbox.curselection()
@@ -886,8 +1005,8 @@ neg: malformed, bad anatomy, low quality"""
             self.is_modified = False
             if self.window:
                 self.window.title(f"Advanced Prompt Pack Editor - {path.name}")
-            if hasattr(self, 'status_text'):
-                self.status_text.config(text=f"Saved: {path.name}")
+            if hasattr(self, '_status_var'):
+                self._status_var.set(f"Saved: {path.name}")
 
             # Notify parent of changes
             if self.on_packs_changed:
@@ -917,8 +1036,8 @@ neg: malformed, bad anatomy, low quality"""
         self.is_modified = True
         if self.window:
             self.window.title(f"Advanced Prompt Pack Editor - {clone_name} (Clone) *")
-        if hasattr(self, 'status_text'):
-            self.status_text.config(text=f"Cloned as: {clone_name}")
+        if hasattr(self, '_status_var'):
+            self._status_var.set(f"Cloned as: {clone_name}")
 
     def _delete_pack(self):
         """Delete the current pack"""
@@ -1094,7 +1213,7 @@ neg: malformed, bad anatomy, low quality"""
         # Check LoRAs
         lora_pattern = re.compile(r"<lora:([^:>]+)(?::([^>]+))?>", flags=re.IGNORECASE)
         loras = lora_pattern.findall(prompt)
-        lora_cache = {l.lower() for l in getattr(self, "loras_cache", set())}
+        lora_cache = {entry.lower() for entry in getattr(self, "loras_cache", set())}
 
         for lora_name, weight in loras:
             name = lora_name.strip()
@@ -1318,21 +1437,38 @@ neg: malformed, bad anatomy, low quality"""
         """Save the global negative prompt"""
         try:
             content = self.global_neg_text.get("1.0", tk.END).strip()
-            self.global_neg_content = content
-            if hasattr(self, 'status_text'):
-                self.status_text.config(text="Global negative prompt updated")
-            messagebox.showinfo("Success", "Global negative prompt has been updated.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save global negative: {e}")
+        except Exception as exc:
+            messagebox.showerror("Error", f"Failed to read global negative: {exc}")
+            return
+
+        persisted = True
+        if self.config_manager and hasattr(self.config_manager, "save_global_negative_prompt"):
+            persisted = self.config_manager.save_global_negative_prompt(content)
+
+        if not persisted:
+            messagebox.showerror("Error", "Failed to save global negative prompt to disk.")
+            return
+
+        self.global_neg_content = content
+        if hasattr(self, '_status_var'):
+            self._status_var.set("Global negative prompt updated")
+        messagebox.showinfo("Success", "Global negative prompt has been updated.")
 
     def _reset_global_negative(self):
         """Reset global negative to default"""
-        default_neg = "blurry, bad quality, distorted, ugly, malformed, nsfw, nude, naked, explicit, sexual content, adult content, inappropriate, offensive"
-        self.global_neg_text.delete('1.0', tk.END)
-        self.global_neg_text.insert('1.0', default_neg)
+        default_neg = DEFAULT_GLOBAL_NEGATIVE_PROMPT
+        persisted = True
+        if self.config_manager and hasattr(self.config_manager, "save_global_negative_prompt"):
+            persisted = self.config_manager.save_global_negative_prompt(default_neg)
+
+        if not persisted:
+            messagebox.showerror("Error", "Failed to restore default global negative prompt.")
+            return
+
         self.global_neg_content = default_neg
-        if hasattr(self, 'status_text'):
-            self.status_text.config(text="Global negative reset to default")
+        self._refresh_global_negative_display()
+        if hasattr(self, '_status_var'):
+            self._status_var.set("Global negative reset to default")
 
     def _check_unsaved_changes(self):
         """Check for unsaved changes and prompt user"""

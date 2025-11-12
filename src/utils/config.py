@@ -6,6 +6,11 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+DEFAULT_GLOBAL_NEGATIVE_PROMPT = (
+    "blurry, bad quality, distorted, ugly, malformed, nsfw, nude, naked, explicit, "
+    "sexual content, adult content, immodest"
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,6 +26,9 @@ class ConfigManager:
         """
         self.presets_dir = Path(presets_dir)
         self.presets_dir.mkdir(exist_ok=True)
+        self._global_negative_path = self.presets_dir / "global_negative.txt"
+        self._global_negative_cache: str | None = None
+        self._default_preset_path = self.presets_dir / ".default_preset"
 
     def load_preset(self, name: str) -> dict[str, Any] | None:
         """
@@ -79,6 +87,33 @@ class ConfigManager:
         logger.info(f"Found {len(presets)} presets")
         return sorted(presets)
 
+    def delete_preset(self, name: str) -> bool:
+        """
+        Delete a preset configuration.
+
+        Args:
+            name: Name of the preset to delete
+
+        Returns:
+            True if deleted successfully
+        """
+        if name == "default":
+            logger.warning("Cannot delete the default preset")
+            return False
+
+        preset_path = self.presets_dir / f"{name}.json"
+        if not preset_path.exists():
+            logger.warning(f"Preset '{name}' not found at {preset_path}")
+            return False
+
+        try:
+            preset_path.unlink()
+            logger.info(f"Deleted preset: {name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete preset '{name}': {e}")
+            return False
+
     def get_default_config(self) -> dict[str, Any]:
         """
         Get the default configuration for all pipeline stages.
@@ -114,6 +149,7 @@ class ConfigManager:
                 "enable_hr": False,  # High-res fix / hires.fix
                 "hr_scale": 2.0,  # Hires.fix upscale factor
                 "hr_upscaler": "Latent",  # Hires.fix upscaler
+                "hr_sampler_name": "",  # Optional separate sampler for hires second pass
                 "hr_second_pass_steps": 0,  # 0 = use same as steps
                 "hr_resize_x": 0,  # 0 = automatic based on hr_scale
                 "hr_resize_y": 0,  # 0 = automatic based on hr_scale
@@ -124,6 +160,10 @@ class ConfigManager:
                 "hypernetwork": "None",
                 "hypernetwork_strength": 1.0,
                 "styles": [],  # Style names to apply
+                # SDXL refiner controls
+                "refiner_checkpoint": "",
+                "refiner_switch_at": 0.8,  # ratio 0-1 used by WebUI
+                "refiner_switch_steps": 0,  # optional: absolute step number within base pass; 0=unused
             },
             "img2img": {
                 "steps": 15,
@@ -200,6 +240,18 @@ class ConfigManager:
                 "text": "",
                 "text_is_negative": False,
                 "fallback_prompt": "",
+            },
+            "pipeline": {
+                "img2img_enabled": True,
+                "upscale_enabled": True,
+                "adetailer_enabled": False,
+                "allow_hr_with_stages": False,
+                "refiner_compare_mode": False,  # When True and refiner+hires enabled, branch original & refined
+                # Global negative application toggles per-stage (default True for backward compatibility)
+                "apply_global_negative_txt2img": True,
+                "apply_global_negative_img2img": True,
+                "apply_global_negative_upscale": True,
+                "apply_global_negative_adetailer": True,
             },
         }
 
@@ -405,23 +457,57 @@ class ConfigManager:
 
         return self._merge_config_with_defaults(config)
 
+    def get_global_negative_prompt(self) -> str:
+        """Return the persisted global negative prompt, creating a default if missing."""
+
+        if self._global_negative_cache is not None:
+            return self._global_negative_cache
+
+        prompt = DEFAULT_GLOBAL_NEGATIVE_PROMPT
+        try:
+            if self._global_negative_path.exists():
+                text = self._global_negative_path.read_text(encoding="utf-8").strip()
+                if text:
+                    prompt = text
+            else:
+                self._global_negative_path.parent.mkdir(parents=True, exist_ok=True)
+                self._global_negative_path.write_text(prompt, encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001 - log and fall back to default
+            logger.warning("Failed reading global negative prompt: %s", exc)
+        self._global_negative_cache = prompt
+        return prompt
+
+    def save_global_negative_prompt(self, prompt: str) -> bool:
+        """Persist a custom global negative prompt to disk."""
+
+        text = (prompt or "").strip()
+        try:
+            self._global_negative_path.parent.mkdir(parents=True, exist_ok=True)
+            self._global_negative_path.write_text(text, encoding="utf-8")
+            self._global_negative_cache = text
+            logger.info("Saved global negative prompt (%s chars)", len(text))
+            return True
+        except Exception as exc:  # noqa: BLE001 - surface failure but keep running
+            logger.error("Failed to save global negative prompt: %s", exc)
+            return False
+
     def add_global_negative(self, negative_prompt: str) -> str:
         """
-        Add global NSFW prevention to negative prompt.
+        Add global safety terms to the provided negative prompt.
 
         Args:
             negative_prompt: Existing negative prompt
 
         Returns:
-            Enhanced negative prompt with safety additions
+            Combined negative prompt string
         """
-        global_neg = (
-            "nsfw, nude, naked, explicit, sexual content, adult content, "
-            "inappropriate, offensive, disturbing, violent, graphic"
-        )
 
-        if negative_prompt:
-            return f"{negative_prompt}, {global_neg}"
+        global_neg = self.get_global_negative_prompt().strip()
+        base = (negative_prompt or "").strip()
+        if not global_neg:
+            return base
+        if base:
+            return f"{base}, {global_neg}"
         return global_neg
 
     def _merge_config_with_defaults(self, config: dict[str, Any] | None) -> dict[str, Any]:
@@ -436,3 +522,73 @@ class ConfigManager:
             else:
                 merged[key] = value
         return merged
+
+    def set_default_preset(self, preset_name: str) -> bool:
+        """
+        Set a preset as the default to load on startup.
+
+        Args:
+            preset_name: Name of the preset to set as default
+
+        Returns:
+            True if set successfully
+        """
+        if not preset_name:
+            logger.warning("Cannot set empty preset name as default")
+            return False
+
+        # Verify preset exists
+        preset_path = self.presets_dir / f"{preset_name}.json"
+        if not preset_path.exists():
+            logger.warning(f"Preset '{preset_name}' does not exist, cannot set as default")
+            return False
+
+        try:
+            self._default_preset_path.write_text(preset_name, encoding="utf-8")
+            logger.info(f"Set default preset to: {preset_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set default preset: {e}")
+            return False
+
+    def get_default_preset(self) -> str | None:
+        """
+        Get the name of the default preset.
+
+        Returns:
+            Name of default preset, or None if not set
+        """
+        if not self._default_preset_path.exists():
+            return None
+
+        try:
+            preset_name = self._default_preset_path.read_text(encoding="utf-8").strip()
+            if preset_name:
+                # Verify preset still exists
+                preset_path = self.presets_dir / f"{preset_name}.json"
+                if preset_path.exists():
+                    return preset_name
+                else:
+                    logger.warning(f"Default preset '{preset_name}' no longer exists")
+                    # Clean up stale reference
+                    self._default_preset_path.unlink(missing_ok=True)
+                    return None
+            return None
+        except Exception as e:
+            logger.error(f"Failed to read default preset: {e}")
+            return None
+
+    def clear_default_preset(self) -> bool:
+        """
+        Clear the default preset setting.
+
+        Returns:
+            True if cleared successfully
+        """
+        try:
+            self._default_preset_path.unlink(missing_ok=True)
+            logger.info("Cleared default preset")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear default preset: {e}")
+            return False

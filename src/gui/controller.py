@@ -95,6 +95,10 @@ class PipelineController:
         with self._epoch_lock:
             self._epoch_id += 1
             eid = self._epoch_id
+        try:
+            self._log(f"[controller] Starting pipeline epoch {eid}", "DEBUG")
+        except Exception:
+            pass
 
         # 3) Reset per-run signals (allocate new Event)
         self._cleanup_done = threading.Event()
@@ -171,16 +175,15 @@ class PipelineController:
                 return
             self._cleanup_started = True
 
-        # Join once, owned by controller
+        # NEVER join worker thread - violates architecture rule (GUI must not block on threads)
+        # Worker is daemon and will exit naturally when pipeline_func completes
         with self._join_lock:
-            if self._worker is not None and threading.current_thread() is not self._worker:
-                self._worker.join(timeout=self._JOIN_TIMEOUT)
             self._worker = None
 
         # Terminate subprocess if still around
         self._terminate_subprocess()
 
-        # State to terminal AFTER join/teardown
+        # State to terminal AFTER teardown
         if not self.state_manager.is_state(GUIState.ERROR):
             self.state_manager.transition_to(GUIState.IDLE)
 
@@ -189,6 +192,10 @@ class PipelineController:
         self.state_change_event.clear()
 
         # Signal “done” last
+        try:
+            self._log(f"[controller] Cleanup complete for epoch {eid} (error={error_occurred})", "DEBUG")
+        except Exception:
+            pass
         self.lifecycle_event.set()
         self._cleanup_done.set()
 
