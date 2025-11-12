@@ -85,22 +85,111 @@
     "adetailer_steps": 12,
     "adetailer_denoise": 0.25833333333333336,
     "adetailer_cfg": 6.0,
+<<<<<<< Updated upstream
     "adetailer_prompt": "",
     "adetailer_negative_prompt": ""
+=======
+    "adetailer_prompt": "natural skin texture, clear eyes, detailed eyelashes, balanced highlights, subtle film grain, sharp focus",
+    "adetailer_negative_prompt": "asymmetrical eyes, glossy skin, melted face, face mush, deformed nose, overexposed highlights"
+>>>>>>> Stashed changes
   },
   "randomization": {
     "enabled": true,
     "prompt_sr": {
-      "enabled": false,
+      "enabled": true,
       "mode": "random",
-      "rules": [],
-      "raw_text": ""
+      "rules": [
+        {
+          "search": "beautiful woman",
+          "replacements": [
+            "beautiful woman",
+            "goddess",
+            "huntress",
+            "sorceress",
+            "angelic figure"
+          ]
+        },
+        {
+          "search": "portrait",
+          "replacements": [
+            "portrait",
+            "close-up",
+            "cinematic portrait",
+            "fashion shot"
+          ]
+        },
+        {
+          "search": "lighting",
+          "replacements": [
+            "soft light",
+            "hard light",
+            "dramatic lighting",
+            "volumetric light"
+          ]
+        },
+        {
+          "search": "scene",
+          "replacements": [
+            "setting",
+            "background",
+            "environment",
+            "location"
+          ]
+        },
+        {
+          "search": "camera",
+          "replacements": [
+            "camera",
+            "lens",
+            "composition",
+            "cinematic angle"
+          ]
+        }
+      ],
+      "raw_text": "beautiful woman => beautiful woman|goddess|huntress|sorceress|angelic figure\nportrait => portrait |close-up|cinematic portrait|fashion shot\nlighting => soft light|hard light|dramatic lighting|volumetric light\nscene => setting|background|environment|location\ncamera => camera|lens|composition|cinematic angle"
     },
     "wildcards": {
-      "enabled": false,
+      "enabled": true,
       "mode": "random",
-      "tokens": [],
-      "raw_text": ""
+      "tokens": [
+        {
+          "token": "__environment__",
+          "values": [
+            "plains",
+            "mountains",
+            "lakeside",
+            "underwater cave"
+          ]
+        },
+        {
+          "token": "__mood__",
+          "values": [
+            "light-hearted",
+            "serious",
+            "playful"
+          ]
+        },
+        {
+          "token": "__lighting__",
+          "values": [
+            "well-lit",
+            "moonlit",
+            "soft-light",
+            "day-light"
+          ]
+        },
+        {
+          "token": "__props__",
+          "values": [
+            "dagger",
+            "staff",
+            "sword",
+            "shuriken",
+            "whip"
+          ]
+        }
+      ],
+      "raw_text": "__environment__:  plains | mountains | lakeside | underwater cave\n__mood__: light-hearted | serious | playful\n__lighting__: well-lit | moonlit | soft-light | day-light\n__props__:  dagger | staff | sword | shuriken | whip"
     },
     "matrix": {
       "enabled": true,
@@ -111,22 +200,40 @@
         {
           "name": "place",
           "values": [
+<<<<<<< Updated upstream
             "jungle",
             "castle",
             "misty forest"
+=======
+            "blonde",
+            "black",
+            "brown",
+            "red",
+            "auburn",
+            "silver"
+>>>>>>> Stashed changes
           ]
         },
         {
           "name": "clothes",
           "values": [
+<<<<<<< Updated upstream
             "bikini armor",
             "chainmail",
             "swimsuit"
+=======
+            "bikini",
+            "bikini armor",
+            "thong and bralette",
+            "diaphanous robes",
+            "crystal lingerie"
+>>>>>>> Stashed changes
           ]
         },
         {
           "name": "looks",
           "values": [
+<<<<<<< Updated upstream
             "resolute",
             "pleasantly focused",
             "happy"
@@ -138,11 +245,39 @@
             "soft golden light",
             "torchlight and shadow",
             "blue ambient glow"
+=======
+            "sexy",
+            "scandalous",
+            "radiant",
+            "mystical",
+            "fierce"
+          ]
+        },
+        {
+          "name": "environment",
+          "values": [
+            "castle hall",
+            "misty forest",
+            "ancient temple",
+            "moonlit beach",
+            "glowing ruins"
+          ]
+        },
+        {
+          "name": "lighting",
+          "values": [
+            "soft glowing light",
+            "torches and shadow",
+            "blue ambient glow",
+            "sunset flare",
+            "moonlight haze"
+>>>>>>> Stashed changes
           ]
         },
         {
           "name": "camera",
           "values": [
+<<<<<<< Updated upstream
             "close up",
             "3/4 portrait",
             "waist-up"
@@ -151,6 +286,17 @@
       ],
       "raw_text": "# Base: the hero is in [[place]] wearing [[clothes]] and looking [[looks]] with [[lighting]] around them from [[camera]] angle\nplace: jungle | castle | misty forest\nclothes: bikini armor | chainmail | swimsuit\nlooks: resolute | pleasantly focused | happy\nlighting: soft golden light | torchlight and shadow | blue ambient glow\ncamera: close up | 3/4 portrait | waist-up",
       "base_prompt": "the hero is in [[place]] wearing [[clothes]] and looking [[looks]] with [[lighting]] around them from [[camera]] angle"
+=======
+            "low-angle 3/4 portrait",
+            "full-body stance",
+            "wide-angle cinematic shot",
+            "overhead looking down angle"
+          ]
+        }
+      ],
+      "raw_text": "# Base: a [[hair]]-haired beautiful woman wearing [[clothes]], looking [[style]] in a [[environment]] under [[lighting]] from a [[camera]] perspective\nhair: blonde | black | brown | red | auburn | silver\nclothes: bikini | bikini armor | thong and bralette | diaphanous robes | crystal lingerie\nstyle: sexy | scandalous | radiant | mystical | fierce\nenvironment: castle hall | misty forest | ancient temple | moonlit beach | glowing ruins\nlighting: soft glowing light | torches and shadow | blue ambient glow | sunset flare | moonlight haze\ncamera: low-angle 3/4 portrait | full-body stance | wide-angle cinematic shot | overhead looking down angle",
+      "base_prompt": "a [[hair]]-haired beautiful woman wearing [[clothes]], looking [[style]] in a [[environment]] under [[lighting]] from a [[camera]] perspective"
+>>>>>>> Stashed changes
     }
   },
   "aesthetic": {
