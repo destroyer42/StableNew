@@ -10,7 +10,7 @@
     "seed": -1,
     "seed_resize_from_h": -1,
     "seed_resize_from_w": -1,
-    "enable_hr": true,
+    "enable_hr": false,
     "hr_scale": 1.5,
     "hr_upscaler": "Latent",
     "hr_sampler_name": "DPM++ 2M",
@@ -68,8 +68,8 @@
     "adetailer_steps": 12,
     "adetailer_denoise": 0.19166666666666668,
     "adetailer_cfg": 6.0,
-    "adetailer_prompt": "",
-    "adetailer_negative_prompt": ""
+    "adetailer_prompt": "(masterpiece, best quality, 8k, HDR, ultra-detailed skin texture, natural lighting, sharp focus, cinematic tone)\nheroic expression, intense eyes, defined jawline, realistic skin pores, smooth complexion, balanced highlights and shadows, \nsubtle film grain, natural depth of field, perfect facial symmetry, highly detailed eyes and eyelashes, \nintricate hair strands, clear facial geometry, soft rim light\n<lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>",
+    "adetailer_negative_prompt": "neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:stable_yogis_pdxl_negatives2-neg> <embedding:stable_yogis_anatomy_negatives_v1-neg>\nneg: blurry, low quality, cartoon, extra eyes, asymmetrical face, bad eyes, bad teeth, overexposed skin, \nplastic skin, shiny forehead, unnatural shadowing, low detail, overprocessed, deformed pupils, distorted mouth, \nartifacting, wax texture, makeup smears, discolored skin tones"
   },
   "video": {
     "fps": 24,
@@ -100,12 +100,11 @@
       "limit": 0,
       "slots": [
         {
-          "name": "hair",
+          "name": "place",
           "values": [
-            "blonde",
-            "black",
-            "brown",
-            "red"
+            "castle",
+            "blue beautiful lake",
+            "misty forest"
           ]
         },
         {
@@ -113,19 +112,19 @@
           "values": [
             "bikini armor",
             "bikini",
-            "bralette and thong"
+            "armor"
           ]
         },
         {
-          "name": "style",
+          "name": "face",
           "values": [
-            "sexy",
-            "gorgeous",
-            "radiant"
+            "hopeful",
+            "happy",
+            "serene"
           ]
         },
         {
-          "name": "light",
+          "name": "lighting",
           "values": [
             "soft glowing light",
             "shadows and torchlight",
@@ -135,15 +134,15 @@
         {
           "name": "angle",
           "values": [
-            "3/4 character",
-            "waist up",
-            "low-angle close up"
+            "3/4 shot",
+            "full body",
+            "low angle close-up"
           ]
         }
       ],
-      "raw_text": "# Base: a [[hair]] hair colored female, wearing [[clothes]] and looking [[style]] in the [[light]] with a [[angle]] angle\nhair: blonde | black | brown | red\nclothes: bikini armor | bikini | bralette and thong\nstyle: sexy | gorgeous | radiant\nlight: soft glowing light | shadows and torchlight | blue ambient glow\nangle: 3/4 character | waist up | low-angle close up",
+      "raw_text": "# Base: a beautiful hero standing at [[place]] wearing [[clothes]] and looking [[face]] in the [[lighting]] with [[angle]] angle\nplace: castle | blue beautiful lake | misty forest\nclothes: bikini armor | bikini | armor\nface: hopeful | happy | serene\nlighting: soft glowing light | shadows and torchlight | blue ambient glow\nangle: 3/4 shot | full body | low angle close-up",
       "prompt_mode": "prepend",
-      "base_prompt": "a [[hair]] hair colored female, wearing [[clothes]] and looking [[style]] in the [[light]] with a [[angle]] angle"
+      "base_prompt": "a beautiful hero standing at [[place]] wearing [[clothes]] and looking [[face]] in the [[lighting]] with [[angle]] angle"
     }
   },
   "aesthetic": {

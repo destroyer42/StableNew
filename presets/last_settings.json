@@ -1,7 +1,7 @@
 {
-  "preset": "default",
+  "preset": "Heroes13",
   "selected_packs": [
-    "SDXL_heroes_10_ALT.txt"
+    "SDXL_heroes_10_ALT_MOD.txt"
   ],
   "override_pack": false,
   "pipeline_controls": {
@@ -24,8 +24,8 @@
   },
   "config": {
     "txt2img": {
-      "steps": 34,
-      "cfg_scale": 6.1,
+      "steps": 32,
+      "cfg_scale": 6.0,
       "width": 1024,
       "height": 1024,
       "sampler_name": "DPM++ 2M",
@@ -37,19 +37,19 @@
       "negative_prompt": "blurry, bad quality, distorted",
       "hypernetwork": "None",
       "hypernetwork_strength": 1.0,
-      "enable_hr": false,
+      "enable_hr": true,
       "hr_scale": 1.5,
       "hr_upscaler": "Latent",
       "hr_sampler_name": "DPM++ 2M",
-      "denoising_strength": 0.27,
-      "hires_steps": 12,
+      "denoising_strength": 0.2,
+      "hires_steps": 15,
       "face_restoration_enabled": false,
       "face_restoration_model": "GFPGAN",
       "face_restoration_weight": 0.5,
-      "refiner_checkpoint": "None",
+      "refiner_checkpoint": "",
       "refiner_switch_at": 0.8,
       "refiner_switch_steps": 0,
-      "hr_second_pass_steps": 12
+      "hr_second_pass_steps": 15
     },
     "img2img": {
       "steps": 15,
@@ -67,13 +67,13 @@
       "negative_adjust": ""
     },
     "upscale": {
-      "upscaler": "4x-UltraSharpV2",
-      "upscaling_resize": 2.0,
+      "upscaler": "4xUltrasharp_4xUltrasharpV10",
+      "upscaling_resize": 1.5,
       "upscale_mode": "single",
       "steps": 15,
       "sampler_name": "DPM++ 2M",
       "scheduler": "Karras",
-      "denoising_strength": 0.15,
+      "denoising_strength": 0.2,
       "gfpgan_visibility": 0.0,
       "codeformer_visibility": 0.0,
       "codeformer_weight": 0.0
@@ -103,14 +103,14 @@
     "adetailer": {
       "adetailer_enabled": true,
       "adetailer_model": "face_yolov8n.pt",
-      "adetailer_confidence": 0.6916666666666667,
+      "adetailer_confidence": 0.5,
       "adetailer_mask_feather": 8,
       "adetailer_sampler": "DPM++ 2M",
       "adetailer_steps": 12,
-      "adetailer_denoise": 0.25833333333333336,
+      "adetailer_denoise": 0.19166666666666668,
       "adetailer_cfg": 6.0,
-      "adetailer_prompt": "(masterpiece, best quality, 8k, HDR, ultra-detailed skin texture, natural lighting, sharp focus, cinematic tone) <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>\nheroic expression, intense eyes, defined jawline, realistic skin pores, smooth complexion, balanced highlights and shadows, \nsubtle film grain, natural depth of field, perfect facial symmetry, highly detailed eyes and eyelashes, \nintricate hair strands, clear facial geometry, soft rim light",
-      "adetailer_negative_prompt": "neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:stable_yogis_pdxl_negatives2-neg> <embedding:stable_yogis_anatomy_negatives_v1-neg>\nneg: blurry, low quality, cartoon, extra eyes, asymmetrical face, bad eyes, bad teeth, overexposed skin, \nplastic skin, shiny forehead, unnatural shadowing, low detail, overprocessed, deformed pupils, distorted mouth, \nartifacting, wax texture, makeup smears, discolored skin tones"
+      "adetailer_prompt": "",
+      "adetailer_negative_prompt": ""
     },
     "randomization": {
       "enabled": true,
@@ -128,53 +128,54 @@
       },
       "matrix": {
         "enabled": true,
-        "mode": "rotate",
-        "prompt_mode": "append",
+        "mode": "fanout",
+        "prompt_mode": "prepend",
         "limit": 0,
         "slots": [
           {
-            "name": "place",
+            "name": "hair",
             "values": [
-              "jungle",
-              "castle",
-              "misty forest"
+              "blonde",
+              "black",
+              "brown",
+              "red"
             ]
           },
           {
             "name": "clothes",
             "values": [
               "bikini armor",
-              "chainmail",
-              "swimsuit"
+              "bikini",
+              "bralette and thong"
             ]
           },
           {
-            "name": "looks",
+            "name": "style",
             "values": [
-              "resolute",
-              "pleasantly focused",
-              "happy"
+              "sexy",
+              "gorgeous",
+              "radiant"
             ]
           },
           {
-            "name": "lighting",
+            "name": "light",
             "values": [
-              "soft golden light",
-              "torchlight and shadow",
+              "soft glowing light",
+              "shadows and torchlight",
               "blue ambient glow"
             ]
           },
           {
-            "name": "camera",
+            "name": "angle",
             "values": [
-              "close up",
-              "3/4 portrait",
-              "waist-up"
+              "3/4 character",
+              "waist up",
+              "low-angle close up"
             ]
           }
         ],
-        "raw_text": "# Base: the hero is in [[place]] wearing [[clothes]] and looking [[looks]] with [[lighting]] around them from [[camera]] angle\nplace: jungle | castle | misty forest\nclothes: bikini armor | chainmail | swimsuit\nlooks: resolute | pleasantly focused | happy\nlighting: soft golden light | torchlight and shadow | blue ambient glow\ncamera: close up | 3/4 portrait | waist-up",
-        "base_prompt": "the hero is in [[place]] wearing [[clothes]] and looking [[looks]] with [[lighting]] around them from [[camera]] angle"
+        "raw_text": "# Base: a [[hair]] hair colored female, wearing [[clothes]] and looking [[style]] in the [[light]] with a [[angle]] angle\nhair: blonde | black | brown | red\nclothes: bikini armor | bikini | bralette and thong\nstyle: sexy | gorgeous | radiant\nlight: soft glowing light | shadows and torchlight | blue ambient glow\nangle: 3/4 character | waist up | low-angle close up",
+        "base_prompt": "a [[hair]] hair colored female, wearing [[clothes]] and looking [[style]] in the [[light]] with a [[angle]] angle"
       }
     },
     "aesthetic": {
@@ -185,8 +186,8 @@
       "learning_rate": 0.0001,
       "slerp": false,
       "slerp_angle": 0.1,
-      "embedding": "ParadiseGirl-1024",
-      "text": "paradise",
+      "embedding": "None",
+      "text": "",
       "text_is_negative": false,
       "fallback_prompt": ""
     }
