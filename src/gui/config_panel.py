@@ -883,7 +883,7 @@ class ConfigPanel(ttk.Frame):
 
         # Initialize variables
         self.api_vars["base_url"] = tk.StringVar(value="http://127.0.0.1:7860")
-        self.api_vars["timeout"] = tk.IntVar(value=30)
+        self.api_vars["timeout"] = tk.IntVar(value=60)
 
         # Settings
         settings_frame = ttk.LabelFrame(tab, text="API Settings", padding=10)

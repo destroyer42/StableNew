@@ -6,8 +6,8 @@
   "override_pack": false,
   "pipeline_controls": {
     "txt2img_enabled": true,
-    "img2img_enabled": false,
-    "adetailer_enabled": true,
+    "img2img_enabled": true,
+    "adetailer_enabled": false,
     "upscale_enabled": true,
     "video_enabled": false,
     "apply_global_negative_txt2img": true,
@@ -84,8 +84,8 @@
     },
     "pipeline": {
       "txt2img_enabled": true,
-      "img2img_enabled": false,
-      "adetailer_enabled": true,
+      "img2img_enabled": true,
+      "adetailer_enabled": false,
       "upscale_enabled": true,
       "video_enabled": false,
       "apply_global_negative_txt2img": true,
@@ -129,53 +129,33 @@
       "matrix": {
         "enabled": true,
         "mode": "fanout",
-        "prompt_mode": "prepend",
+        "prompt_mode": "replace",
         "limit": 0,
         "slots": [
           {
-            "name": "hair",
+            "name": "place",
             "values": [
-              "blonde",
-              "black",
-              "brown",
-              "red"
+              "jungle",
+              "castle"
             ]
           },
           {
             "name": "clothes",
             "values": [
-              "bikini armor",
-              "bikini",
-              "bralette and thong"
+              "leather armor",
+              "bikini armor"
             ]
           },
           {
-            "name": "style",
+            "name": "looks",
             "values": [
-              "sexy",
               "gorgeous",
-              "radiant"
-            ]
-          },
-          {
-            "name": "light",
-            "values": [
-              "soft glowing light",
-              "shadows and torchlight",
-              "blue ambient glow"
-            ]
-          },
-          {
-            "name": "angle",
-            "values": [
-              "3/4 character",
-              "waist up",
-              "low-angle close up"
+              "scandalous"
             ]
           }
         ],
-        "raw_text": "# Base: a [[hair]] hair colored female, wearing [[clothes]] and looking [[style]] in the [[light]] with a [[angle]] angle\nhair: blonde | black | brown | red\nclothes: bikini armor | bikini | bralette and thong\nstyle: sexy | gorgeous | radiant\nlight: soft glowing light | shadows and torchlight | blue ambient glow\nangle: 3/4 character | waist up | low-angle close up",
-        "base_prompt": "a [[hair]] hair colored female, wearing [[clothes]] and looking [[style]] in the [[light]] with a [[angle]] angle"
+        "raw_text": "# Base: A female ranger standing in [[place]] wearing [clothes] and looking [[looks]]\nplace: jungle | castle\nclothes: leather armor | bikini armor\nlooks: gorgeous | scandalous",
+        "base_prompt": "A female ranger standing in [[place]] wearing [clothes] and looking [[looks]]"
       }
     },
     "aesthetic": {
@@ -186,8 +166,8 @@
       "learning_rate": 0.0001,
       "slerp": false,
       "slerp_angle": 0.1,
-      "embedding": "None",
-      "text": "",
+      "embedding": "ParadiseGirl-1024",
+      "text": "paradise",
       "text_is_negative": false,
       "fallback_prompt": ""
     }
