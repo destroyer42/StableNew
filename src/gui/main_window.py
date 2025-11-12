@@ -35,9 +35,112 @@ from .state import CancellationError, GUIState, StateManager
 from .tooltip import Tooltip
 
 logger = logging.getLogger(__name__)
+logging.raiseExceptions = False
 
 
 class StableNewGUI:
+    def __init__(self, *args, **kwargs):
+        # ---- double-init guard ----
+        if getattr(self, "_constructed", False):
+            print("[DIAG] StableNewGUI.__init__: called twice; ignoring second call")
+            return
+        self._constructed = True
+
+        print("[DIAG] StableNewGUI.__init__ (main): start")
+
+        # ---- create Tk root first ----
+        import tkinter as tk
+        self.root = tk.Tk()
+
+        # ---- build UI widgets/panels (no IO here) ----
+        self._build_widgets()        # create frames, panels, variables
+        self._wire_events()          # bind <<ListboxSelect>>, buttons, etc.
+
+        # ---- install runtime guards now that root exists ----
+        self._install_tk_exception_reporter()   # sets self.root.report_callback_exception
+        self._start_heartbeat()                 # logger.debug heartbeat via root.after
+
+        # ---- defer initialization so Tk can paint ----
+        self.root.after(0, self._initialize_ui_state)          # UI-only work
+        self.root.after(250, self._start_webui_discovery_async)  # network in worker
+
+        print("[DIAG] StableNewGUI.__init__ (main): scheduling done, entering mainloop")
+        self.root.mainloop()
+
+    def _install_tk_exception_reporter(self):
+        import logging, traceback
+        log = logging.getLogger(__name__)
+
+        def _transition_error():
+            try:
+                self.controller.lifecycle_event.set()
+            except Exception:
+                pass
+            try:
+                self.root.after(0, lambda: self.state_manager.transition_to(GUIState.ERROR))
+            except Exception:
+                pass
+
+        def _report_callback_exception(exc, val, tb):
+            log.error("Tk callback exception: %s: %s", getattr(exc, "__name__", exc), val)
+            for line in traceback.format_tb(tb):
+                log.error(line.rstrip())
+            _transition_error()
+
+        self.root.report_callback_exception = _report_callback_exception
+        print("[DIAG] Tk exception reporter installed")
+
+    def _start_heartbeat(self):
+        import logging
+        log = logging.getLogger(__name__)
+        def _hb():
+            log.debug("[HEARTBEAT] ui alive")
+            self.root.after(1000, _hb)
+        self.root.after(1000, _hb)
+        print("[DIAG] Heartbeat scheduled")
+
+    def _initialize_ui_state(self):
+        print("[DIAG] _initialize_ui_state: entered")
+        try:
+            self.prompt_pack_panel.select_first_pack()  # must be UI-only
+        except Exception as e:
+            import logging; logging.getLogger(__name__).exception("init UI state failed: %s", e)
+            try:
+                self.root.after(0, lambda: self.state_manager.transition_to(GUIState.ERROR))
+            except Exception:
+                pass
+
+    def _start_webui_discovery_async(self):
+        print("[DIAG] _start_webui_discovery_async: spawn worker")
+        import threading, logging
+        log = logging.getLogger(__name__)
+
+        def worker():
+            try:
+                status = self.webui_discovery.discover(timeout=(1.5, 6.0))  # no Tk calls here
+                self.root.after(0, lambda: self._apply_webui_status(status))
+            except Exception as e:
+                log.exception("WebUI discovery failed: %s", e)
+                self.root.after(0, lambda: self._apply_webui_error(e))
+
+        threading.Thread(target=worker, daemon=True).start()
+    def _safe_messagebox(self, kind: str, title: str, text: str) -> None:
+        """Thread-safe messagebox helper (runs on main thread).
+        See: BUG_FIX_GUI_HANG_SECOND_RUN.md for rationale.
+        """
+        if os.getenv("STABLENEW_NO_ERROR_DIALOG") in {"1","true","TRUE"} and kind.lower() in {"error","warning"}:
+            logger.warning(f"[DIAG] Messagebox suppressed: {title}: {text}")
+            return
+        def _do():
+            try:
+                getattr(messagebox, f"show{kind}")(title, text)
+            except Exception:
+                logger.exception("messagebox failed")
+        try:
+            self.root.after(0, _do)
+        except Exception:
+            _do()
+
     def force_reset(self):
         """Force a full GUI and state reset after a crash or error."""
         logger.info("[DIAG] StableNewGUI.force_reset: starting reset", extra={"flush": True})
@@ -55,7 +158,6 @@ class StableNewGUI:
         self._error_dialog_shown = False
         # Optionally, reset controller, config, etc. if needed
         logger.info("[DIAG] StableNewGUI.force_reset: reset complete", extra={"flush": True})
-    """Main GUI application with modern dark theme"""
 
     def __init__(self):
         """Initialize GUI"""
@@ -502,9 +604,9 @@ class StableNewGUI:
         # Status bar - at the very bottom
         self._build_status_bar(main_frame)
 
-        # Initialize UI state asynchronously to avoid blocking Tk
+        # Defer all heavy UI state initialization until after Tk mainloop starts
         try:
-            self._initialize_ui_state_async()
+            self.root.after(0, self._initialize_ui_state_async)
         except Exception as exc:
             logger.warning("Failed to schedule UI state init: %s", exc)
 
@@ -5552,13 +5654,22 @@ class StableNewGUI:
                 except Exception:
                     pass
 
-                # Call patched messagebox early to ensure test mock sees it
+                # Marshal error dialog to Tk thread (or bypass if env says so)
+                def _show_err():
+                    try:
+                        import os
+                        if os.environ.get("STABLENEW_NO_ERROR_DIALOG") in {"1","true","TRUE"}:
+                            return
+                        if not getattr(self, "_error_dialog_shown", False):
+                            messagebox.showerror("Pipeline Error", err_text)
+                            self._error_dialog_shown = True
+                    except Exception:
+                        logger.exception("Unable to display error dialog")
                 try:
-                    if not getattr(self, "_error_dialog_shown", False):
-                        messagebox.showerror("Pipeline Error", err_text)
-                        self._error_dialog_shown = True
+                    self.root.after(0, _show_err)
                 except Exception:
-                    pass
+                    # Fallback for test harnesses without a real root loop
+                    _show_err()
 
                 # Ensure tests waiting on lifecycle_event are not blocked
                 try:
@@ -5648,10 +5759,20 @@ class StableNewGUI:
             except Exception:
                 pass
             # Also schedule the standard UI error handler
+            def _show_err():
+                import os
+                if os.environ.get("STABLENEW_NO_ERROR_DIALOG") in {"1","true","TRUE"}:
+                    return
+                try:
+                    if not getattr(self, "_error_dialog_shown", False):
+                        messagebox.showerror("Pipeline Error", str(e))
+                        self._error_dialog_shown = True
+                except Exception:
+                    logger.exception("Unable to display error dialog")
             try:
-                self.root.after(0, lambda: self._handle_pipeline_error(e))
+                self.root.after(0, _show_err)
             except Exception:
-                pass
+                _show_err()
             # Ensure lifecycle_event is signaled promptly on error
             try:
                 self.controller.lifecycle_event.set()

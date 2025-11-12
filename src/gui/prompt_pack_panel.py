@@ -27,16 +27,6 @@ def dump_main_thread_stack(tag=""):
 Prompt Pack Panel - UI component for managing and selecting prompt packs.
 """
 
-import logging
-import tkinter as tk
-import os
-from collections.abc import Callable
-from pathlib import Path
-from tkinter import messagebox, simpledialog, ttk
-
-from ..utils.file_io import get_prompt_packs
-from .tooltip import Tooltip
-
 logger = logging.getLogger(__name__)
 
 
@@ -334,7 +324,6 @@ class PromptPackPanel(ttk.Frame):
             """
             logger.info("[DIAG] PromptPackPanel._on_pack_selection_changed: start", extra={"flush": True})
             logger.info("[DIAG] _on_pack_selection_changed: before curselection", extra={"flush": True})
-            import threading
             # Always bounce to the Tk thread
             if threading.current_thread() is not threading.main_thread():
                 self.after(0, lambda: self._on_pack_selection_changed(event))
