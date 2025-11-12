@@ -1,76 +1,199 @@
 """Modern Tkinter GUI for Stable Diffusion pipeline with dark theme"""
 
+from __future__ import annotations
 import json
-import logging
+
+
 import os
-import subprocess
-import sys
 import threading
-import time
-import tkinter as tk
-import tkinter.simpledialog
-from copy import deepcopy
+import logging
+import traceback
+from typing import Optional, Any
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import Any
+import tkinter as tk
+from tkinter import scrolledtext
+from src.gui.advanced_prompt_editor import AdvancedPromptEditor
+from src.gui.state import GUIState
+    # --- Dark theme style variables ---
+    style = ttk.Style()
+    bg_color = "#23272e"
+    fg_color = "#e6e6e6"
+    button_bg = "#2d333b"
+    button_active = "#0078d4"
+    entry_bg = "#23272e"
 
-from ..api import SDWebUIClient
-from ..pipeline import Pipeline, VideoCreator
-from ..pipeline.variant_planner import apply_variant_to_config, build_variant_plan
-from ..utils import ConfigManager, PreferencesManager, StructuredLogger, setup_logging
-from ..utils.aesthetic import detect_aesthetic_extension
-from ..utils.file_io import get_prompt_packs, read_prompt_pack
-from ..utils.randomizer import PromptRandomizer, PromptVariant
-from ..utils.webui_discovery import find_webui_api_port, launch_webui_safely, validate_webui_health
-from .advanced_prompt_editor import AdvancedPromptEditor
-from .api_status_panel import APIStatusPanel
-from .config_panel import ConfigPanel
-from .controller import PipelineController
-from .enhanced_slider import EnhancedSlider
-from .log_panel import LogPanel, TkinterLogHandler
-from .pipeline_controls_panel import PipelineControlsPanel
-from .prompt_pack_list_manager import PromptPackListManager
-from .prompt_pack_panel import PromptPackPanel
-from .state import CancellationError, GUIState, StateManager
-from .tooltip import Tooltip
 
+from tkinter import Tk, messagebox, ttk
+from threading import Thread, Event
+from queue import Queue, Empty
+import time
+import traceback
+import logging
+import src.api.client as api_client
+import src.pipeline.executor as pipeline_executor
+import src.pipeline.video as video_pipeline
+import utils.file_io as file_io
+from src.utils.preferences import PreferencesManager
+from src.gui.prompt_pack_panel import PromptPackPanel
+from src.gui.pipeline_controls_panel import PipelineControlsPanel
+from src.gui.config_panel import ConfigPanel
+from src.gui.api_status_panel import APIStatusPanel
+from src.gui.log_panel import LogPanel
 logger = logging.getLogger(__name__)
-logging.raiseExceptions = False
-
 
 class StableNewGUI:
-    def __init__(self, *args, **kwargs):
-        # ---- double-init guard ----
-        if getattr(self, "_constructed", False):
-            print("[DIAG] StableNewGUI.__init__: called twice; ignoring second call")
-            return
-        self._constructed = True
+    def __init__(self):
+        # --- Dark theme style variables ---
+        self.style = ttk.Style()
+        self.bg_color = "#23272e"
+        self.fg_color = "#e6e6e6"
+        self.button_bg = "#2d333b"
+        self.button_active = "#0078d4"
+        self.entry_bg = "#23272e"
+        # Initialize main Tk window
+        self.root = Tk()
+        self.root.title("StableNew - Diffusion Automation")
+        # Ensure proper shutdown on window close
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        print("[DIAG] StableNewGUI.__init__ (main): start")
+        # Panels: each owns its own state and exposes get_state/set_state
+        self.prompt_panel = PromptPackPanel(self.root)  # Prompt pack selection and editing
+        self.controls_panel = PipelineControlsPanel(self.root)  # Pipeline controls (start/cancel)
+        self.config_panel = ConfigPanel(self.root)  # Config settings panel
+        self.api_status_panel = APIStatusPanel(self.root)  # API readiness/status
+        self.log_panel = LogPanel(self.root)  # Log output panel
 
-        # ---- create Tk root first ----
-        import tkinter as tk
-        self.root = tk.Tk()
+        # Event queue for cross-thread communication (worker → main thread)
+        self.event_queue = Queue()
+        # Event for cooperative shutdown (never block main thread)
+        self.shutdown_event = Event()
 
-        # ---- build UI widgets/panels (no IO here) ----
-        self._build_widgets()        # create frames, panels, variables
-        self._wire_events()          # bind <<ListboxSelect>>, buttons, etc.
+        # Diagnostics: heartbeat and centralized error handler
+        self._setup_diagnostics()
 
-        # ---- install runtime guards now that root exists ----
-        self._install_tk_exception_reporter()   # sets self.root.report_callback_exception
-        self._start_heartbeat()                 # logger.debug heartbeat via root.after
+        # Start async API discovery (non-blocking, never blocks Tk)
+        self._start_api_discovery()
 
-        # ---- defer initialization so Tk can paint ----
-        self.root.after(0, self._initialize_ui_state)          # UI-only work
-        self.root.after(250, self._start_webui_discovery_async)  # network in worker
+        # Layout panels using mediator pattern
+        self._layout_panels()
 
-        print("[DIAG] StableNewGUI.__init__ (main): scheduling done, entering mainloop")
+    def _setup_diagnostics(self):
+        # Centralized exception handler for Tk callbacks
+        # All exceptions in Tk callbacks are routed here for logging and user notification
+        def handle_exception(exc_type, exc_value, exc_traceback):
+            logging.error("Exception in Tk callback:", exc_info=(exc_type, exc_value, exc_traceback))
+            self._show_error_dialog(traceback.format_exception(exc_type, exc_value, exc_traceback))
+        self.root.report_callback_exception = handle_exception
+
+        # Heartbeat to check UI thread health (diagnostics)
+        self._heartbeat_active = True
+        self._heartbeat()
+
+    def _heartbeat(self):
+        # Periodic heartbeat to confirm UI thread is alive; logs every second
+        if self._heartbeat_active:
+            logging.debug("UI heartbeat alive")
+            self.root.after(1000, self._heartbeat)
+
+    def _show_error_dialog(self, message):
+        # Thread-safe error dialog; always marshals to main thread
+        if self.root:
+            self.root.after(0, lambda: messagebox.showerror("Error", message))
+
+    def _start_api_discovery(self):
+        # Start API readiness check in a worker thread
+        # Never block Tk main thread; results posted to event_queue
+        def discover():
+            try:
+                ready = api_client.check_api_ready()  # Exponential backoff inside client
+                self.event_queue.put(("api_ready", ready))
+            except Exception as e:
+                self.event_queue.put(("api_error", str(e)))
+        Thread(target=discover, daemon=True).start()
+
+    def _layout_panels(self):
+        # Use grid to lay out panels; mediator wires events between them
+        self.prompt_panel.grid(row=0, column=0, sticky="nsew")
+        self.controls_panel.grid(row=1, column=0, sticky="ew")
+        self.config_panel.grid(row=2, column=0, sticky="ew")
+        self.api_status_panel.grid(row=3, column=0, sticky="ew")
+        self.log_panel.grid(row=4, column=0, sticky="ew")
+        # Make prompt panel expandable
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+
+    def run(self):
+        # Main event loop; non-blocking for Tk
+        # Polls for cross-thread events and starts Tk mainloop
+        self._poll_events()
         self.root.mainloop()
 
-    def _install_tk_exception_reporter(self):
-        import logging, traceback
-        log = logging.getLogger(__name__)
+    def _poll_events(self):
+        # Poll event queue for cross-thread events (worker → main thread)
+        # Never blocks; uses after() for periodic polling
+        try:
+            while True:
+                event, payload = self.event_queue.get_nowait()
+                self._handle_event(event, payload)
+        except Empty:
+            pass
+        # Continue polling unless shutdown requested
+        if not self.shutdown_event.is_set():
+            self.root.after(100, self._poll_events)
 
+    def _handle_event(self, event, payload):
+        # Bubble events up to mediator, push updates down to panels
+        if event == "api_ready":
+            # API is ready; update status panel
+            self.api_status_panel.set_ready(payload)
+        elif event == "api_error":
+            # API error; update status panel and show error dialog
+            self.api_status_panel.set_error(payload)
+            self._show_error_dialog(f"API error: {payload}")
+        # ... handle other events as needed ...
+
+    def on_close(self):
+        # Cooperative shutdown; never block main thread
+        # Stop heartbeat, signal shutdown, and destroy root window
+        self._heartbeat_active = False
+        self.shutdown_event.set()
+        self.root.destroy()
+        self.left_col.pack(side="left", fill="y")
+        self.right_col.pack(side="right", fill="both", expand=True)
+
+        # Prompt packs (mediator)
+        self.prompt_pack_panel = PromptPackPanel(
+            parent=self.left_col,
+            on_selection_changed=self._on_pack_selection_changed_mediator,
+            config_manager=self.config_manager,
+        )
+        self.prompt_pack_panel.pack(fill="y", padx=8, pady=8)
+
+        # Controls panel
+        self.pipeline_controls_panel = PipelineControlsPanel(
+            parent=self.right_col,
+            controller=self.controller,
+            config_manager=self.config_manager,
+            state_manager=self.state_manager,
+            on_run_clicked=self._on_run_clicked,
+        )
+        self.pipeline_controls_panel.pack(fill="both", expand=True, padx=8, pady=8)
+
+        # Apply persisted UI prefs
+        try:
+            self.pipeline_controls_panel.set_loop_count(1)
+            self.pipeline_controls_panel.set_images_per_prompt(1)
+            logger.info("PipelineControlsPanel: loop_count set to 1")
+            logger.info("PipelineControlsPanel: images_per_prompt set to 1")
+        except Exception:
+            logger.exception("Failed to apply initial control values")
+
+    def _wire_events(self) -> None:
+        # Add any explicit accelerator bindings, etc., here if needed later
+        pass
+
+    # -------- diagnostics --------
+    def _install_tk_exception_reporter(self) -> None:
         def _transition_error():
             try:
                 self.controller.lifecycle_event.set()
@@ -82,350 +205,181 @@ class StableNewGUI:
                 pass
 
         def _report_callback_exception(exc, val, tb):
-            log.error("Tk callback exception: %s: %s", getattr(exc, "__name__", exc), val)
+            logger.error("Tk callback exception: %s: %s", getattr(exc, "__name__", exc), val)
             for line in traceback.format_tb(tb):
-                log.error(line.rstrip())
+                logger.error(line.rstrip())
             _transition_error()
 
+        # Tk calls this for all callback exceptions
         self.root.report_callback_exception = _report_callback_exception
-        print("[DIAG] Tk exception reporter installed")
+        logger.info("[DIAG] Tk exception reporter installed")
 
-    def _start_heartbeat(self):
-        import logging
-        log = logging.getLogger(__name__)
+    def _start_heartbeat(self) -> None:
         def _hb():
-            log.debug("[HEARTBEAT] ui alive")
+            logger.debug("[HEARTBEAT] ui alive")
             self.root.after(1000, _hb)
         self.root.after(1000, _hb)
-        print("[DIAG] Heartbeat scheduled")
+        logger.info("[DIAG] Heartbeat scheduled")
 
-    def _initialize_ui_state(self):
-        print("[DIAG] _initialize_ui_state: entered")
+    # -------- deferred init --------
+    def _initialize_ui_state(self) -> None:
+        logger.info("[DIAG] _initialize_ui_state: entered method")
         try:
-            self.prompt_pack_panel.select_first_pack()  # must be UI-only
+            self.prompt_pack_panel.select_first_pack()  # UI-only
+            logger.info("[DIAG] _initialize_ui_state: after select_first_pack")
+            logger.info("GUI initialized - ready for pipeline configuration")
         except Exception as e:
-            import logging; logging.getLogger(__name__).exception("init UI state failed: %s", e)
+            logger.exception("init UI state failed: %s", e)
             try:
                 self.root.after(0, lambda: self.state_manager.transition_to(GUIState.ERROR))
             except Exception:
                 pass
 
-    def _start_webui_discovery_async(self):
-        print("[DIAG] _start_webui_discovery_async: spawn worker")
-        import threading, logging
-        log = logging.getLogger(__name__)
+    def _start_webui_discovery_async(self) -> None:
+        logger.info("[DIAG] _start_webui_discovery_async: spawning worker")
 
         def worker():
             try:
-                status = self.webui_discovery.discover(timeout=(1.5, 6.0))  # no Tk calls here
+                status = self.webui_discovery.discover(timeout=(1.5, 6.0))  # NO Tk, NO messagebox here
                 self.root.after(0, lambda: self._apply_webui_status(status))
             except Exception as e:
-                log.exception("WebUI discovery failed: %s", e)
+                logger.exception("WebUI discovery failed: %s", e)
                 self.root.after(0, lambda: self._apply_webui_error(e))
 
         threading.Thread(target=worker, daemon=True).start()
-    def _safe_messagebox(self, kind: str, title: str, text: str) -> None:
-        """Thread-safe messagebox helper (runs on main thread).
-        See: BUG_FIX_GUI_HANG_SECOND_RUN.md for rationale.
+
+    def _apply_webui_status(self, status) -> None:
+        # Update any labels/combos based on discovered status.
+        # (Implement specific UI updates in your controls panel)
+        try:
+            self.pipeline_controls_panel.on_webui_status(status)
+        except Exception:
+            logger.exception("Failed to apply WebUI status")
+
+    def _apply_webui_error(self, e: Exception) -> None:
+        logger.warning("WebUI error: %s", e)
+        # Optionally update UI to reflect disconnected state
+        try:
+            self.pipeline_controls_panel.on_webui_error(e)
+        except Exception:
+            logger.exception("Failed to apply WebUI error")
+
+    # -------- mediator selection -> config refresh --------
+    def _on_pack_selection_changed_mediator(self, packs: list[str]) -> None:
         """
-        if os.getenv("STABLENEW_NO_ERROR_DIALOG") in {"1","true","TRUE"} and kind.lower() in {"error","warning"}:
-            logger.warning(f"[DIAG] Messagebox suppressed: {title}: {text}")
+        Mediator callback from PromptPackPanel; always UI thread.
+        We keep this handler strictly non-blocking and UI-only.
+        """
+        try:
+            count = len(packs)
+            if count == 0:
+                logger.info("📦 No pack selected")
+                return
+            logger.info("📦 Selected pack: %s", packs[0] if count == 1 else f"{count} packs")
+            # Defer config refresh to keep handler short
+            self.root.after(0, lambda: self._refresh_config(packs))
+        except Exception:
+            logger.exception("Mediator selection handler failed")
+
+    def _refresh_config(self, packs: list[str]) -> None:
+        """
+        Load pack config and apply to controls. UI-thread only. Non-reentrant.
+        """
+        if self._refreshing_config:
+            logger.debug("[DIAG] _refresh_config: re-entry detected; skipping")
             return
+
+        self._refreshing_config = True
+        try:
+            # We currently apply config for first selected pack
+            pack = packs[0]
+            cfg = self.config_manager.load_pack_config(pack)  # disk read is fine; cheap
+            logger.debug("Loaded pack config: %s", pack)
+
+            # Push config to controls panel (must be UI-only logic)
+            self.pipeline_controls_panel.apply_config(cfg)
+            logger.info("Loaded config for pack: %s", pack)
+
+        except Exception as e:
+            logger.exception("Failed to refresh config: %s", e)
+            self._safe_messagebox("error", "Config Error", f"{type(e).__name__}: {e}")
+        finally:
+            self._refreshing_config = False
+
+    # -------- run pipeline --------
+    def _on_run_clicked(self) -> None:
+        """
+        Handler for RUN button; starts pipeline in controller thread.
+        Must not block the UI. Error UI is marshaled to Tk thread.
+        """
+        try:
+            selected = self.prompt_pack_panel.get_selected_packs()
+            if not selected:
+                self._safe_messagebox("warning", "No Pack Selected", "Please select a prompt pack first.")
+                return
+            packs_str = selected[0] if len(selected) == 1 else f"{len(selected)} packs"
+            logger.info("▶️ Starting pipeline execution for %s", packs_str)
+
+            self.state_manager.transition_to(GUIState.RUNNING)
+
+            def on_error(e: Exception):
+                err_text = f"{type(e).__name__}: {e}"
+                logger.error("Pipeline error: %s", err_text)
+                self._safe_messagebox("error", "Pipeline Error", err_text)
+                try:
+                    self.controller.lifecycle_event.set()
+                except Exception:
+                    pass
+                self.root.after(0, lambda: self.state_manager.transition_to(GUIState.ERROR))
+
+            def on_complete():
+                try:
+                    self.controller.lifecycle_event.set()
+                finally:
+                    self.root.after(0, lambda: self.state_manager.transition_to(GUIState.IDLE))
+
+            # Launch the controller on a worker thread; it must never touch Tk directly
+            threading.Thread(
+                target=self.controller.start_pipeline,
+                kwargs={
+                    "packs": selected,
+                    "config_manager": self.config_manager,
+                    "on_error": on_error,
+                    "on_complete": on_complete,
+                },
+                daemon=True,
+            ).start()
+
+        except Exception as e:
+            logger.exception("Run click failed: %s", e)
+            self._safe_messagebox("error", "Run Failed", f"{type(e).__name__}: {e}")
+
+    # -------- utilities --------
+    def _safe_messagebox(self, kind: str, title: str, text: str) -> None:
+        """
+        Thread-safe messagebox helper; always marshals to Tk thread.
+        Respects STABLENEW_NO_ERROR_DIALOG for CI/headless runs.
+        """
+        # Respect modal suppression for tests/headless
+        if os.getenv("STABLENEW_NO_ERROR_DIALOG") in {"1", "true", "TRUE"} and kind.lower() in {"error", "warning"}:
+            logger.warning("[DIAG] Messagebox suppressed: %s: %s", title, text)
+            return
+
         def _do():
             try:
+                if messagebox is None:
+                    logger.error("messagebox unavailable: %s: %s", title, text)
+                    return
                 getattr(messagebox, f"show{kind}")(title, text)
             except Exception:
                 logger.exception("messagebox failed")
+
         try:
+            # If called from worker, bounce to UI; if already in UI, after(0) is fine
             self.root.after(0, _do)
         except Exception:
             _do()
-
-    def force_reset(self):
-        """Force a full GUI and state reset after a crash or error."""
-        logger.info("[DIAG] StableNewGUI.force_reset: starting reset", extra={"flush": True})
-        # Destroy and recreate PromptPackPanel and other panels as needed
-        try:
-            if hasattr(self, 'prompt_pack_panel') and self.prompt_pack_panel.winfo_exists():
-                self.prompt_pack_panel.destroy()
-            # Recreate PromptPackPanel
-            self.prompt_pack_panel = PromptPackPanel(self.root, coordinator=self)
-            self.prompt_pack_panel.pack(fill=tk.BOTH, expand=True)
-            logger.info("[DIAG] StableNewGUI.force_reset: PromptPackPanel recreated", extra={"flush": True})
-        except Exception as exc:
-            logger.error(f"[DIAG] StableNewGUI.force_reset: error recreating PromptPackPanel: {exc}", exc_info=True, extra={"flush": True})
-        # Reset other internal state as needed (add more panels if required)
-        self._error_dialog_shown = False
-        # Optionally, reset controller, config, etc. if needed
-        logger.info("[DIAG] StableNewGUI.force_reset: reset complete", extra={"flush": True})
-
-    def __init__(self):
-        """Initialize GUI"""
-        # Guard against multiple instantiations or long blocking init
-        self._init_start_ts = time.time()
-        # Diagnostics flag and helper for startup tracing
-        self._diag_enabled = os.environ.get("STABLENEW_DIAG", "").lower() in {"1", "true", "yes"}
-        def _diag(msg: str) -> None:
-            if self._diag_enabled:
-                try:
-                    ts = f"{time.time() - self._init_start_ts:0.3f}s"
-                    logger.info(f"[DIAG][startup {ts}] {msg}")
-                except Exception:
-                    pass
-        _diag("constructor start")
-        self.root = tk.Tk()
-        self.root.title("StableNew - Stable Diffusion WebUI Automation")
-        # Widen default window to take advantage of horizontal space for wider dropdowns
-        self.root.geometry("1550x1020+60+40")
-        self.root.configure(bg="#2b2b2b")
-
-        # Ensure window is visible and on top
-        self.root.lift()
-        self.root.attributes("-topmost", True)
-        self.root.after_idle(lambda: self.root.attributes("-topmost", False))
-
-        # Prevent window from being minimized or hidden
-        self.root.state("normal")
-
-        # Initialize components
-        self.config_manager = ConfigManager()
-        self.preferences_manager = PreferencesManager()
-        self.preferences = self.preferences_manager.load_preferences(
-            self.config_manager.get_default_config()
-        )
-        self.structured_logger = StructuredLogger()
-        self.client = None
-        self.pipeline = None
-        self.video_creator = VideoCreator()
-        self.available_hypernetworks: list[str] = ["None"]
-
-        # Initialize state management and controller
-        self.state_manager = StateManager()
-        self.controller = PipelineController(self.state_manager)
-
-        # Progress/UI state
-        self.progress_message_var = tk.StringVar(value="Ready")
-        self.progress_var = tk.StringVar(value="Ready")
-        self.progress_percent_var = tk.StringVar(value="0%")
-        self.eta_var = tk.StringVar(value="ETA: --")
-        self.progress_bar: ttk.Progressbar | None = None
-        # Back-compat aliases expected by tests
-        self.progress_status_var = self.progress_message_var
-        self.progress_eta_var = self.eta_var
-
-        # Register progress callbacks with a flexible API to support test harness controllers
-        registered = False
-
-        # Compatibility wrapper: allow (percent, status) signature
-        def _compat_progress(*args, **kwargs):
-            try:
-                if len(args) >= 1:
-                    self._queue_progress_update(args[0])
-                if len(args) >= 2:
-                    self._queue_status_update(args[1])
-            except Exception:
-                pass
-
-        for meth in (
-            "set_progress_callbacks",
-            "register_progress_callbacks",
-            "configure_progress_callbacks",
-        ):
-            if hasattr(self.controller, meth):
-                try:
-                    getattr(self.controller, meth)(
-                        progress=_compat_progress,
-                        eta=self._queue_eta_update,
-                        reset=lambda: self._reset_progress_ui(),
-                        status=self._queue_status_update,
-                    )
-                    registered = True
-                    break
-                except Exception:
-                    pass
-        if not registered:
-            # Fall back to individual callbacks if supported
-            if hasattr(self.controller, "set_progress_callback"):
-                try:
-                    self.controller.set_progress_callback(self._queue_progress_update)
-                except Exception:
-                    pass
-            if hasattr(self.controller, "set_eta_callback"):
-                try:
-                    self.controller.set_eta_callback(self._queue_eta_update)
-                except Exception:
-                    pass
-            if hasattr(self.controller, "set_status_callback"):
-                try:
-                    self.controller.set_status_callback(self._queue_status_update)
-                except Exception:
-                    pass
-
-        # Initialize prompt pack list manager
-        self.pack_list_manager = PromptPackListManager()
-
-        # GUI state
-        config_preferences = self.preferences.get("config", {})
-        api_preferences = config_preferences.get("api", {})
-
-        self.selected_packs = list(self.preferences.get("selected_packs", []))
-        self.current_config = None
-        self.api_connected = False
-        self._last_selected_pack = None
-        self.current_preset = self.preferences.get("preset", "default")
-        self._refreshing_config = False  # Flag to prevent recursive refreshes
-        # Error dialog control for tests
-        self._error_dialog_shown = False
-        self._force_error_status = False
-
-        # Initialize GUI variables early
-        self.api_url_var = tk.StringVar(
-            value=api_preferences.get("base_url", "http://127.0.0.1:7860")
-        )
-        self.preset_var = tk.StringVar(value=self.current_preset)
-
-        # Initialize other GUI variables that are used before UI building
-        self.txt2img_enabled = tk.BooleanVar(value=True)
-        self.img2img_enabled = tk.BooleanVar(value=True)
-        self.adetailer_enabled = tk.BooleanVar(value=False)
-        self.upscale_enabled = tk.BooleanVar(value=True)
-        self.video_enabled = tk.BooleanVar(value=False)
-        self.loop_type_var = tk.StringVar(value="single")
-        self.loop_count_var = tk.StringVar(value="1")
-        self.pack_mode_var = tk.StringVar(value="selected")
-        self.images_per_prompt_var = tk.StringVar(value="1")
-        # Override: apply current GUI config to all selected packs when enabled
-        self.override_pack_var = tk.BooleanVar(value=False)
-        # Randomization & Aesthetic controls (populated when tab builds)
-        self.randomization_vars: dict[str, tk.Variable] = {}
-        self.randomization_widgets: dict[str, tk.Widget] = {}
-        self.aesthetic_vars: dict[str, tk.Variable] = {}
-        self.aesthetic_widgets: dict[str, tk.Widget] = {}
-        self.aesthetic_embedding_var = tk.StringVar(value="None")
-        (
-            self.aesthetic_script_available,
-            self.aesthetic_extension_root,
-        ) = self._detect_aesthetic_extension_root()
-        self.aesthetic_embeddings: list[str] = ["None"]
-        self.aesthetic_status_var = tk.StringVar(value="")
-        # Force status error label in tests when pipeline error occurs
-        self._force_error_status = False
-
-        # Status bar defaults
-        self._progress_eta_default = "ETA: --"
-        self._progress_idle_message = "Ready for next run"
-
-        # Initialize metadata attributes early to avoid NameErrors
-        self.schedulers = []
-        self.upscaler_names = []
-        self.vae_names = []
-
-        # Initialize log panel early (before any log calls) to avoid AttributeError
-
-        # Add proxy methods for consistent API (log_panel will be created in _build_bottom_panel)
-        self.log_panel = None
-        self.add_log = None
-        self.log_text = None
-
-        # Apply dark theme
-        self._setup_dark_theme()
-
-        # Load or create default preset
-        self._ensure_default_preset()
-
-        # Build UI
-        self._build_ui()
-        _diag("UI built")
-
-        # Apply saved preferences after UI construction
-        def _apply_prefs_task():
-            _diag("apply_saved_preferences scheduling")
-            self._apply_saved_preferences()
-            _diag("apply_saved_preferences done")
-        self.root.after(0, _apply_prefs_task)
-
-        # Schedule a watchdog to detect hangs during early startup (logs only)
-        def _startup_watchdog():
-            try:
-                elapsed = time.time() - self._init_start_ts
-                if elapsed > 5 and not getattr(self, "_startup_completed", False):
-                    logger.warning(
-                        "Startup taking >5s; if window is unresponsive, enable STABLENEW_DIAG=1 for verbose traces"
-                    )
-                    if self._diag_enabled:
-                        logger.info(f"[DIAG] watchdog fired at {elapsed:0.3f}s without completion flag")
-            except Exception:
-                pass
-        self.root.after(6000, _startup_watchdog)
-
-        # Auto-launch WebUI after the window is built to avoid blocking init
-        try:
-            self.root.after(0, self._launch_webui)
-        except Exception:
-            pass
-
-        # Setup logging redirect
-        setup_logging("INFO")
-
-    def _setup_dark_theme(self):
-        """Setup dark theme for the application"""
-        style = ttk.Style()
-
-        # Configure dark theme colors
-        bg_color = "#2b2b2b"
-        fg_color = "#ffffff"
-        button_bg = "#404040"
-        button_active = "#505050"
-        entry_bg = "#3d3d3d"
-
-        self.root.configure(bg=bg_color)
-
-        # Configure ttk styles
-        style.theme_use("clam")
-
-        style.configure("Dark.TFrame", background=bg_color, borderwidth=1, relief="flat")
-        style.configure(
-            "Dark.TLabel", background=bg_color, foreground=fg_color, font=("Segoe UI", 9)
-        )
-        style.configure(
-            "Dark.TButton",
-            background=button_bg,
-            foreground=fg_color,
-            borderwidth=1,
-            focuscolor="none",
-            font=("Segoe UI", 9),
-        )
-        style.configure(
-            "Dark.TEntry",
-            background=entry_bg,
-            foreground=fg_color,
-            borderwidth=1,
-            insertcolor=fg_color,
-            font=("Segoe UI", 9),
-        )
-        style.configure(
-            "Dark.TSpinbox",
-            background=entry_bg,
-            foreground=fg_color,
-            fieldbackground=entry_bg,
-            borderwidth=1,
-            insertcolor=fg_color,
-            font=("Segoe UI", 9),
-        )
-        # Fix Combobox dropdown styling
-        style.configure(
-            "Dark.TCombobox",
-            background=entry_bg,
-            foreground=fg_color,
-            fieldbackground=entry_bg,
-            selectbackground="#0078d4",
-            selectforeground=fg_color,
-            borderwidth=1,
-            insertcolor=fg_color,
-            font=("Segoe UI", 9),
-        )
-
-        style.configure(
+    style = self.style
             "Dark.TCheckbutton",
             background=bg_color,
             foreground=fg_color,
@@ -613,75 +567,75 @@ class StableNewGUI:
         # Setup state callbacks
         self._setup_state_callbacks()
 
-        # Start log update polling
-        self._poll_controller_logs()
-
-    def _build_api_status_frame(self, parent):
-        """Build compact API connection status frame"""
-        api_frame = ttk.Frame(parent, style="Dark.TFrame")
-        api_frame.pack(fill=tk.X, pady=(0, 5))
-
-        # Single line layout for space efficiency
-        ttk.Label(api_frame, text="WebUI API:", style="Dark.TLabel", width=10).pack(side=tk.LEFT)
-        api_entry = ttk.Entry(
-            api_frame, textvariable=self.api_url_var, style="Dark.TEntry", width=30
+        style.configure(
+            "Dark.TCheckbutton",
+            background=self.bg_color,
+            foreground=self.fg_color,
+            focuscolor="none",
+            font=("Segoe UI", 9),
         )
-        api_entry.pack(side=tk.LEFT, padx=(2, 5))
-
-        # Check API button - compact
-        self.check_api_btn = ttk.Button(
-            api_frame,
-            text="Check API",
-            command=self._check_api_connection,
-            style="Dark.TButton",
-            width=10,
+        style.configure(
+            "Dark.TRadiobutton",
+            background=self.bg_color,
+            foreground=self.fg_color,
+            focuscolor="none",
+            font=("Segoe UI", 9),
         )
-        self.check_api_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self._attach_tooltip(
-            self.check_api_btn,
-            "Validate the WebUI API connection using the URL above. Refreshes model/vae lists when successful.",
+        style.configure("Dark.TNotebook", background=self.bg_color, borderwidth=0)
+        style.configure(
+            "Dark.TNotebook.Tab",
+            background=self.button_bg,
+            foreground=self.fg_color,
+            padding=[20, 8],
+            borderwidth=0,
         )
 
-        # Status indicator panel
-        self.api_status_panel = APIStatusPanel(api_frame, coordinator=self, style="Dark.TFrame")
-        self.api_status_panel.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-    def _build_prompt_pack_panel(self, parent):
-        """Build compact prompt pack selection panel using PromptPackPanel component"""
-        # Left panel container - grid layout
-        left_panel = ttk.Frame(parent, style="Dark.TFrame")
-        left_panel.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
-
-        # Create the PromptPackPanel component
-        self.prompt_pack_panel = PromptPackPanel(
-            left_panel,
-            coordinator=self,
-            list_manager=self.pack_list_manager,
-            on_selection_changed=self._on_pack_selection_changed_mediator,
-            on_advanced_editor=self._open_advanced_editor,
-            style="Dark.TFrame",
+        # Accent button styles for CTAs
+        style.configure(
+            "Accent.TButton",
+            background="#0078d4",
+            foreground=self.fg_color,
+            borderwidth=1,
+            focuscolor="none",
+            font=("Segoe UI", 9, "bold"),
         )
-        self.prompt_pack_panel.pack(fill=tk.BOTH, expand=True)
+        style.configure(
+            "Danger.TButton",
+            background="#dc3545",
+            foreground=self.fg_color,
+            borderwidth=1,
+            focuscolor="none",
+            font=("Segoe UI", 9, "bold"),
+        )
 
-        # Store reference to listbox for backward compatibility
-        self.packs_listbox = self.prompt_pack_panel.packs_listbox
+        # Map states
+        style.map(
+            "Dark.TButton",
+            background=[("active", self.button_active), ("pressed", "#0078d4")],
+            foreground=[("active", self.fg_color)],
+        )
 
-    def _build_config_pipeline_panel(self, parent):
-        """Build tabbed configuration and pipeline panels."""
-        center_panel = ttk.Frame(parent, style="Dark.TFrame")
-        center_panel.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
-        center_panel.columnconfigure(0, weight=1)
-        # Notebook is on row 1 (row 0 is the preset bar)
-        center_panel.rowconfigure(1, weight=1)
+        style.map(
+            "Dark.TCombobox",
+            fieldbackground=[("readonly", self.entry_bg)],
+            selectbackground=[("readonly", "#0078d4")],
+        )
 
-        # Global preset management bar (applies to all tabs: Pipeline / Randomization / General)
-        preset_bar = ttk.Frame(center_panel, style="Dark.TFrame")
-        preset_bar.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        preset_bar.columnconfigure(0, weight=0)
-        preset_bar.columnconfigure(1, weight=0)
-        preset_bar.columnconfigure(2, weight=0)
-        preset_bar.columnconfigure(3, weight=1)
+        style.map(
+            "Accent.TButton",
+            background=[("active", "#106ebe"), ("pressed", "#005a9e")],
+            foreground=[("active", self.fg_color)],
+        )
 
+        style.map(
+            "Danger.TButton",
+            background=[("active", "#c82333"), ("pressed", "#bd2130")],
+            foreground=[("active", self.fg_color)],
+        )
+
+        style.map(
+            "Dark.TNotebook.Tab", background=[("selected", "#0078d4"), ("active", self.button_active)]
+        )
         ttk.Label(preset_bar, text="Preset:", style="Dark.TLabel").grid(row=0, column=0, sticky=tk.W, padx=(2, 4))
         # Single authoritative preset dropdown (moved from Pipeline tab)
         self.preset_dropdown = ttk.Combobox(
@@ -2854,92 +2808,11 @@ class StableNewGUI:
         if getattr(self, "_diag_enabled", False):
             logger.info("[DIAG] mediator _on_pack_selection_changed_mediator end")
 
-    def _on_pack_selection_changed(self, event=None):
-        """Handle prompt pack selection changes - update config display dynamically"""
-        selected_indices = self.packs_listbox.curselection()
-        if selected_indices:
-            pack_name = self.packs_listbox.get(selected_indices[0])
-            self.log_message(f"📦 Selected pack: {pack_name}")
+    # ...existing code...
 
-            # Store current selection to prevent unwanted deselection
-            self._last_selected_pack = pack_name
-        else:
-            # If no selection but we have a last selected pack, try to restore it
-            if (
-                hasattr(self, "_last_selected_pack")
-                and self._last_selected_pack
-                and not self._refreshing_config
-            ):
-                self._preserve_pack_selection()
-                return  # Don't proceed if we're restoring selection
-            else:
-                self.log_message("No pack selected")
-                self._last_selected_pack = None
+    # ...existing code...
 
-        # Refresh configuration for selected pack
-        self._refresh_config()
-
-        # Highlight selection with custom styling
-        self._update_selection_highlights()
-
-    def _update_selection_highlights(self):
-        """Update visual highlighting for selected items"""
-        # Reset all items to default background
-        for i in range(self.packs_listbox.size()):
-            self.packs_listbox.itemconfig(i, {"bg": "#3d3d3d"})
-
-        # Highlight selected items
-        for index in self.packs_listbox.curselection():
-            self.packs_listbox.itemconfig(index, {"bg": "#0078d4"})
-
-    def _initialize_ui_state(self):
-        logger.info("[DIAG] _initialize_ui_state: entered method", extra={"flush": True})
-        """Initialize UI to default state with first pack selected and display mode active."""
-        # Select first pack if available (panel already loaded packs during init)
-        logger.info("[DIAG] _initialize_ui_state: before select_first_pack", extra={"flush": True})
-        if hasattr(self, "prompt_pack_panel"):
-            self.prompt_pack_panel.select_first_pack()
-        logger.info("[DIAG] _initialize_ui_state: after select_first_pack", extra={"flush": True})
-
-        # Update log
-        self.log_message("GUI initialized - ready for pipeline configuration")
-        self._startup_completed = True
-
-    def _initialize_ui_state_async(self) -> None:
-        """Schedule UI state initialization in small chunks to keep the UI responsive."""
-        # Keep initial status unchanged for tests; perform work asynchronously
-        if getattr(self, "_diag_enabled", False):
-            logger.info(
-                f"[DIAG] scheduling _initialize_ui_state_async at {time.time() - self._init_start_ts:0.3f}s"
-            )
-
-        def _do_init():
-            try:
-                if getattr(self, "_diag_enabled", False):
-                    logger.info(
-                        f"[DIAG] _initialize_ui_state() start at {time.time() - self._init_start_ts:0.3f}s"
-                    )
-                # Use the existing initializer (tests may monkeypatch this to a no-op)
-                self._initialize_ui_state()
-            except Exception:
-                # Non-fatal in headless/minimal harness
-                logger.warning("UI state init encountered a non-fatal issue", exc_info=True)
-            finally:
-                try:
-                    self._apply_status_text(None)  # resolves to Ready/Error based on state
-                except Exception:
-                    pass
-                if getattr(self, "_diag_enabled", False):
-                    logger.info(
-                        f"[DIAG] _initialize_ui_state() end at {time.time() - self._init_start_ts:0.3f}s"
-                    )
-
-        # Defer to Tk loop so window paints first
-        try:
-            self.root.after(0, _do_init)
-        except Exception:
-            # Fallback to synchronous call if scheduling fails
-            _do_init()
+    # ...existing code...
 
     def _refresh_prompt_packs(self):
         """Refresh the prompt packs list"""
