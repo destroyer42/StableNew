@@ -1,3 +1,28 @@
+import logging
+import os
+import sys
+import threading
+import time
+import traceback
+import queue
+from collections.abc import Callable
+from pathlib import Path
+import tkinter as tk
+from tkinter import messagebox, simpledialog, ttk
+from ..utils.file_io import get_prompt_packs
+from .tooltip import Tooltip
+
+# --- freeze watchdog helper ---
+def dump_main_thread_stack(tag=""):
+    try:
+        main = next(t for t in threading.enumerate() if t.name == "MainThread")
+        frame = sys._current_frames().get(main.ident)
+        if frame:
+            print(f"\n=== MainThread stack dump {tag} ===")
+            traceback.print_stack(frame)
+            print("=== end stack dump ===\n")
+    except Exception:
+        pass
 """
 Prompt Pack Panel - UI component for managing and selecting prompt packs.
 """
@@ -16,18 +41,28 @@ logger = logging.getLogger(__name__)
 
 
 class PromptPackPanel(ttk.Frame):
-    def tk_safe_call(self, func, *args, **kwargs):
-        import threading
+    def tk_safe_call(self, func, *args, wait=False, **kwargs):
+    # (removed local imports; all imports are now at the top of the file)
         if threading.current_thread() is threading.main_thread():
             return func(*args, **kwargs)
-        else:
-            result = [None]
-            def wrapper():
-                result[0] = func(*args, **kwargs)
-            self.after(0, wrapper)
-            # Wait for the result (should be immediate in tests, but avoid blocking in GUI)
-            # For production, just schedule and return None
+        if not wait:
+            self.after(0, lambda: func(*args, **kwargs))
             return None
+        q: queue.Queue = queue.Queue(maxsize=1)
+        def wrapper():
+            try:
+                q.put(func(*args, **kwargs))
+            except Exception as e:
+                q.put(e)
+        self.after(0, wrapper)
+        try:
+            result = q.get(timeout=2)
+        except queue.Empty:
+            logging.error("tk_safe_call: main thread did not process scheduled call within 2 seconds; possible deadlock.")
+            return None
+        if isinstance(result, Exception):
+            raise result
+        return result
     """
     A UI panel for managing and selecting prompt packs.
 
@@ -222,7 +257,7 @@ class PromptPackPanel(ttk.Frame):
 
         # Bind selection events (use lambda + add to avoid clobbering default virtual bindings)
         self.packs_listbox.bind(
-            "<<ListboxSelect>>", lambda e: self._on_pack_selection_changed(e), add="+"
+            '<<ListboxSelect>>', lambda e: self._on_pack_selection_changed(e), add="+"
         )
 
         # Wrap selection_set to ensure programmatic selections trigger callback immediately
@@ -238,18 +273,14 @@ class PromptPackPanel(ttk.Frame):
         def _wrapped_selection_set(*args, **kwargs):
             logger.info(f"[DIAG] _wrapped_selection_set called with args={args}", extra={"flush": True})
             result = _orig_selection_set(*args, **kwargs)
-            
             # Only trigger callback if not already processing one (prevent infinite loops)
             if not self._in_selection_callback:
-                logger.info("[DIAG] _wrapped_selection_set: calling _on_pack_selection_changed", extra={"flush": True})
+                self._in_selection_callback = True
                 try:
-                    self._in_selection_callback = True
-                    self._on_pack_selection_changed()
-                except Exception as exc:
-                    logger.error(f"[DIAG] _wrapped_selection_set: callback exception: {exc}", exc_info=True, extra={"flush": True})
+                    self.after(0, self._on_pack_selection_changed)
                 finally:
                     self._in_selection_callback = False
-                logger.info("[DIAG] _wrapped_selection_set: returning", extra={"flush": True})
+                logger.info("[DIAG] _wrapped_selection_set: scheduled _on_pack_selection_changed", extra={"flush": True})
             else:
                 logger.info("[DIAG] _wrapped_selection_set: skipping callback (re-entrant)", extra={"flush": True})
             return result
@@ -287,17 +318,29 @@ class PromptPackPanel(ttk.Frame):
             )
 
     def _on_pack_selection_changed(self, event: object = None) -> None:
-        logger.info("[DIAG] _on_pack_selection_changed: entered method (pre-docstring)", extra={"flush": True})
-        """
-        Handle prompt pack selection changes.
-        Args:
-            event: The event object (optional)
-        """
-        logger.info("[DIAG] PromptPackPanel._on_pack_selection_changed: start", extra={"flush": True})
-        logger.info("[DIAG] _on_pack_selection_changed: before curselection", extra={"flush": True})
+        print(f"[DIAG] _on_pack_selection_changed: thread={threading.current_thread().name}")
+        print("[DIAG] _on_pack_selection_changed: entered method (pre-docstring)")
+        started = time.time()
+        def watchdog():
+            if getattr(self, "_sel_handler_exited_at", 0) < started:
+                dump_main_thread_stack("pack_selection_watchdog")
+        self.after(750, watchdog)
         try:
+            logger.info("[DIAG] _on_pack_selection_changed: entered method (pre-docstring)", extra={"flush": True})
+            """
+            Handle prompt pack selection changes.
+            Args:
+                event: The event object (optional)
+            """
+            logger.info("[DIAG] PromptPackPanel._on_pack_selection_changed: start", extra={"flush": True})
+            logger.info("[DIAG] _on_pack_selection_changed: before curselection", extra={"flush": True})
+            import threading
+            # Always bounce to the Tk thread
+            if threading.current_thread() is not threading.main_thread():
+                self.after(0, lambda: self._on_pack_selection_changed(event))
+                return
             try:
-                selected_indices = self.tk_safe_call(self.packs_listbox.curselection)
+                selected_indices = self.tk_safe_call(self.packs_listbox.curselection, wait=True)
                 logger.info(f"[DIAG] _on_pack_selection_changed: after curselection, indices={selected_indices}", extra={"flush": True})
             except tk.TclError as exc:
                 logger.error(f"[DIAG] _on_pack_selection_changed: TclError in curselection: {exc}", exc_info=True, extra={"flush": True})
@@ -309,7 +352,7 @@ class PromptPackPanel(ttk.Frame):
             selected_packs = []
             for i in selected_indices:
                 try:
-                    pack = self.packs_listbox.get(i)
+                    pack = self.tk_safe_call(self.packs_listbox.get, i, wait=True)
                     selected_packs.append(pack)
                 except tk.TclError as exc:
                     logger.error(f"[DIAG] _on_pack_selection_changed: TclError in get({i}): {exc}", exc_info=True, extra={"flush": True})
@@ -337,15 +380,21 @@ class PromptPackPanel(ttk.Frame):
                     self._on_selection_changed(selected_packs)
                     logger.info("[DIAG] _on_pack_selection_changed: after coordinator callback", extra={"flush": True})
                 except Exception as exc:
-                    logger.error(f"[DIAG] _on_pack_selection_changed: Exception in coordinator callback: {exc}", exc_info=True, extra={"flush": True})
+                    logger.error(f"[DIAG] _on_pack_selection_changed: Exception in coordinator callback: {exc}", extra={"flush": True})
             logger.info("[DIAG] PromptPackPanel._on_pack_selection_changed: end", extra={"flush": True})
-        except Exception as exc:
-            logger.error(f"[DIAG] _on_pack_selection_changed: outer exception: {exc}", exc_info=True, extra={"flush": True})
+        finally:
+            self._sel_handler_exited_at = time.time()
 
     def _update_selection_highlights(self):
+        import threading
+        logger.info(f"[DIAG] _update_selection_highlights: thread={threading.current_thread().name}", extra={"flush": True})
         """Update visual highlighting for selected items."""
+        import threading
+        if threading.current_thread() is not threading.main_thread():
+            self.after(0, self._update_selection_highlights)
+            return
         logger.info("[DIAG] _update_selection_highlights: before size", extra={"flush": True})
-        size = self.tk_safe_call(self.packs_listbox.size)
+        size = self.tk_safe_call(self.packs_listbox.size, wait=True)
         logger.info(f"[DIAG] _update_selection_highlights: size={size}", extra={"flush": True})
         logger.info("[DIAG] _update_selection_highlights: before itemconfig reset", extra={"flush": True})
         for i in range(size):
@@ -353,7 +402,7 @@ class PromptPackPanel(ttk.Frame):
         logger.info("[DIAG] _update_selection_highlights: after itemconfig reset", extra={"flush": True})
 
         logger.info("[DIAG] _update_selection_highlights: before curselection highlight", extra={"flush": True})
-        selected_indices = self.tk_safe_call(self.packs_listbox.curselection)
+        selected_indices = self.tk_safe_call(self.packs_listbox.curselection, wait=True)
         logger.info(f"[DIAG] _update_selection_highlights: curselection={selected_indices}", extra={"flush": True})
         for index in selected_indices:
             self.packs_listbox.itemconfig(index, {"bg": "#0078d4"})
@@ -375,8 +424,9 @@ class PromptPackPanel(ttk.Frame):
             self.packs_listbox.insert(tk.END, pack_file.name)
         # Restore selection if possible
         if current_selection:
-            for i in range(self.packs_listbox.size()):
-                pack_name = self.packs_listbox.get(i)
+            size = self.tk_safe_call(self.packs_listbox.size, wait=True)
+            for i in range(size):
+                pack_name = self.tk_safe_call(self.packs_listbox.get, i, wait=True)
                 if pack_name in current_selection:
                     self.packs_listbox.selection_set(i)
         if not silent:
@@ -402,8 +452,9 @@ class PromptPackPanel(ttk.Frame):
         for name in names:
             self.packs_listbox.insert(tk.END, name)
         if current_selection:
-            for i in range(self.packs_listbox.size()):
-                pack_name = self.packs_listbox.get(i)
+            size = self.tk_safe_call(self.packs_listbox.size, wait=True)
+            for i in range(size):
+                pack_name = self.tk_safe_call(self.packs_listbox.get, i, wait=True)
                 if pack_name in current_selection:
                     self.packs_listbox.selection_set(i)
         logger.info(f"PromptPackPanel: Populated {len(names)} packs (async)")
