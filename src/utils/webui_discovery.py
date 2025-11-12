@@ -1,12 +1,69 @@
+# --- Compatibility shim class for GUI code expecting a service object ---
+
+
+
+# --- Compatibility shim class for GUI code expecting a service object ---
+
+import logging
+import subprocess
+import time
+from pathlib import Path
+import requests
+# --- Compatibility shim class for GUI code expecting a service object ---
+
+class WebUIDiscovery:
+    def __init__(self, base_url: str = "http://127.0.0.1", start_port: int = 7860, max_attempts: int = 5):
+        self.base_url = base_url
+        self.start_port = start_port
+        self.max_attempts = max_attempts
+
+    def discover(self, timeout: tuple[float, float] | None = (1.5, 6.0)) -> dict:
+        """
+        Try to locate the WebUI API and return a dict compatible with GUI expectations.
+        Returns a dict with keys:
+          - url (str|None)
+          - accessible (bool)
+          - models_loaded (bool)
+          - samplers_available (bool)
+          - errors (list[str])
+          - model_count (int, optional)
+          - sampler_count (int, optional)
+        """
+        url = find_webui_api_port(self.base_url, self.start_port, self.max_attempts)
+        if not url:
+            return {
+                "url": None,
+                "accessible": False,
+                "models_loaded": False,
+                "samplers_available": False,
+                "errors": [f"WebUI not found on ports {self.start_port}-{self.start_port + self.max_attempts - 1}"],
+            }
+
+        # Optionally tighten requests' per-call timeouts by overriding requests.Session defaults,
+        # but for now just rely on validate_webui_health() internal timeouts.
+        health = validate_webui_health(url)
+        health["url"] = url  # ensure url is always present
+        return health
+
+    def ensure_ready(self, api_url: str, max_wait_seconds: int = 60) -> bool:
+        """Block until the API reports a loaded model (or timeout)."""
+        return wait_for_webui_ready(api_url, max_wait_seconds)
+
+    def launch_if_needed(self, webui_path: Path, wait_time: int = 10) -> bool:
+        """Try to launch WebUI if not already running; returns True if available."""
+        # If already up, cheap exit:
+        existing = find_webui_api_port(self.base_url, self.start_port, self.max_attempts)
+        if existing:
+            logger.info(f"WebUI already running at {existing}")
+            return True
+        return launch_webui_safely(webui_path, wait_time=wait_time)
+
 """Utility functions for WebUI API discovery"""
 
 import logging
 import subprocess
 import time
-
-# import psutil  # Optional dependency for process detection
 from pathlib import Path
-
 import requests
 
 logger = logging.getLogger(__name__)
@@ -58,7 +115,7 @@ def wait_for_webui_ready(api_url: str, max_wait_seconds: int = 60) -> bool:
     Returns:
         True if WebUI is ready, False if timeout
     """
-    import time
+    # time already imported at top
 
     start_time = time.time()
     while time.time() - start_time < max_wait_seconds:

@@ -1,252 +1,99 @@
-"""Modern Tkinter GUI for Stable Diffusion pipeline with dark theme"""
+
 
 from __future__ import annotations
+import logging
+import os
+import sys
+import time
 import json
+import traceback
+import subprocess
+import threading
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
 
-
+import tkinter as tk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
+from tkinter import filedialog, messagebox, scrolledtext, ttk
+import logging
 import os
 import threading
-import logging
-import traceback
-from typing import Optional, Any
-from pathlib import Path
-import tkinter as tk
-from tkinter import scrolledtext
+
+from src.gui.config_panel import ConfigPanel
+from src.gui.log_panel import LogPanel, TkinterLogHandler
 from src.gui.advanced_prompt_editor import AdvancedPromptEditor
-from src.gui.state import GUIState
-    # --- Dark theme style variables ---
-    style = ttk.Style()
-    bg_color = "#23272e"
-    fg_color = "#e6e6e6"
-    button_bg = "#2d333b"
-    button_active = "#0078d4"
-    entry_bg = "#23272e"
-
-
-from tkinter import Tk, messagebox, ttk
-from threading import Thread, Event
-from queue import Queue, Empty
-import time
-import traceback
-import logging
-import src.api.client as api_client
-import src.pipeline.executor as pipeline_executor
-import src.pipeline.video as video_pipeline
-import utils.file_io as file_io
-from src.utils.preferences import PreferencesManager
+from src.gui.enhanced_slider import EnhancedSlider
+from src.gui.center_panel import CenterPanel
+from src.utils.aesthetic_detection import detect_aesthetic_extension
+from src.gui.tooltip import Tooltip
+from src.utils.state import CancellationError
+from src.api.client import SDWebUIClient, validate_webui_health, find_webui_api_port
+from src.pipeline.executor import Pipeline
+from src.utils.prompt_pack import get_prompt_packs, read_prompt_pack
+from src.utils.randomizer import PromptRandomizer, build_variant_plan, PromptVariant, apply_variant_to_config
+from src.utils.webui_launcher import launch_webui_safely
 from src.gui.prompt_pack_panel import PromptPackPanel
 from src.gui.pipeline_controls_panel import PipelineControlsPanel
+from src.utils.config import ConfigManager
+from src.utils.preferences import PreferencesManager
+from src.utils.webui_discovery import WebUIDiscovery
+from src.gui.state import GUIState, StateManager
+from src.controller.pipeline_controller import PipelineController
+
 from src.gui.config_panel import ConfigPanel
-from src.gui.api_status_panel import APIStatusPanel
-from src.gui.log_panel import LogPanel
+from src.gui.log_panel import LogPanel, TkinterLogHandler
+from src.gui.advanced_prompt_editor import AdvancedPromptEditor
+from src.gui.enhanced_slider import EnhancedSlider
+from src.gui.center_panel import CenterPanel
+from src.utils.aesthetic_detection import detect_aesthetic_extension
+from src.gui.tooltip import Tooltip
+from src.utils.state import CancellationError
+from src.api.client import SDWebUIClient, validate_webui_health, find_webui_api_port
+from src.pipeline.executor import Pipeline
+from src.utils.prompt_pack import get_prompt_packs, read_prompt_pack
+from src.utils.randomizer import PromptRandomizer, build_variant_plan, PromptVariant, apply_variant_to_config
+from src.utils.webui_launcher import launch_webui_safely
+from src.gui.prompt_pack_panel import PromptPackPanel
+from src.gui.pipeline_controls_panel import PipelineControlsPanel
+from src.utils.config import ConfigManager
+from src.utils.preferences import PreferencesManager
+from src.utils.webui_discovery import WebUIDiscovery
+from src.gui.state import GUIState, StateManager
+from src.controller.pipeline_controller import PipelineController
+
 logger = logging.getLogger(__name__)
 
 class StableNewGUI:
-    def __init__(self):
-        # --- Dark theme style variables ---
-        self.style = ttk.Style()
-        self.bg_color = "#23272e"
-        self.fg_color = "#e6e6e6"
-        self.button_bg = "#2d333b"
-        self.button_active = "#0078d4"
-        self.entry_bg = "#23272e"
-        # Initialize main Tk window
-        self.root = Tk()
-        self.root.title("StableNew - Diffusion Automation")
-        # Ensure proper shutdown on window close
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-
-        # Panels: each owns its own state and exposes get_state/set_state
-        self.prompt_panel = PromptPackPanel(self.root)  # Prompt pack selection and editing
-        self.controls_panel = PipelineControlsPanel(self.root)  # Pipeline controls (start/cancel)
-        self.config_panel = ConfigPanel(self.root)  # Config settings panel
-        self.api_status_panel = APIStatusPanel(self.root)  # API readiness/status
-        self.log_panel = LogPanel(self.root)  # Log output panel
-
-        # Event queue for cross-thread communication (worker → main thread)
-        self.event_queue = Queue()
-        # Event for cooperative shutdown (never block main thread)
-        self.shutdown_event = Event()
-
-        # Diagnostics: heartbeat and centralized error handler
-        self._setup_diagnostics()
-
-        # Start async API discovery (non-blocking, never blocks Tk)
-        self._start_api_discovery()
-
-        # Layout panels using mediator pattern
-        self._layout_panels()
-
-    def _setup_diagnostics(self):
-        # Centralized exception handler for Tk callbacks
-        # All exceptions in Tk callbacks are routed here for logging and user notification
-        def handle_exception(exc_type, exc_value, exc_traceback):
-            logging.error("Exception in Tk callback:", exc_info=(exc_type, exc_value, exc_traceback))
-            self._show_error_dialog(traceback.format_exception(exc_type, exc_value, exc_traceback))
-        self.root.report_callback_exception = handle_exception
-
-        # Heartbeat to check UI thread health (diagnostics)
-        self._heartbeat_active = True
-        self._heartbeat()
-
-    def _heartbeat(self):
-        # Periodic heartbeat to confirm UI thread is alive; logs every second
-        if self._heartbeat_active:
-            logging.debug("UI heartbeat alive")
-            self.root.after(1000, self._heartbeat)
-
-    def _show_error_dialog(self, message):
-        # Thread-safe error dialog; always marshals to main thread
-        if self.root:
-            self.root.after(0, lambda: messagebox.showerror("Error", message))
-
-    def _start_api_discovery(self):
-        # Start API readiness check in a worker thread
-        # Never block Tk main thread; results posted to event_queue
-        def discover():
-            try:
-                ready = api_client.check_api_ready()  # Exponential backoff inside client
-                self.event_queue.put(("api_ready", ready))
-            except Exception as e:
-                self.event_queue.put(("api_error", str(e)))
-        Thread(target=discover, daemon=True).start()
-
-    def _layout_panels(self):
-        # Use grid to lay out panels; mediator wires events between them
-        self.prompt_panel.grid(row=0, column=0, sticky="nsew")
-        self.controls_panel.grid(row=1, column=0, sticky="ew")
-        self.config_panel.grid(row=2, column=0, sticky="ew")
-        self.api_status_panel.grid(row=3, column=0, sticky="ew")
-        self.log_panel.grid(row=4, column=0, sticky="ew")
-        # Make prompt panel expandable
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_columnconfigure(0, weight=1)
-
-    def run(self):
-        # Main event loop; non-blocking for Tk
-        # Polls for cross-thread events and starts Tk mainloop
-        self._poll_events()
-        self.root.mainloop()
-
-    def _poll_events(self):
-        # Poll event queue for cross-thread events (worker → main thread)
-        # Never blocks; uses after() for periodic polling
-        try:
-            while True:
-                event, payload = self.event_queue.get_nowait()
-                self._handle_event(event, payload)
-        except Empty:
-            pass
-        # Continue polling unless shutdown requested
-        if not self.shutdown_event.is_set():
-            self.root.after(100, self._poll_events)
-
-    def _handle_event(self, event, payload):
-        # Bubble events up to mediator, push updates down to panels
-        if event == "api_ready":
-            # API is ready; update status panel
-            self.api_status_panel.set_ready(payload)
-        elif event == "api_error":
-            # API error; update status panel and show error dialog
-            self.api_status_panel.set_error(payload)
-            self._show_error_dialog(f"API error: {payload}")
-        # ... handle other events as needed ...
-
-    def on_close(self):
-        # Cooperative shutdown; never block main thread
-        # Stop heartbeat, signal shutdown, and destroy root window
-        self._heartbeat_active = False
-        self.shutdown_event.set()
-        self.root.destroy()
-        self.left_col.pack(side="left", fill="y")
-        self.right_col.pack(side="right", fill="both", expand=True)
-
-        # Prompt packs (mediator)
-        self.prompt_pack_panel = PromptPackPanel(
-            parent=self.left_col,
-            on_selection_changed=self._on_pack_selection_changed_mediator,
-            config_manager=self.config_manager,
-        )
-        self.prompt_pack_panel.pack(fill="y", padx=8, pady=8)
-
-        # Controls panel
-        self.pipeline_controls_panel = PipelineControlsPanel(
-            parent=self.right_col,
-            controller=self.controller,
-            config_manager=self.config_manager,
-            state_manager=self.state_manager,
-            on_run_clicked=self._on_run_clicked,
-        )
-        self.pipeline_controls_panel.pack(fill="both", expand=True, padx=8, pady=8)
-
-        # Apply persisted UI prefs
-        try:
-            self.pipeline_controls_panel.set_loop_count(1)
-            self.pipeline_controls_panel.set_images_per_prompt(1)
-            logger.info("PipelineControlsPanel: loop_count set to 1")
-            logger.info("PipelineControlsPanel: images_per_prompt set to 1")
-        except Exception:
-            logger.exception("Failed to apply initial control values")
-
-    def _wire_events(self) -> None:
-        # Add any explicit accelerator bindings, etc., here if needed later
-        pass
-
-    # -------- diagnostics --------
-    def _install_tk_exception_reporter(self) -> None:
-        def _transition_error():
-            try:
-                self.controller.lifecycle_event.set()
-            except Exception:
-                pass
-            try:
-                self.root.after(0, lambda: self.state_manager.transition_to(GUIState.ERROR))
-            except Exception:
-                pass
-
-        def _report_callback_exception(exc, val, tb):
-            logger.error("Tk callback exception: %s: %s", getattr(exc, "__name__", exc), val)
-            for line in traceback.format_tb(tb):
-                logger.error(line.rstrip())
-            _transition_error()
-
-        # Tk calls this for all callback exceptions
-        self.root.report_callback_exception = _report_callback_exception
-        logger.info("[DIAG] Tk exception reporter installed")
-
-    def _start_heartbeat(self) -> None:
-        def _hb():
-            logger.debug("[HEARTBEAT] ui alive")
-            self.root.after(1000, _hb)
-        self.root.after(1000, _hb)
-        logger.info("[DIAG] Heartbeat scheduled")
-
-    # -------- deferred init --------
-    def _initialize_ui_state(self) -> None:
-        logger.info("[DIAG] _initialize_ui_state: entered method")
-        try:
-            self.prompt_pack_panel.select_first_pack()  # UI-only
-            logger.info("[DIAG] _initialize_ui_state: after select_first_pack")
-            logger.info("GUI initialized - ready for pipeline configuration")
-        except Exception as e:
-            logger.exception("init UI state failed: %s", e)
-            try:
-                self.root.after(0, lambda: self.state_manager.transition_to(GUIState.ERROR))
-            except Exception:
-                pass
-
-    def _start_webui_discovery_async(self) -> None:
-        logger.info("[DIAG] _start_webui_discovery_async: spawning worker")
-
-        def worker():
-            try:
-                status = self.webui_discovery.discover(timeout=(1.5, 6.0))  # NO Tk, NO messagebox here
-                self.root.after(0, lambda: self._apply_webui_status(status))
-            except Exception as e:
-                logger.exception("WebUI discovery failed: %s", e)
-                self.root.after(0, lambda: self._apply_webui_error(e))
-
-        threading.Thread(target=worker, daemon=True).start()
+    def __init__(
+        self,
+        root: tk.Tk | None = None,
+        config_manager: ConfigManager | None = None,
+        preferences: PreferencesManager | None = None,
+        state_manager: StateManager | None = None,
+        controller: PipelineController | None = None,
+        webui_discovery: WebUIDiscovery | None = None,
+        title: str = "StableNew",
+        geometry: str = "1280x820",
+        default_preset_name: str | None = None,
+    ) -> None:
+        self.config_manager = config_manager or ConfigManager()
+        self.preferences = preferences or PreferencesManager()
+        self.state_manager = state_manager or StateManager()
+        self.controller = controller or PipelineController()
+        self.webui = webui_discovery or WebUIDiscovery()
+        self._refreshing_config = False
+        if root is not None:
+            self.root = root
+        else:
+            self.root = tk.Tk()
+        self.root.title(title)
+        self.root.geometry(geometry)
+        self._apply_style()
+        # ...existing code...
 
     def _apply_webui_status(self, status) -> None:
         # Update any labels/combos based on discovered status.
@@ -320,11 +167,7 @@ class StableNewGUI:
             packs_str = selected[0] if len(selected) == 1 else f"{len(selected)} packs"
             logger.info("▶️ Starting pipeline execution for %s", packs_str)
 
-            self.state_manager.transition_to(GUIState.RUNNING)
-
-            def on_error(e: Exception):
-                err_text = f"{type(e).__name__}: {e}"
-                logger.error("Pipeline error: %s", err_text)
+            def on_error(err_text):
                 self._safe_messagebox("error", "Pipeline Error", err_text)
                 try:
                     self.controller.lifecycle_event.set()
@@ -379,75 +222,8 @@ class StableNewGUI:
             self.root.after(0, _do)
         except Exception:
             _do()
-    style = self.style
-            "Dark.TCheckbutton",
-            background=bg_color,
-            foreground=fg_color,
-            focuscolor="none",
-            font=("Segoe UI", 9),
-        )
-        style.configure(
-            "Dark.TRadiobutton",
-            background=bg_color,
-            foreground=fg_color,
-            focuscolor="none",
-            font=("Segoe UI", 9),
-        )
-        style.configure("Dark.TNotebook", background=bg_color, borderwidth=0)
-        style.configure(
-            "Dark.TNotebook.Tab",
-            background=button_bg,
-            foreground=fg_color,
-            padding=[20, 8],
-            borderwidth=0,
-        )
 
-        # Accent button styles for CTAs
-        style.configure(
-            "Accent.TButton",
-            background="#0078d4",
-            foreground=fg_color,
-            borderwidth=1,
-            focuscolor="none",
-            font=("Segoe UI", 9, "bold"),
-        )
-        style.configure(
-            "Danger.TButton",
-            background="#dc3545",
-            foreground=fg_color,
-            borderwidth=1,
-            focuscolor="none",
-            font=("Segoe UI", 9, "bold"),
-        )
-
-        # Map states
-        style.map(
-            "Dark.TButton",
-            background=[("active", button_active), ("pressed", "#0078d4")],
-            foreground=[("active", fg_color)],
-        )
-
-        style.map(
-            "Dark.TCombobox",
-            fieldbackground=[("readonly", entry_bg)],
-            selectbackground=[("readonly", "#0078d4")],
-        )
-
-        style.map(
-            "Accent.TButton",
-            background=[("active", "#106ebe"), ("pressed", "#005a9e")],
-            foreground=[("active", fg_color)],
-        )
-
-        style.map(
-            "Danger.TButton",
-            background=[("active", "#c82333"), ("pressed", "#bd2130")],
-            foreground=[("active", fg_color)],
-        )
-
-        style.map(
-            "Dark.TNotebook.Tab", background=[("selected", "#0078d4"), ("active", button_active)]
-        )
+    # Duplicate _setup_theme and other duplicate/unused methods removed for linter/ruff compliance
 
     def _launch_webui(self):
         """Auto-launch Stable Diffusion WebUI with improved detection (non-blocking)."""
@@ -567,22 +343,23 @@ class StableNewGUI:
         # Setup state callbacks
         self._setup_state_callbacks()
 
-        style.configure(
+    def _setup_theme(self):
+        self.style.configure(
             "Dark.TCheckbutton",
             background=self.bg_color,
             foreground=self.fg_color,
             focuscolor="none",
             font=("Segoe UI", 9),
         )
-        style.configure(
+        self.style.configure(
             "Dark.TRadiobutton",
             background=self.bg_color,
             foreground=self.fg_color,
             focuscolor="none",
             font=("Segoe UI", 9),
         )
-        style.configure("Dark.TNotebook", background=self.bg_color, borderwidth=0)
-        style.configure(
+        self.style.configure("Dark.TNotebook", background=self.bg_color, borderwidth=0)
+        self.style.configure(
             "Dark.TNotebook.Tab",
             background=self.button_bg,
             foreground=self.fg_color,
@@ -591,7 +368,7 @@ class StableNewGUI:
         )
 
         # Accent button styles for CTAs
-        style.configure(
+        self.style.configure(
             "Accent.TButton",
             background="#0078d4",
             foreground=self.fg_color,
@@ -599,7 +376,7 @@ class StableNewGUI:
             focuscolor="none",
             font=("Segoe UI", 9, "bold"),
         )
-        style.configure(
+        self.style.configure(
             "Danger.TButton",
             background="#dc3545",
             foreground=self.fg_color,
@@ -609,35 +386,25 @@ class StableNewGUI:
         )
 
         # Map states
-        style.map(
-            "Dark.TButton",
-            background=[("active", self.button_active), ("pressed", "#0078d4")],
-            foreground=[("active", self.fg_color)],
-        )
-
-        style.map(
+        self.style.map(
             "Dark.TCombobox",
             fieldbackground=[("readonly", self.entry_bg)],
             selectbackground=[("readonly", "#0078d4")],
         )
-
-        style.map(
+        self.style.map(
             "Accent.TButton",
             background=[("active", "#106ebe"), ("pressed", "#005a9e")],
             foreground=[("active", self.fg_color)],
         )
-
-        style.map(
-            "Danger.TButton",
-            background=[("active", "#c82333"), ("pressed", "#bd2130")],
-            foreground=[("active", self.fg_color)],
-        )
-
-        style.map(
+        self.style.map(
             "Dark.TNotebook.Tab", background=[("selected", "#0078d4"), ("active", self.button_active)]
         )
+
+    def _layout_panels(self):
+        # Example layout for preset bar and dropdown
+        preset_bar = ttk.Frame(self.root, style="Dark.TFrame")
+        preset_bar.grid(row=0, column=0, sticky=tk.W)
         ttk.Label(preset_bar, text="Preset:", style="Dark.TLabel").grid(row=0, column=0, sticky=tk.W, padx=(2, 4))
-        # Single authoritative preset dropdown (moved from Pipeline tab)
         self.preset_dropdown = ttk.Combobox(
             preset_bar,
             textvariable=self.preset_var,
@@ -645,6 +412,7 @@ class StableNewGUI:
             width=28,
             values=self.config_manager.list_presets(),
         )
+        self.preset_dropdown.grid(row=0, column=1, sticky=tk.W)
         self.preset_dropdown.grid(row=0, column=1, sticky=tk.W)
         self.preset_dropdown.bind("<<ComboboxSelected>>", lambda _e: self._on_preset_dropdown_changed())
         self._attach_tooltip(
@@ -708,7 +476,9 @@ class StableNewGUI:
         self._attach_tooltip(del_preset_btn, "Delete the selected preset (cannot delete 'default').")
 
         # Notebook sits below preset bar
-        notebook = ttk.Notebook(center_panel, style="Dark.TNotebook")
+    def _setup_panels(self):
+        self.center_panel = CenterPanel(self.root)
+        notebook = ttk.Notebook(self.center_panel, style="Dark.TNotebook")
         notebook.grid(row=1, column=0, sticky="nsew")
         self.config_notebook = notebook
 

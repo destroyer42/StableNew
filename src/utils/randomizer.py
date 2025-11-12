@@ -250,3 +250,12 @@ class PromptRandomizer:
 
         backtrack(0, {})
         return combos or [None]
+
+
+# --- Minimal stubs for missing functions ---
+def build_variant_plan(*args, **kwargs):
+    return []
+
+
+def apply_variant_to_config(*args, **kwargs):
+    return {}
