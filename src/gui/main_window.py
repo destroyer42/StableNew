@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 import logging
 import os
@@ -94,6 +92,10 @@ class StableNewGUI:
         self.root.geometry(geometry)
         self._apply_style()
         # ...existing code...
+
+    def _apply_style(self):
+        """Apply ttk theme and style settings. (Restored stub for compatibility)"""
+        self._setup_theme()
 
     def _apply_webui_status(self, status) -> None:
         # Update any labels/combos based on discovered status.
@@ -3483,6 +3485,7 @@ class StableNewGUI:
 
                 # Create output video path
                 video_path = image_dir / "output_video.mp4"
+                video_path.parent.mkdir(exist_ok=True)
 
                 self.log_message(f"Creating video from {len(image_files)} images...", "INFO")
 
@@ -3706,9 +3709,6 @@ class StableNewGUI:
 
         ttk.Label(
             pack_status_frame, text="Current Pack:", style="Dark.TLabel", font=("Arial", 9, "bold")
-        ).pack(side=tk.LEFT)
-        self.current_pack_label = ttk.Label(
-            pack_status_frame,
             text="No pack selected",
             style="Dark.TLabel",
             font=("Arial", 9),
