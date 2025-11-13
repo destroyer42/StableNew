@@ -2,6 +2,29 @@
 
 A Python 3.11 application that automates the complete image generation pipeline using the Stable Diffusion WebUI API.
 
+> ### AI Agents & Coding Assistants
+> If you are an AI coding assistant (e.g., GitHub Copilot, GPT-5-CODEX, or similar),
+> you **must** read and follow these documents before editing this repository:
+>
+> - `docs/engineering_standards.md` – coding style, directory rules, performance & safety
+> - `docs/testing_strategy.md` – how to design, name, and structure tests (TDD expected)
+> - `docs/gui_overview.md` – StableNew GUI layout, theming, and behavior constraints
+> - `docs/repo_cleanup_plan.md` – the canonical plan for consolidating docs and cleaning up the repo
+>
+> Controller / Lead Engineer agents should also use:
+> - `.github/agents/controller_lead_engineer.md`
+> - `.github/agents/implementer_feature_bugfix.md`
+> - `.github/agents/refactor_python_best_practices.md`
+> - `.github/agents/tester_tdd_ci.md`
+> - `.github/agents/gui_ux_specialist.md`
+> - `.github/agents/docs_changelog_specialist.md`
+>
+> All AI agents are expected to:
+> - Keep PRs small and focused,
+> - Write or update tests for every behavior change,
+> - Update documentation for user-visible changes,
+> - Avoid modifying files outside the scope defined by the Controller agent.
+
 ### Overview
 
 This project automates the full creative pipeline using the **Stable Diffusion WebUI (A1111) API**:

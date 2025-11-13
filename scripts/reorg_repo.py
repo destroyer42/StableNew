@@ -97,8 +97,7 @@ def main() -> None:
         print(f"  {src.relative_to(repo_root)} -> {dst.relative_to(repo_root)}")
 
     if not args.apply:
-        print("
-Dry-run only. Re-run with --apply to perform these moves.")
+        print("Dry-run only. Re-run with --apply to perform these moves.")
         return
 
     # Apply moves
