@@ -83,6 +83,7 @@ female elf archer, slim athletic build, high cliff overlook, hair swept by wind,
 <lora:add-detail-xl:0.6> <lora:CinematicStyle_v1:0.45> <lora:DetailedEyes_V3:0.6><lora:babesByStableYogiPony_xlV4:1.0>
 neg: <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: motion blur, uneven sky, twisted pose, poor bow alignment, deformed hands, face mush, soft edges, extra arrows, multiple bowstrings, broken bowstring, warped bow, floating arrows, misplaced arrow, missing arrowhead, arrow through body, bowstring intersecting face, disjoint limbs
+<<<<<<< HEAD
 
 # The Falcon Huntress
 <embedding:stable_yogis_pdxl_positives> <embedding:stable_yogis_realism_positives_v1>
@@ -115,3 +116,5 @@ female warrior, bronze skin, red hair in braid, golden-brown eyes, fiery determi
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg> <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, plastic speculars, face mush, blurry details, bad lighting
+=======
+>>>>>>> MajorRefactor

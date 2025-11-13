@@ -9,7 +9,7 @@
   },
   "img2img": {
     "steps": 22,
-    "sampler_name": "DPM++ SDE Karras", 
+    "sampler_name": "DPM++ SDE Karras",
     "cfg_scale": 6.0,
     "denoising_strength": 0.25
   },

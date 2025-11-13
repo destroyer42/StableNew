@@ -7,7 +7,6 @@ import pytest
 AdvancedPromptEditor = pytest.importorskip("src.gui.advanced_prompt_editor").AdvancedPromptEditor
 
 
-
 def test_status_text_widget_exists_and_updates(tk_root):
     class DummyConfigManager:
         pass

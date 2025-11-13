@@ -1,17 +1,26 @@
 from src.pipeline.executor import Pipeline
 from src.utils.logger import StructuredLogger
 
+
 class DummyClient:
     def txt2img(self, payload):
         # minimal stub, returns one image
         return {"images": ["i"]}
-    def set_model(self, *a, **k): return True
-    def set_vae(self, *a, **k): return True
-    def set_hypernetwork(self, *a, **k): return True
+
+    def set_model(self, *a, **k):
+        return True
+
+    def set_vae(self, *a, **k):
+        return True
+
+    def set_hypernetwork(self, *a, **k):
+        return True
 
 
 def test_refiner_expected_switch_step(tmp_path, monkeypatch):
-    monkeypatch.setattr("src.pipeline.executor.save_image_from_base64", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "src.pipeline.executor.save_image_from_base64", lambda *args, **kwargs: True
+    )
     client = DummyClient()
     logger = StructuredLogger(output_dir=str(tmp_path))
     pipeline = Pipeline(client, logger)
@@ -34,4 +43,6 @@ def test_refiner_expected_switch_step(tmp_path, monkeypatch):
     # Validate using same calculation path.
     base_steps = config["txt2img"]["steps"]
     expected_switch_step = max(1, int(round(config["txt2img"]["refiner_switch_at"] * base_steps)))
-    assert 26 <= expected_switch_step <= 28, f"Unexpected computed switch step {expected_switch_step}"
+    assert (
+        26 <= expected_switch_step <= 28
+    ), f"Unexpected computed switch step {expected_switch_step}"

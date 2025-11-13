@@ -4,9 +4,9 @@ import json
 import logging
 import re
 import time
+from copy import deepcopy
 from datetime import datetime
 from functools import lru_cache
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,7 @@ from ..utils import ConfigManager, StructuredLogger, load_image_to_base64, save_
 def _cached_image_base64(path_str: str) -> str | None:
     """LRU cache for recently loaded images to cut down disk reads."""
     return load_image_to_base64(Path(path_str))
+
 
 logger = logging.getLogger(__name__)
 
@@ -90,15 +91,12 @@ class Pipeline:
 
         target_strength = float(strength) if strength is not None else None
 
-        if (
-            normalized == self._current_hypernetwork
-            and (
-                (target_strength is None and self._current_hn_strength is None)
-                or (
-                    target_strength is not None
-                    and self._current_hn_strength is not None
-                    and abs(self._current_hn_strength - target_strength) < 1e-3
-                )
+        if normalized == self._current_hypernetwork and (
+            (target_strength is None and self._current_hn_strength is None)
+            or (
+                target_strength is not None
+                and self._current_hn_strength is not None
+                and abs(self._current_hn_strength - target_strength) < 1e-3
             )
         ):
             return
@@ -141,7 +139,11 @@ class Pipeline:
         image_name = Path(input_image_path).stem
 
         # Early cancel
-        if cancel_token and getattr(cancel_token, "is_cancelled", None) and cancel_token.is_cancelled():
+        if (
+            cancel_token
+            and getattr(cancel_token, "is_cancelled", None)
+            and cancel_token.is_cancelled()
+        ):
             logger.info("upscale cancelled before start")
             return None
 
@@ -153,7 +155,11 @@ class Pipeline:
         )
 
         # Post cancel
-        if cancel_token and getattr(cancel_token, "is_cancelled", None) and cancel_token.is_cancelled():
+        if (
+            cancel_token
+            and getattr(cancel_token, "is_cancelled", None)
+            and cancel_token.is_cancelled()
+        ):
             logger.info("upscale cancelled after upscaling")
             return None
 
@@ -199,9 +205,8 @@ class Pipeline:
         try:
             pipeline = cfg.get("pipeline", {})
             disable_hr = (
-                (pipeline.get("img2img_enabled", True) or pipeline.get("upscale_enabled", True))
-                and not pipeline.get("allow_hr_with_stages", False)
-            )
+                pipeline.get("img2img_enabled", True) or pipeline.get("upscale_enabled", True)
+            ) and not pipeline.get("allow_hr_with_stages", False)
             if disable_hr:
                 txt = cfg.setdefault("txt2img", {})
                 if txt.get("enable_hr"):
@@ -365,10 +370,7 @@ class Pipeline:
                 return {"sampler_name": clean_sampler, "scheduler": scheduler_value}
 
         # No scheduler found, return sampler with automatic scheduler
-        return {
-            "sampler_name": sampler_name,
-            "scheduler": "Automatic"
-        }
+        return {"sampler_name": sampler_name, "scheduler": "Automatic"}
 
     @staticmethod
     def _format_eta(seconds: float) -> str:
@@ -395,16 +397,17 @@ class Pipeline:
         Returns:
             Name prefix if found, None otherwise
         """
-        lines = prompt.strip().split('\n')
+        lines = prompt.strip().split("\n")
         if lines:
             first_line = lines[0].strip()
-            if first_line.lower().startswith('name:'):
+            if first_line.lower().startswith("name:"):
                 # Extract and clean the name
-                name = first_line.split(':', 1)[1].strip()
+                name = first_line.split(":", 1)[1].strip()
                 # Clean for filesystem safety
-                name = re.sub(r'[^\w_-]', '_', name)
+                name = re.sub(r"[^\w_-]", "_", name)
                 return name if name else None
         return None
+
     def run_txt2img(
         self,
         prompt: str,
@@ -438,7 +441,9 @@ class Pipeline:
         # Apply global NSFW prevention to negative prompt (with optional adjustments)
         base_negative = config.get("negative_prompt", "")
         negative_adjust = (config.get("negative_adjust") or "").strip()
-        combined_negative = base_negative if not negative_adjust else f"{base_negative} {negative_adjust}".strip()
+        combined_negative = (
+            base_negative if not negative_adjust else f"{base_negative} {negative_adjust}".strip()
+        )
         enhanced_negative = self.config_manager.add_global_negative(combined_negative)
         logger.info(
             f"🛡️ Applied global NSFW prevention - Original: '{base_negative}' → Enhanced: '{enhanced_negative[:100]}...'"
@@ -756,9 +761,14 @@ class Pipeline:
             return metadata
         return None
 
-    def run_adetailer(self, input_image_path: Path, prompt: str,
-                     config: dict[str, Any], run_dir: Path,
-                     cancel_token=None) -> dict[str, Any] | None:
+    def run_adetailer(
+        self,
+        input_image_path: Path,
+        prompt: str,
+        config: dict[str, Any],
+        run_dir: Path,
+        cancel_token=None,
+    ) -> dict[str, Any] | None:
         """
         Run ADetailer for automatic face/detail enhancement.
 
@@ -778,7 +788,7 @@ class Pipeline:
             return None
 
         # Check if ADetailer is enabled
-        if not config.get('adetailer_enabled', False):
+        if not config.get("adetailer_enabled", False):
             logger.info("ADetailer is disabled, skipping")
             return None
 
@@ -810,7 +820,7 @@ class Pipeline:
         payload_height = actual_height or _coerce_dimension(config.get("height"), 512)
 
         # Optionally apply global negative to adetailer negative prompt
-        base_ad_neg = config.get('adetailer_negative_prompt', '')
+        base_ad_neg = config.get("adetailer_negative_prompt", "")
         apply_global = (config.get("pipeline", {}) if isinstance(config, dict) else {}).get(
             "apply_global_negative_adetailer", True
         )
@@ -829,12 +839,12 @@ class Pipeline:
         # Build ADetailer payload
         payload = {
             "init_images": [init_image],
-            "prompt": config.get('adetailer_prompt', prompt),
+            "prompt": config.get("adetailer_prompt", prompt),
             "negative_prompt": ad_neg_final,
-            "sampler_name": config.get('adetailer_sampler', 'DPM++ 2M'),
-            "steps": config.get('adetailer_steps', 28),
-            "cfg_scale": config.get('adetailer_cfg', 7.0),
-            "denoising_strength": config.get('adetailer_denoise', 0.4),
+            "sampler_name": config.get("adetailer_sampler", "DPM++ 2M"),
+            "steps": config.get("adetailer_steps", 28),
+            "cfg_scale": config.get("adetailer_cfg", 7.0),
+            "denoising_strength": config.get("adetailer_denoise", 0.4),
             "width": payload_width,
             "height": payload_height,
             # ADetailer specific parameters
@@ -842,22 +852,22 @@ class Pipeline:
                 "ADetailer": {
                     "args": [
                         {
-                            "ad_model": config.get('adetailer_model', 'face_yolov8n.pt'),
-                            "ad_confidence": config.get('adetailer_confidence', 0.3),
-                            "ad_mask_blur": config.get('adetailer_mask_feather', 4),
-                            "ad_denoising_strength": config.get('adetailer_denoise', 0.4),
+                            "ad_model": config.get("adetailer_model", "face_yolov8n.pt"),
+                            "ad_confidence": config.get("adetailer_confidence", 0.3),
+                            "ad_mask_blur": config.get("adetailer_mask_feather", 4),
+                            "ad_denoising_strength": config.get("adetailer_denoise", 0.4),
                             "ad_inpaint_only_masked": True,
                             "ad_inpaint_only_masked_padding": 32,
                             "ad_use_inpaint_width_height": False,
-                            "ad_sampler": config.get('adetailer_sampler', 'DPM++ 2M'),
-                            "ad_steps": config.get('adetailer_steps', 28),
-                            "ad_cfg_scale": config.get('adetailer_cfg', 7.0),
-                            "ad_prompt": config.get('adetailer_prompt', ''),
-                            "ad_negative_prompt": ad_neg_final
+                            "ad_sampler": config.get("adetailer_sampler", "DPM++ 2M"),
+                            "ad_steps": config.get("adetailer_steps", 28),
+                            "ad_cfg_scale": config.get("adetailer_cfg", 7.0),
+                            "ad_prompt": config.get("adetailer_prompt", ""),
+                            "ad_negative_prompt": ad_neg_final,
                         }
                     ]
                 }
-            }
+            },
         }
 
         # Call img2img endpoint with ADetailer extension
@@ -868,7 +878,7 @@ class Pipeline:
             logger.info("adetailer cancelled after API call")
             return None
 
-        if not response or 'images' not in response:
+        if not response or "images" not in response:
             logger.error("adetailer failed")
             return None
 
@@ -877,7 +887,7 @@ class Pipeline:
         image_name = f"adetailer_{timestamp}"
         image_path = run_dir / "adetailer" / f"{image_name}.png"
 
-        if save_image_from_base64(response['images'][0], image_path):
+        if save_image_from_base64(response["images"][0], image_path):
             metadata = {
                 "name": image_name,
                 "stage": "adetailer",
@@ -887,10 +897,12 @@ class Pipeline:
                 "original_negative_prompt": base_ad_neg,
                 "final_negative_prompt": ad_neg_final,
                 "global_negative_applied": apply_global,
-                "global_negative_terms": self.config_manager.get_global_negative_prompt() if apply_global else "",
+                "global_negative_terms": self.config_manager.get_global_negative_prompt()
+                if apply_global
+                else "",
                 "input_image": str(input_image_path),
                 "config": payload,
-                "path": str(image_path)
+                "path": str(image_path),
             }
 
             self.logger.save_manifest(run_dir, image_name, metadata)
@@ -1268,7 +1280,9 @@ class Pipeline:
             image_name = f"{image_number:03d}_{timestamp}{variant_suffix}"
             txt2img_dir = pack_dir / "txt2img"
             effective_negative = config.get("txt2img", {}).get("negative_prompt", "")
-            meta = self.run_txt2img_stage(prompt, effective_negative, config, txt2img_dir, image_name)
+            meta = self.run_txt2img_stage(
+                prompt, effective_negative, config, txt2img_dir, image_name
+            )
             if meta:
                 # ensure name present for downstream base prefix extraction
                 meta = self._tag_variant_metadata(meta, variant_index, variant_label)
@@ -1338,24 +1352,36 @@ class Pipeline:
                                 "apply_global_negative_adetailer", True
                             )
                         }
-                        adetailer_meta = self.run_adetailer(Path(branch_last), prompt, adetailer_cfg, pack_dir)
+                        adetailer_meta = self.run_adetailer(
+                            Path(branch_last), prompt, adetailer_cfg, pack_dir
+                        )
                         if adetailer_meta:
-                            adetailer_meta = self._tag_variant_metadata(adetailer_meta, variant_index, variant_label)
+                            adetailer_meta = self._tag_variant_metadata(
+                                adetailer_meta, variant_index, variant_label
+                            )
                             results["adetailer"].append(adetailer_meta)
                             branch_last = adetailer_meta["path"]
                     if upscale_enabled:
                         upscale_dir = pack_dir / "upscaled"
                         up_name = f"{base_image_name}_{cand['label']}"
-                        up_meta = self.run_upscale_stage(Path(branch_last), config.get("upscale", {}), upscale_dir, up_name)
+                        up_meta = self.run_upscale_stage(
+                            Path(branch_last), config.get("upscale", {}), upscale_dir, up_name
+                        )
                         if up_meta:
-                            up_meta = self._tag_variant_metadata(up_meta, variant_index, variant_label)
+                            up_meta = self._tag_variant_metadata(
+                                up_meta, variant_index, variant_label
+                            )
                             results["upscaled"].append(up_meta)
                             processed_final_paths.append(up_meta["path"])
                         else:
                             processed_final_paths.append(branch_last)
                     else:
                         processed_final_paths.append(branch_last)
-                final_image_path = processed_final_paths[0] if processed_final_paths else txt2img_meta.get("path", "")
+                final_image_path = (
+                    processed_final_paths[0]
+                    if processed_final_paths
+                    else txt2img_meta.get("path", "")
+                )
                 last_image_path = final_image_path
             else:
                 # Non-compare mode refinement path (single branch)
@@ -1379,7 +1405,9 @@ class Pipeline:
                             base_image_name,
                         )
                     if img2img_meta:
-                        img2img_meta = self._tag_variant_metadata(img2img_meta, variant_index, variant_label)
+                        img2img_meta = self._tag_variant_metadata(
+                            img2img_meta, variant_index, variant_label
+                        )
                         results["img2img"].append(img2img_meta)
                         last_image_path = img2img_meta["path"]
                         final_image_path = last_image_path
@@ -1394,17 +1422,28 @@ class Pipeline:
                             "apply_global_negative_adetailer", True
                         )
                     }
-                    adetailer_meta = self.run_adetailer(Path(last_image_path), prompt, adetailer_cfg, pack_dir)
+                    adetailer_meta = self.run_adetailer(
+                        Path(last_image_path), prompt, adetailer_cfg, pack_dir
+                    )
                     if adetailer_meta:
-                        adetailer_meta = self._tag_variant_metadata(adetailer_meta, variant_index, variant_label)
+                        adetailer_meta = self._tag_variant_metadata(
+                            adetailer_meta, variant_index, variant_label
+                        )
                         results["adetailer"].append(adetailer_meta)
                         last_image_path = adetailer_meta["path"]
                         final_image_path = last_image_path
                 if upscale_enabled:
                     upscale_dir = pack_dir / "upscaled"
-                    upscaled_meta = self.run_upscale_stage(Path(last_image_path), config.get("upscale", {}), upscale_dir, base_image_name)
+                    upscaled_meta = self.run_upscale_stage(
+                        Path(last_image_path),
+                        config.get("upscale", {}),
+                        upscale_dir,
+                        base_image_name,
+                    )
                     if upscaled_meta:
-                        upscaled_meta = self._tag_variant_metadata(upscaled_meta, variant_index, variant_label)
+                        upscaled_meta = self._tag_variant_metadata(
+                            upscaled_meta, variant_index, variant_label
+                        )
                         results["upscaled"].append(upscaled_meta)
                         final_image_path = upscaled_meta["path"]
                     else:
@@ -1435,7 +1474,9 @@ class Pipeline:
                     for m in results["img2img"]:
                         if isinstance(m, dict) and m.get("name", "").startswith(base_prefix):
                             img2img_prompts.append(m.get("final_prompt") or m.get("prompt", ""))
-                            img2img_negatives.append(m.get("final_negative_prompt") or m.get("negative_prompt", ""))
+                            img2img_negatives.append(
+                                m.get("final_negative_prompt") or m.get("negative_prompt", "")
+                            )
                     if img2img_prompts:
                         summary_entry["steps_completed"].append("img2img")
                         summary_entry["img2img_final_prompt"] = "; ".join(img2img_prompts)
@@ -1445,21 +1486,38 @@ class Pipeline:
             if results["adetailer"]:
                 try:
                     adetailer_meta = next(
-                        (m for m in results["adetailer"] if isinstance(m, dict) and m.get("path") == last_image_path),
+                        (
+                            m
+                            for m in results["adetailer"]
+                            if isinstance(m, dict) and m.get("path") == last_image_path
+                        ),
                         None,
                     )
                     if adetailer_meta:
                         summary_entry["steps_completed"].append("adetailer")
-                        summary_entry["adetailer_final_prompt"] = adetailer_meta.get("final_prompt", "")
-                        summary_entry["adetailer_final_negative"] = adetailer_meta.get("final_negative_prompt", "")
+                        summary_entry["adetailer_final_prompt"] = adetailer_meta.get(
+                            "final_prompt", ""
+                        )
+                        summary_entry["adetailer_final_negative"] = adetailer_meta.get(
+                            "final_negative_prompt", ""
+                        )
                 except Exception:
                     pass
             if results["upscaled"]:
                 try:
-                    up_meta = next((m for m in results["upscaled"] if isinstance(m, dict) and m.get("path") == final_image_path), None)
+                    up_meta = next(
+                        (
+                            m
+                            for m in results["upscaled"]
+                            if isinstance(m, dict) and m.get("path") == final_image_path
+                        ),
+                        None,
+                    )
                     if up_meta:
                         summary_entry["steps_completed"].append("upscaled")
-                        summary_entry["upscale_final_negative"] = up_meta.get("final_negative_prompt", "")
+                        summary_entry["upscale_final_negative"] = up_meta.get(
+                            "final_negative_prompt", ""
+                        )
                 except Exception:
                     pass
             results["summary"].append(summary_entry)
@@ -1549,9 +1607,13 @@ class Pipeline:
                     base_steps = 20
                 enable_hr = bool(txt2img_config.get("enable_hr", False))
                 hr_steps_cfg = int(txt2img_config.get("hr_second_pass_steps", 0) or 0)
-                effective_hr_steps = (hr_steps_cfg if hr_steps_cfg > 0 else base_steps) if enable_hr else 0
+                effective_hr_steps = (
+                    (hr_steps_cfg if hr_steps_cfg > 0 else base_steps) if enable_hr else 0
+                )
                 expected_switch_step_base = max(1, int(round(refiner_switch_at * base_steps)))
-                expected_switch_step_total = expected_switch_step_base  # progress bars often show total steps
+                expected_switch_step_total = (
+                    expected_switch_step_base  # progress bars often show total steps
+                )
                 total_steps_progress = base_steps + effective_hr_steps
                 logger.info(
                     "🎨 SDXL Refiner enabled: %s | switch_at=%s (≈ step %d of base %d; ≈ %d/%d total)",
@@ -1642,7 +1704,9 @@ class Pipeline:
                 # Defensive: ensure refiner_checkpoint is string before split
                 try:
                     ref_str = str(refiner_checkpoint) if refiner_checkpoint else ""
-                    refiner_checkpoint_clean = ref_str.split(" [")[0] if " [" in ref_str else ref_str
+                    refiner_checkpoint_clean = (
+                        ref_str.split(" [")[0] if " [" in ref_str else ref_str
+                    )
                 except Exception:
                     refiner_checkpoint_clean = str(refiner_checkpoint) if refiner_checkpoint else ""
                 # Refiner parameters go at the top level of the payload
@@ -1675,9 +1739,13 @@ class Pipeline:
                     "prompt": payload.get("prompt", prompt),  # backward compatibility
                     "original_negative_prompt": negative_prompt,
                     "final_negative_prompt": payload.get("negative_prompt", enhanced_negative),
-                    "negative_prompt": payload.get("negative_prompt", enhanced_negative),  # backward compatibility
+                    "negative_prompt": payload.get(
+                        "negative_prompt", enhanced_negative
+                    ),  # backward compatibility
                     "global_negative_applied": apply_global,
-                    "global_negative_terms": self.config_manager.get_global_negative_prompt() if apply_global else "",
+                    "global_negative_terms": self.config_manager.get_global_negative_prompt()
+                    if apply_global
+                    else "",
                     "config": payload,
                     "output_path": str(image_path),
                     "path": str(image_path),
@@ -1692,7 +1760,9 @@ class Pipeline:
                     except Exception:
                         manifest_dir = pack_dir / "manifests"
                         manifest_dir.mkdir(exist_ok=True, parents=True)
-                        with open(manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8") as f:
+                        with open(
+                            manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8"
+                        ) as f:
                             json.dump(metadata, f, indent=2, ensure_ascii=False)
                 else:
                     try:
@@ -1759,18 +1829,24 @@ class Pipeline:
             # Combine negative prompt with optional adjustments
             base_negative = config.get("negative_prompt", "")
             neg_adjust = (config.get("negative_adjust") or "").strip()
-            original_negative_prompt = base_negative if not neg_adjust else f"{base_negative} {neg_adjust}".strip()
+            original_negative_prompt = (
+                base_negative if not neg_adjust else f"{base_negative} {neg_adjust}".strip()
+            )
 
             # Optionally apply global negative safety terms based on stage flag
-            apply_global = (full_config or {}).get("pipeline", {}).get(
-                "apply_global_negative_img2img", True
+            apply_global = (
+                (full_config or {}).get("pipeline", {}).get("apply_global_negative_img2img", True)
             )
             if apply_global:
-                enhanced_negative = self.config_manager.add_global_negative(original_negative_prompt)
+                enhanced_negative = self.config_manager.add_global_negative(
+                    original_negative_prompt
+                )
                 try:
                     logger.info(
                         "🛡️ Applied global NSFW prevention (img2img stage) - Enhanced: '%s'",
-                        (enhanced_negative[:100] + "...") if len(enhanced_negative) > 100 else enhanced_negative,
+                        (enhanced_negative[:100] + "...")
+                        if len(enhanced_negative) > 100
+                        else enhanced_negative,
                     )
                 except Exception:
                     pass
@@ -1843,7 +1919,9 @@ class Pipeline:
                     "final_negative_prompt": payload.get("negative_prompt", ""),
                     "negative_prompt": payload.get("negative_prompt", ""),
                     "global_negative_applied": apply_global,
-                    "global_negative_terms": self.config_manager.get_global_negative_prompt() if apply_global else "",
+                    "global_negative_terms": self.config_manager.get_global_negative_prompt()
+                    if apply_global
+                    else "",
                     "input_image": str(input_image_path),
                     "config": payload,
                     "path": str(image_path),
@@ -1858,7 +1936,9 @@ class Pipeline:
                     except Exception:
                         manifest_dir = pack_dir / "manifests"
                         manifest_dir.mkdir(exist_ok=True, parents=True)
-                        with open(manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8") as f:
+                        with open(
+                            manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8"
+                        ) as f:
                             json.dump(metadata, f, indent=2, ensure_ascii=False)
                 else:
                     try:
@@ -1957,15 +2037,17 @@ class Pipeline:
                 try:
                     original_neg = payload.get("negative_prompt", "")
                     if original_neg:
-                        apply_global = (config.get("pipeline", {}) if isinstance(config, dict) else {}).get(
-                            "apply_global_negative_upscale", True
-                        )
+                        apply_global = (
+                            config.get("pipeline", {}) if isinstance(config, dict) else {}
+                        ).get("apply_global_negative_upscale", True)
                         if apply_global:
                             enhanced_neg = self.config_manager.add_global_negative(original_neg)
                             payload["negative_prompt"] = enhanced_neg
                             logger.info(
                                 "🛡️ Applied global NSFW prevention (upscale img2img) - Enhanced: '%s'",
-                                (enhanced_neg[:120] + "...") if len(enhanced_neg) > 120 else enhanced_neg,
+                                (enhanced_neg[:120] + "...")
+                                if len(enhanced_neg) > 120
+                                else enhanced_neg,
                             )
                         else:
                             logger.info("⚠️ Global negative skipped for upscale(img2img) stage")
@@ -2032,8 +2114,18 @@ class Pipeline:
                     "timestamp": timestamp,
                     "input_image": str(input_image_path),
                     "final_negative_prompt": payload.get("negative_prompt"),
-                    "global_negative_applied": (config.get("pipeline", {}) if isinstance(config, dict) else {}).get("apply_global_negative_upscale", True) if isinstance(payload, dict) and "init_images" in payload else False,
-                    "global_negative_terms": self.config_manager.get_global_negative_prompt() if (isinstance(payload, dict) and "init_images" in payload and payload.get("negative_prompt")) else "",
+                    "global_negative_applied": (
+                        config.get("pipeline", {}) if isinstance(config, dict) else {}
+                    ).get("apply_global_negative_upscale", True)
+                    if isinstance(payload, dict) and "init_images" in payload
+                    else False,
+                    "global_negative_terms": self.config_manager.get_global_negative_prompt()
+                    if (
+                        isinstance(payload, dict)
+                        and "init_images" in payload
+                        and payload.get("negative_prompt")
+                    )
+                    else "",
                     "config": payload,
                     "path": str(image_path),
                 }
@@ -2047,12 +2139,16 @@ class Pipeline:
                     except Exception:
                         manifest_dir = pack_dir / "manifests"
                         manifest_dir.mkdir(exist_ok=True, parents=True)
-                        with open(manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8") as f:
+                        with open(
+                            manifest_dir / f"{manifest_name}.json", "w", encoding="utf-8"
+                        ) as f:
                             json.dump(metadata, f, indent=2, ensure_ascii=False)
                 else:
                     manifest_dir = output_dir / "manifests"
                     manifest_dir.mkdir(exist_ok=True)
-                    with open(manifest_dir / f"{image_name}_upscale.json", "w", encoding="utf-8") as f:
+                    with open(
+                        manifest_dir / f"{image_name}_upscale.json", "w", encoding="utf-8"
+                    ) as f:
                         json.dump(metadata, f, indent=2, ensure_ascii=False)
 
                 logger.info(f"✅ Upscale completed: {image_path.name}")

@@ -18,8 +18,8 @@ The `_handle_pipeline_error()` method was calling `messagebox.showerror()` direc
 
 ## Fix Applied
 
-**File:** `src/gui/main_window.py`  
-**Method:** `_handle_pipeline_error()`  
+**File:** `src/gui/main_window.py`
+**Method:** `_handle_pipeline_error()`
 **Lines:** 5466-5492
 
 **Before:**

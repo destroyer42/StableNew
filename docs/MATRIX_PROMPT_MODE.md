@@ -4,7 +4,7 @@
 The matrix randomization system now supports three modes for how the `base_prompt` relates to your pack prompts:
 
 1. **Replace** (default) - Matrix base_prompt completely replaces pack prompt
-2. **Append** - Matrix expansions are added to the end of pack prompts  
+2. **Append** - Matrix expansions are added to the end of pack prompts
 3. **Prepend** - Matrix expansions are added before pack prompts
 
 ## Configuration
@@ -42,7 +42,7 @@ Located in the **Randomization → Matrix** section:
 - Pack prompt: `"hero portrait"`
 - Base prompt: `"portrait of a [[race]] [[job]]"`
 - Slots: `race: [human, elf]`, `job: [warrior, mage]`
-- Output: 
+- Output:
   - `"portrait of a human warrior"`
   - `"portrait of a elf mage"`
   - *(pack prompt is completely replaced)*

@@ -1,7 +1,5 @@
 import random
 
-import pytest
-
 from src.utils.randomizer import PromptRandomizer
 
 
@@ -124,3 +122,33 @@ def test_randomizer_combines_all_features():
         "night champion vs dragon",
         "night champion vs phoenix",
     }
+
+
+def test_randomizer_caps_variants_when_exceeding_limit():
+    config = {
+        "enabled": True,
+        "max_variants": 5,
+        "prompt_sr": {
+            "enabled": True,
+            "mode": "round_robin",
+            "rules": [
+                {"search": "hero", "replacements": ["hero", "champion", "guardian"]},
+            ],
+        },
+        "wildcards": {
+            "enabled": True,
+            "mode": "random",
+            "tokens": [{"token": "__mood__", "values": ["bold", "calm", "fierce"]}],
+        },
+        "matrix": {
+            "enabled": True,
+            "mode": "fanout",
+            "limit": 0,
+            "slots": [
+                {"name": "Style", "values": ["cinematic", "gritty", "painterly"]},
+            ],
+        },
+    }
+    randomizer = PromptRandomizer(config)
+    variants = randomizer.generate("__mood__ [[Style]] hero")
+    assert len(variants) == 5

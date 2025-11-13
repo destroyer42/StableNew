@@ -1,7 +1,7 @@
 # Sprint Summary: PR F–H Implementation
 
-**Date:** November 3, 2025  
-**Branch:** `copilot/add-non-blocking-stage-chooser-modal`  
+**Date:** November 3, 2025
+**Branch:** `copilot/add-non-blocking-stage-chooser-modal`
 **Status:** ✅ Complete
 
 ---
@@ -392,6 +392,6 @@ All three PRs (F, G, H) have been successfully implemented, tested, and document
 
 ---
 
-**Completed by:** GitHub Copilot Agent  
-**Review Status:** Ready for code review  
+**Completed by:** GitHub Copilot Agent
+**Review Status:** Ready for code review
 **Deployment Status:** Ready for staging

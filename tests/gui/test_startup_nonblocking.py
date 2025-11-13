@@ -4,8 +4,9 @@ If auto-launch discovery blocks, scheduled after-callback will never fire within
 """
 import os
 import time
-import pytest
 import tkinter as tk
+
+import pytest
 
 # Skip if display not available (CI headless behavior)
 if os.environ.get("DISPLAY") is None and os.name != "nt":  # Windows can create Tk without DISPLAY

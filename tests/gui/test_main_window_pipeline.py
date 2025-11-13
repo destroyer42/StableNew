@@ -2,9 +2,10 @@
 
 import time
 from unittest import mock
-from tests.gui.conftest import wait_until
 
 import pytest
+
+from tests.gui.conftest import wait_until
 
 
 @pytest.fixture

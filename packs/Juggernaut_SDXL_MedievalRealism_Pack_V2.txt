@@ -77,4 +77,3 @@ female warrior, bronze skin, red hair in braid, golden-brown eyes, fiery determi
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg> <embedding:stable_yogis_anatomy_negatives_v1-neg>
 neg: deformed hands, extra digits, fused fingers, twisted wrists, asymmetrical eyes, melted faces, plastic speculars, face mush, blurry details, bad lighting
-

@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Critical Threading Bug**: GUI no longer hangs on second pipeline run after changing model/refiner settings. Fixed `messagebox.showerror()` being called from worker thread - now properly marshaled to main thread using `root.after(0, ...)` to prevent Tkinter threading violations. This resolves the "GUI not responding" issue that required restart between runs. (`src/gui/main_window.py`)
 
 ### Added
+- **Config Management Refactor (PRs 1-7)**: Complete overhaul of configuration handling to be explicit and user-controlled, replacing implicit autoload with deliberate actions.
+  - **PR-1: Config Source Banner**: Disabled automatic config loading on pack selection, added banner showing current config source (Pack/Preset/Global Lock). (`src/gui/main_window.py`)
+  - **PR-2: ConfigService**: Added centralized ConfigService for all config IO operations (packs, presets, lists). (`src/services/config_service.py`)
+  - **PR-3: Explicit Load Controls**: Added "Load Pack Config" and "Load Preset" buttons to action bar for deliberate config loading. (`src/gui/main_window.py`)
+  - **PR-4: Config Lock**: Added "Lock This Config" button to freeze current config globally, preventing accidental changes. (`src/gui/main_window.py`)
+  - **PR-5: Apply to Packs**: Added "Apply Editor → Pack(s)" button to save current editor settings to selected packs. (`src/gui/main_window.py`)
+  - **PR-6: Preset CRUD**: Added full preset management with load/save/delete operations and dropdown selection. (`src/gui/main_window.py`)
+  - **PR-7: List Management**: Added pack collection management with load/save/overwrite/delete for custom lists. (`src/gui/main_window.py`)
+- **Preview Payload & Validate (Dry Run)**: Added "Preview Payload (Dry Run)" button to action bar for validating prompt assembly before running. Shows 1-3 resolved prompt variants per selected pack, diagnostics for unresolved tokens ([[slot]]), empty randomizer slots, and matrix combination counts. No SD WebUI calls performed. (`src/gui/main_window.py`)
 - Regression tests for upscale “single” and “img2img” modes to ensure payload steps/denoise values stay in sync with the UI (`tests/pipeline/test_upscale_stage.py`).
 - README documentation covering upscale mode behavior, performance trade-offs, and the WebUI progress-bar discrepancy.
 - Integration test covering consecutive pipeline runs and preset snapshots (`tests/gui/test_pipeline_runs.py`).

@@ -1,9 +1,22 @@
 # No external imports needed; keep file minimal and headless-friendly
 
+
 class DummyPipeline:
     def __init__(self):
         self.calls = []
-    def run_pack_pipeline(self, *, pack_name, prompt, config, run_dir, prompt_index, batch_size, variant_index=0, variant_label=None):
+
+    def run_pack_pipeline(
+        self,
+        *,
+        pack_name,
+        prompt,
+        config,
+        run_dir,
+        prompt_index,
+        batch_size,
+        variant_index=0,
+        variant_label=None,
+    ):
         self.calls.append({"pack": pack_name, "prompt": prompt, "config": config})
         return {"summary": [{"pack": pack_name, "prompt": prompt}]}
 
@@ -17,13 +30,18 @@ def test_two_identical_runs_do_not_hang(tmp_path, monkeypatch, minimal_gui_app):
     pack.write_text("prompt block", encoding="utf-8")
 
     monkeypatch.setattr(minimal_gui_app, "_get_selected_packs", lambda: [pack])
-    monkeypatch.setattr("src.gui.main_window.read_prompt_pack", lambda _path: [{"positive": "hero prompt"}])
+    monkeypatch.setattr(
+        "src.gui.main_window.read_prompt_pack", lambda _path: [{"positive": "hero prompt"}]
+    )
 
     pipeline = DummyPipeline()
     minimal_gui_app.pipeline = pipeline
 
     # Force a stable form config snapshot
-    minimal_gui_app._get_config_from_forms = lambda: {"txt2img": {"model": "ModelA", "vae": "VAE_A"}, "pipeline": {}}  # type: ignore
+    minimal_gui_app._get_config_from_forms = lambda: {
+        "txt2img": {"model": "ModelA", "vae": "VAE_A"},
+        "pipeline": {},
+    }  # type: ignore
     minimal_gui_app.images_per_prompt_var.set("1")
 
     # Fake controller start_pipeline to run synchronously (like existing tests)
@@ -52,4 +70,3 @@ def test_two_identical_runs_do_not_hang(tmp_path, monkeypatch, minimal_gui_app):
     for call in pipeline.calls:
         assert call["config"].get("txt2img", {}).get("model") == "ModelA"
         assert call["config"].get("txt2img", {}).get("vae") == "VAE_A"
-

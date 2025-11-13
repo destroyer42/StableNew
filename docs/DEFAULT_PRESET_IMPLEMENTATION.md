@@ -10,12 +10,12 @@ Implemented full default preset support allowing users to designate a preset to 
   - Validates preset exists before setting
   - Persists to `.default_preset` file in presets directory
   - Returns True on success, False on failure
-  
+
 - **`get_default_preset()`**: Retrieves the default preset name
   - Returns None if no default is set
   - Auto-cleans stale references if preset file was deleted
   - Thread-safe with file-based persistence
-  
+
 - **`clear_default_preset()`**: Removes the default preset setting
   - Safe to call even when no default is set
   - Cleans up `.default_preset` file
@@ -25,7 +25,7 @@ Implemented full default preset support allowing users to designate a preset to 
   - Shows confirmation dialog with current default info
   - Prevents redundant sets (shows info if already default)
   - Clear success/failure messaging with logging
-  
+
 - **Startup Auto-Load**: Modified `_ensure_default_preset()`
   - Checks for default preset on startup
   - Automatically loads it if found
