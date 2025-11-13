@@ -2,10 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 import random
 from dataclasses import dataclass
 from typing import Any
 
+from src.pipeline.variant_planner import (
+    VariantPlan,
+    VariantSpec,
+    apply_variant_to_config,
+    build_variant_plan,
+)
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_MAX_VARIANTS = 512
+HARD_MAX_VARIANTS = 8192
 
 @dataclass
 class PromptVariant:
@@ -18,10 +30,16 @@ class PromptVariant:
 class PromptRandomizer:
     """Applies Prompt S/R, wildcard, and matrix rules prior to pipeline runs."""
 
-    def __init__(self, config: dict[str, Any] | None, rng: random.Random | None = None) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any] | None,
+        rng: random.Random | None = None,
+        max_variants: int | None = None,
+    ) -> None:
         cfg = config or {}
         self.enabled = bool(cfg.get("enabled"))
         self._rng = rng or random.Random()
+        self._max_variants = self._resolve_max_variants(cfg, max_variants)
 
         # Prompt S/R
         self._sr_config = cfg.get("prompt_sr", {}) or {}
@@ -60,7 +78,14 @@ class PromptRandomizer:
             ]
         self._matrix_mode = (self._matrix_config.get("mode") or "fanout").lower()
         self._matrix_limit = int(self._matrix_config.get("limit") or 0)
+        self._matrix_total_possible = self._estimate_matrix_combo_total()
+        self._matrix_effective_limit = self._resolve_matrix_limit()
         self._matrix_combos = self._build_matrix_combos()
+        self._matrix_requested = (
+            min(self._matrix_total_possible, self._matrix_limit)
+            if self._matrix_limit > 0
+            else self._matrix_total_possible
+        )
         self._matrix_index = 0
 
     def generate(self, prompt_text: str) -> list[PromptVariant]:
@@ -90,8 +115,10 @@ class PromptRandomizer:
 
         matrix_combos = self._matrix_combos_for_prompt()
         sr_variants = self._expand_prompt_sr(working_prompt)
+        matrix_requested = self._matrix_requested if self._matrix_enabled else 1
 
         variants: list[PromptVariant] = []
+        truncated = False
         for sr_text, sr_labels in sr_variants:
             wildcard_variants = self._expand_wildcards(sr_text, list(sr_labels))
             for wildcard_text, wildcard_labels in wildcard_variants:
@@ -100,6 +127,13 @@ class PromptRandomizer:
                     final_text = self._apply_matrix(wildcard_text, combo, labels)
                     label_value = "; ".join(labels) or None
                     variants.append(PromptVariant(text=final_text, label=label_value))
+                    if len(variants) >= self._max_variants:
+                        truncated = True
+                        break
+                if truncated:
+                    break
+            if truncated:
+                break
 
         # Deduplicate while preserving order
         deduped: list[PromptVariant] = []
@@ -110,6 +144,19 @@ class PromptRandomizer:
                 continue
             seen.add(key)
             deduped.append(variant)
+
+        if truncated:
+            estimated = self._estimate_variant_upper_bound(
+                working_prompt, matrix_requested or 1
+            )
+            logger.warning(
+                "Randomization requested approximately %s combinations but cap is %s; "
+                "returning first %s variant(s). Reduce randomization scope or set "
+                "`randomization.max_variants` to raise the cap.",
+                estimated,
+                self._max_variants,
+                self._max_variants,
+            )
 
         return deduped or [PromptVariant(prompt_text, None)]
 
@@ -229,7 +276,7 @@ class PromptRandomizer:
             return [None]
 
         combos: list[dict[str, str]] = []
-        limit = max(0, self._matrix_limit)
+        limit = max(0, self._matrix_effective_limit)
 
         def backtrack(idx: int, current: dict[str, str]) -> None:
             if limit > 0 and len(combos) >= limit:
@@ -249,11 +296,82 @@ class PromptRandomizer:
         backtrack(0, {})
         return combos or [None]
 
+    def _resolve_max_variants(
+        self, cfg: dict[str, Any], override: int | None = None
+    ) -> int:
+        candidate = override if override is not None else cfg.get("max_variants")
+        try:
+            candidate_int = int(candidate)
+        except (TypeError, ValueError):
+            candidate_int = None
+
+        if candidate_int is None or candidate_int <= 0:
+            return DEFAULT_MAX_VARIANTS
+
+        if candidate_int > HARD_MAX_VARIANTS:
+            logger.warning(
+                "randomization.max_variants=%s exceeds hard safety cap (%s); using %s",
+                candidate_int,
+                HARD_MAX_VARIANTS,
+                HARD_MAX_VARIANTS,
+            )
+            return HARD_MAX_VARIANTS
+        return candidate_int
+
+    def _estimate_matrix_combo_total(self) -> int:
+        if not self._matrix_slots:
+            return 1
+        total = 1
+        for slot in self._matrix_slots:
+            values = slot.get("values") or []
+            total *= max(1, len(values))
+        return total
+
+    def _resolve_matrix_limit(self) -> int:
+        if not self._matrix_enabled or not self._matrix_slots:
+            return 0
+
+        user_limit = max(0, self._matrix_limit)
+        if self._matrix_mode != "fanout":
+            return user_limit
+
+        if user_limit > 0:
+            if user_limit > self._max_variants:
+                logger.warning(
+                    "Matrix limit %s exceeds randomization max_variants %s; capping to %s",
+                    user_limit,
+                    self._max_variants,
+                    self._max_variants,
+                )
+            return min(user_limit, self._max_variants)
+
+        if self._matrix_total_possible > self._max_variants:
+            logger.warning(
+                "Matrix fanout would expand to %s combinations; auto-limiting to %s. "
+                "Set matrix.limit or randomization.max_variants to override.",
+                self._matrix_total_possible,
+                self._max_variants,
+            )
+            return self._max_variants
+        return 0
+
+    def _estimate_variant_upper_bound(self, prompt: str, matrix_count: int) -> int:
+        sr_total = 1
+        for rule in self._sr_rules:
+            search = rule.get("search")
+            replacements = rule.get("replacements") or []
+            if search and search in prompt and replacements:
+                sr_total *= len(replacements)
+
+        wildcard_total = 1
+        for token in self._wildcard_tokens:
+            token_name = token.get("token")
+            values = token.get("values") or []
+            if token_name and token_name in prompt and values:
+                wildcard_total *= len(values)
+
+        matrix_total = max(1, matrix_count)
+        return max(1, sr_total) * max(1, wildcard_total) * matrix_total
+
 
 # --- Minimal stubs for missing functions ---
-def build_variant_plan(*args, **kwargs):
-    return []
-
-
-def apply_variant_to_config(*args, **kwargs):
-    return {}

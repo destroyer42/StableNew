@@ -29,6 +29,7 @@ from src.gui.theme import Theme
 from src.gui.tooltip import Tooltip
 from src.pipeline.executor import Pipeline
 from src.services.config_service import ConfigService
+from src.utils import StructuredLogger
 from src.utils.aesthetic_detection import detect_aesthetic_extension
 from src.utils.config import ConfigManager
 from src.utils.preferences import PreferencesManager
@@ -86,8 +87,9 @@ class StableNewGUI:
         self.config_manager = config_manager or ConfigManager()
         self.preferences_manager = preferences or PreferencesManager()
         self.state_manager = state_manager or StateManager()
-        self.controller = controller or PipelineController()
+        self.controller = controller or PipelineController(self.state_manager)
         self.webui = webui_discovery or WebUIDiscovery()
+        self.structured_logger = StructuredLogger()
         self._refreshing_config = False
         if root is not None:
             self.root = root
@@ -493,7 +495,7 @@ class StableNewGUI:
             existing_url = find_webui_api_port()
             if existing_url:
                 logger.info(f"WebUI already running at {existing_url}")
-                self.root.after(0, lambda: self.api_url_var.set(existing_url))
+                self.root.after(0, lambda: self._set_api_url_var(existing_url))
                 self.root.after(1000, self._check_api_connection)
                 return
 
@@ -502,12 +504,12 @@ class StableNewGUI:
                 self.root.after(
                     0, lambda: self.log_message("🚀 Launching Stable Diffusion WebUI...", "INFO")
                 )
-                success = launch_webui_safely(webui_path, wait_time=15)
+                success = launch_webui_safely(webui_path, timeout=15)
                 if success:
                     # Find the actual URL and update UI
                     api_url = find_webui_api_port()
                     if api_url:
-                        self.root.after(0, lambda: self.api_url_var.set(api_url))
+                        self.root.after(0, lambda: self._set_api_url_var(api_url))
                         self.root.after(1000, self._check_api_connection)
                     else:
                         self.root.after(
@@ -2930,6 +2932,28 @@ class StableNewGUI:
         self.progress_message_var.set(message)
         self.progress_var.set(message)
 
+    def _normalize_api_url(self, value: Any) -> str:
+        """Ensure downstream API clients always receive a fully-qualified URL."""
+        if isinstance(value, (int, float)):
+            return f"http://127.0.0.1:{int(value)}"
+        url = str(value or "").strip()
+        if not url:
+            return "http://127.0.0.1:7860"
+        lowered = url.lower()
+        if lowered.startswith(("http://", "https://")):
+            return url
+        if lowered.startswith("://"):
+            return f"http{url}"
+        if lowered.startswith(("127.", "localhost")):
+            return f"http://{url}"
+        if lowered.startswith(":"):
+            return f"http://127.0.0.1{url}"
+        return f"http://{url}"
+
+    def _set_api_url_var(self, value: Any) -> None:
+        if hasattr(self, "api_url_var"):
+            self.api_url_var.set(self._normalize_api_url(value))
+
     def _poll_controller_logs(self):
         """Poll controller for log messages and display them"""
         messages = self.controller.get_log_messages()
@@ -2944,8 +2968,11 @@ class StableNewGUI:
     def _check_api_connection(self):
         """Check API connection status with improved diagnostics."""
 
+        if os.environ.get("STABLENEW_NO_WEBUI", "").lower() in {"1", "true", "yes"}:
+            return
+
         def check_in_thread():
-            api_url = self.api_url_var.get()
+            api_url = self._normalize_api_url(self.api_url_var.get())
 
             # Try the specified URL first
             self.log_message("🔍 Checking API connection...", "INFO")
@@ -2998,7 +3025,7 @@ class StableNewGUI:
                     self.controller.set_pipeline(self.pipeline)
 
                     # Update URL field and status
-                    self.root.after(0, lambda: self.api_url_var.set(discovered_url))
+                    self.root.after(0, lambda: self._set_api_url_var(discovered_url))
                     self.root.after(1000, self._check_api_connection)
 
                     if health["models_loaded"]:
@@ -3029,9 +3056,10 @@ class StableNewGUI:
             self.run_pipeline_btn.config(state=tk.NORMAL)
 
             # Update URL field if we found a different working port
-            if url and url != self.api_url_var.get():
-                self.api_url_var.set(url)
-                self.log_message(f"Updated API URL to working port: {url}", "INFO")
+            normalized_url = self._normalize_api_url(url) if url else None
+            if normalized_url and normalized_url != self.api_url_var.get():
+                self._set_api_url_var(normalized_url)
+                self.log_message(f"Updated API URL to working port: {normalized_url}", "INFO")
 
             # Refresh models, VAE, upscalers, and schedulers when connected
             def refresh_all():

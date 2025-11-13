@@ -89,7 +89,7 @@ class PromptPackPanel(ttk.Frame):
 
         # Internal state
         self._last_selected_pack: str | None = None
-        self._last_curselection: tuple[int, ...] = ()
+        self._last_selection: list[str] = []
         self._suppress_selection_callbacks = False
         self._is_handling_selection = False
 
@@ -100,39 +100,10 @@ class PromptPackPanel(ttk.Frame):
         self.refresh_packs(silent=True)
         logger.debug("PromptPackPanel: initial refresh complete")
 
-        # Optional env flag to disable selection watcher for diagnostics
-        if os.environ.get("STABLENEW_NO_PACK_WATCH", "").lower() in {"1", "true", "yes"}:
-            logger.debug(
-                "PromptPackPanel: selection watch disabled by STABLENEW_NO_PACK_WATCH"
-            )
-        else:
-            # Start a lightweight watcher that notices programmatic selection changes
-            # (e.g., tests calling selection_set) and forwards them to our callback.
-            # This ensures mediator callbacks fire even without actual user events.
-            # Poll at a small interval to avoid saturating Tk's idle loop
-            self.after(150, self._watch_selection_change)
-
     def _attach_tooltip(self, widget: tk.Widget, text: str, delay: int = 1500) -> None:
         """Best-effort tooltip attachment that won't crash headless tests."""
         try:
             Tooltip(widget, text, delay=delay)
-        except Exception:
-            pass
-
-    def _watch_selection_change(self) -> None:
-        """Detect selection changes even when set programmatically and notify."""
-        try:
-            current = self.tk_safe_call(self.packs_listbox.curselection)
-        except Exception:
-            current = ()
-        if current != self._last_curselection:
-            self._last_curselection = current
-            # Defer to the standard handler to update highlights and notify
-            self._on_pack_selection_changed()
-        # Keep watching while widget exists
-        try:
-            # Keep polling at a low frequency
-            self.after(150, self._watch_selection_change)
         except Exception:
             pass
 
@@ -282,26 +253,21 @@ class PromptPackPanel(ttk.Frame):
         if self._suppress_selection_callbacks:
             logger.debug("PromptPackPanel: selection change suppressed")
             return
-        if self._is_handling_selection:
-            logger.debug("PromptPackPanel: selection change re-entrant; ignoring")
-            return
-        self._is_handling_selection = True
-        try:
-            self._notify_selection_changed()
-        finally:
-            self._is_handling_selection = False
-
-    def _notify_selection_changed(self) -> None:
-        if threading.current_thread() is not threading.main_thread():
-            self.after(0, self._notify_selection_changed)
-            return
 
         selected_indices = list(self.packs_listbox.curselection())
         selected_packs = [self.packs_listbox.get(i) for i in selected_indices]
+
+        if selected_packs == self._last_selection:
+            return
+        self._last_selection = list(selected_packs)
         self._last_selected_pack = selected_packs[0] if selected_packs else None
 
         self._update_selection_highlights(selected_indices)
-        logger.info("PromptPackPanel: selection changed: %s", selected_packs)
+
+        if selected_packs:
+            logger.info("PromptPackPanel: pack selection changed: %s", selected_packs)
+        else:
+            logger.info("PromptPackPanel: no pack selected")
 
         if self._on_selection_changed:
             try:
@@ -404,10 +370,9 @@ class PromptPackPanel(ttk.Frame):
                     selected_indices.append(i)
             if selected_indices:
                 self.packs_listbox.activate(selected_indices[0])
-            else:
-                if self.packs_listbox.size() > 0:
-                    self.packs_listbox.activate(0)
-            self._last_curselection = tuple(selected_indices)
+            elif self.packs_listbox.size() > 0:
+                self.packs_listbox.activate(0)
+            self._update_selection_highlights(selected_indices)
         finally:
             self._suppress_selection_callbacks = False
 

@@ -4,7 +4,9 @@
 # --- Compatibility shim class for GUI code expecting a service object ---
 
 import logging
+import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -62,7 +64,7 @@ class WebUIDiscovery:
         if existing:
             logger.info(f"WebUI already running at {existing}")
             return True
-        return launch_webui_safely(webui_path, wait_time=wait_time)
+        return launch_webui_safely(webui_path, timeout=wait_time)
 
 
 """Utility functions for WebUI API discovery"""
@@ -75,6 +77,29 @@ from pathlib import Path
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_candidate_url(value: str) -> str:
+    value = (value or "").strip()
+    if not value:
+        return "http://127.0.0.1:7860"
+    if value.isdigit():
+        return f"http://127.0.0.1:{value}"
+    if value.startswith(":"):
+        return f"http://127.0.0.1{value}"
+    if value.startswith(("http://", "https://")):
+        return value.rstrip("/")
+    if value.startswith("://"):
+        return f"http{value}".rstrip("/")
+    return f"http://{value}".rstrip("/")
+
+
+def _probe_api(url: str, timeout: float = 5.0) -> bool:
+    try:
+        response = requests.get(f"{url.rstrip('/')}/sdapi/v1/sd-models", timeout=timeout)
+        return response.status_code == 200
+    except Exception:
+        return False
 
 
 def find_webui_api_port(
@@ -93,9 +118,19 @@ def find_webui_api_port(
     Returns:
         Full URL of working API or None if not found
     """
+    override = os.getenv("STABLENEW_WEBUI_BASE_URL")
+    if override:
+        candidate = _normalize_candidate_url(override)
+        if _probe_api(candidate):
+            logger.info("Using STABLENEW_WEBUI_BASE_URL=%s", candidate)
+            return candidate
+        logger.warning("STABLENEW_WEBUI_BASE_URL unreachable: %s", candidate)
+
+    base = (base_url or "http://127.0.0.1").rstrip("/")
+
     for i in range(max_attempts):
         port = start_port + i
-        test_url = f"{base_url}:{port}"
+        test_url = f"{base}:{port}"
 
         try:
             # Quick health check
@@ -147,63 +182,38 @@ def wait_for_webui_ready(api_url: str, max_wait_seconds: int = 60) -> bool:
     return False
 
 
-def launch_webui_safely(webui_path: Path, wait_time: int = 10) -> bool:
+def launch_webui_safely(webui_path: Path, timeout: int = 60) -> bool:
     """
-    Launch WebUI with improved error handling and validation.
-
-    Args:
-        webui_path: Path to webui-user.bat
-        wait_time: Time to wait for startup
-
-    Returns:
-        True if launch was successful
+    Launch the Stable Diffusion WebUI if the executable exists.
+    Returns True if the process was started (or already running), False otherwise.
     """
+    logger = logging.getLogger(__name__)
+
     if not webui_path.exists():
-        logger.error(f"WebUI not found at: {webui_path}")
+        logger.warning("WebUI path does not exist: %s", webui_path)
         return False
 
     try:
-        # Check if WebUI is already running
         existing_url = find_webui_api_port()
         if existing_url:
-            logger.info(f"WebUI already running at {existing_url}")
+            logger.info("WebUI already running at %s", existing_url)
             return True
 
-        # Launch WebUI
-        logger.info(f"Launching WebUI from: {webui_path}")
-        process = subprocess.Popen(
-            [str(webui_path), "--api"],
-            cwd=webui_path.parent,
-            creationflags=(
-                subprocess.CREATE_NEW_CONSOLE if subprocess.sys.platform == "win32" else 0
-            ),
-            # Remove stdout/stderr pipes to allow terminal output to be visible
-        )
+        cmd = [str(webui_path)]
+        cwd = str(webui_path.parent)
+        creationflags = 0
+        if sys.platform.startswith("win"):
+            creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
 
-        # Wait for startup with periodic checks
-        for attempt in range(wait_time):
-            time.sleep(1)
+        logger.info("Launching WebUI via %s (cwd=%s)", cmd, cwd)
+        subprocess.Popen(cmd, cwd=cwd, creationflags=creationflags)
 
-            # Check if process crashed
-            if process.poll() is not None:
-                logger.error(
-                    f"WebUI process crashed during startup (exit code: {process.returncode})"
-                )
-                return False
-
-            # Check for API availability
-            api_url = find_webui_api_port()
-            if api_url:
-                logger.info(f"WebUI successfully started at {api_url}")
-                return True
-
-            logger.debug(f"Waiting for WebUI startup... ({attempt + 1}/{wait_time})")
-
-        logger.warning("WebUI startup timeout - process may still be initializing")
-        return False
+        # Give the launcher a brief head start; readiness is probed elsewhere.
+        time.sleep(min(max(timeout, 1), 5))
+        return True
 
     except Exception as e:
-        logger.error(f"Failed to launch WebUI: {e}")
+        logger.exception("Failed to launch WebUI: %s", e)
         return False
 
 
@@ -256,3 +266,8 @@ def validate_webui_health(api_url: str) -> dict:
         health_status["errors"].append(f"Samplers check failed: {e}")
 
     return health_status
+
+
+if __name__ == "__main__":
+    info = WebUIDiscovery().discover()
+    print("Discover:", info)

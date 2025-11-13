@@ -1,17 +1,11 @@
-"""
-Stub for PipelineController to enable test discovery and imports.
-"""
+"""Compatibility wrapper that exposes the GUI pipeline controller at src.controller."""
+
+from src.gui.controller import PipelineController as _GUIPipelineController
+from src.gui.state import StateManager
 
 
-class PipelineController:
-    def __init__(self, *args, **kwargs):
-        pass
+class PipelineController(_GUIPipelineController):
+    """Provide a default StateManager so legacy imports keep working."""
 
-    def start(self):
-        pass
-
-    def stop(self):
-        pass
-
-    def cancel(self):
-        pass
+    def __init__(self, state_manager: StateManager | None = None, *args, **kwargs):
+        super().__init__(state_manager or StateManager(), *args, **kwargs)

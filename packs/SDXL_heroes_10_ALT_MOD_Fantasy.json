@@ -49,7 +49,7 @@
     "steps": 15,
     "sampler_name": "DPM++ 2M",
     "scheduler": "Karras",
-    "denoising_strength": 0.2,
+    "denoising_strength": 0.15,
     "gfpgan_visibility": 0.0,
     "codeformer_visibility": 0.0,
     "codeformer_weight": 0.0
@@ -64,12 +64,12 @@
     "adetailer_enabled": true,
     "upscale_enabled": true,
     "video_enabled": false,
-    "apply_global_negative_txt2img": true,
+    "apply_global_negative_txt2img": false,
     "apply_global_negative_img2img": false,
     "apply_global_negative_upscale": false,
     "apply_global_negative_adetailer": false,
-    "loop_type": "pipeline",
-    "loop_count": 3,
+    "loop_type": "single",
+    "loop_count": 1,
     "pack_mode": "selected",
     "images_per_prompt": 1,
     "model_matrix": [],
@@ -89,7 +89,7 @@
     "adetailer_negative_prompt": "asymmetrical eyes, glossy skin, melted face, face mush, deformed nose, overexposed highlights"
   },
   "randomization": {
-    "enabled": true,
+    "enabled": false,
     "prompt_sr": {
       "enabled": true,
       "mode": "random",
@@ -188,7 +188,7 @@
     },
     "matrix": {
       "enabled": true,
-      "mode": "rotate",
+      "mode": "fanout",
       "prompt_mode": "prepend",
       "limit": 0,
       "slots": [

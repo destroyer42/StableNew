@@ -49,11 +49,18 @@ def launch_webui():
 
     try:
         # Launch WebUI
-        process = subprocess.Popen(
-            [str(webui_path), "--api"],
-            cwd=webui_path.parent,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
-        )
+        if sys.platform == "win32":
+            process = subprocess.Popen(
+                f'"{webui_path}" --api',
+                cwd=webui_path.parent,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                shell=True,
+            )
+        else:
+            process = subprocess.Popen(
+                [str(webui_path), "--api"],
+                cwd=webui_path.parent,
+            )
 
         print("⏳ Waiting for WebUI to start...")
 

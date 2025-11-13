@@ -644,69 +644,13 @@ class SDWebUIClient:
         return data.get("sd_model_checkpoint")
 
 
-# --- Lightweight health/discovery helpers used by the GUI ---
-def validate_webui_health(base_url: str = "http://127.0.0.1:7860", timeout: int = 10) -> dict[str, Any]:
-    """
-    Perform a minimal SD WebUI health probe and return a dict compatible with the GUI.
-    """
-    url = (base_url or "http://127.0.0.1:7860").rstrip("/")
-    health = {
-        "url": url,
-        "accessible": False,
-        "models_loaded": False,
-        "samplers_available": False,
-        "model_count": 0,
-        "sampler_count": 0,
-        "errors": [],
-    }
+def validate_webui_health(*args, **kwargs):
+    from src.utils import webui_discovery as _wd
 
-    try:
-        response = requests.get(f"{url}/sdapi/v1/sd-models", timeout=timeout)
-        response.raise_for_status()
-        models = response.json()
-        health["accessible"] = True
-        health["models_loaded"] = bool(models)
-        health["model_count"] = len(models)
-    except Exception as exc:
-        health["errors"].append(f"Models check failed: {exc}")
-        return health
-
-    try:
-        sampler_response = requests.get(f"{url}/sdapi/v1/samplers", timeout=timeout)
-        sampler_response.raise_for_status()
-        samplers = sampler_response.json()
-        health["samplers_available"] = bool(samplers)
-        health["sampler_count"] = len(samplers)
-    except Exception as exc:
-        health["errors"].append(f"Samplers check failed: {exc}")
-
-    return health
+    return _wd.validate_webui_health(*args, **kwargs)
 
 
-def find_webui_api_port(
-    host: str = "127.0.0.1",
-    start_port: int = 7860,
-    max_attempts: int = 5,
-    timeout: float = 0.35,
-) -> str | None:
-    """
-    Quickly probe common ports for a running WebUI instance.
+def find_webui_api_port(*args, **kwargs):
+    from src.utils import webui_discovery as _wd
 
-    Returns the first reachable API URL or None if not found.
-    """
-    session = requests.Session()
-    for attempt in range(max(1, max_attempts)):
-        port = start_port + attempt
-        url = f"http://{host}:{port}"
-        try:
-            response = session.get(f"{url}/sdapi/v1/sd-models", timeout=timeout)
-            if response.ok:
-                logger.info("Detected running WebUI at %s", url)
-                return url
-        except requests.RequestException:
-            continue
-
-    logger.debug(
-        "Unable to find WebUI on ports %s-%s", start_port, start_port + max_attempts - 1
-    )
-    return None
+    return _wd.find_webui_api_port(*args, **kwargs)

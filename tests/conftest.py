@@ -41,6 +41,8 @@ def _mock_webui_discovery(monkeypatch):
 
     This avoids background threads calling Tkinter/after() which crash on Windows CI.
     """
+    monkeypatch.setenv("STABLENEW_NO_WEBUI", "1")
+
     try:
         import src.utils.webui_discovery as wd  # type: ignore
     except Exception:
@@ -54,6 +56,27 @@ def _mock_webui_discovery(monkeypatch):
 
     monkeypatch.setattr(wd, "find_webui_api_port", fake_find_port, raising=False)
     monkeypatch.setattr(wd, "launch_webui_safely", fake_launch_safely, raising=False)
+
+    try:
+        import src.api.client as api_client  # type: ignore
+
+        monkeypatch.setattr(
+            api_client.SDWebUIClient, "check_api_ready", lambda self: False, raising=False
+        )
+    except Exception:
+        pass
+
+    try:
+        import src.gui.main_window as main_window  # type: ignore
+
+        monkeypatch.setattr(
+            main_window.StableNewGUI, "_check_api_connection", lambda self: None, raising=False
+        )
+        monkeypatch.setattr(
+            main_window.StableNewGUI, "_launch_webui", lambda self: None, raising=False
+        )
+    except Exception:
+        pass
 
 
 # Preserve existing tmp_path fixture override
