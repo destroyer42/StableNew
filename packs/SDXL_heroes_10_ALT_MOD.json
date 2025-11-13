@@ -49,7 +49,7 @@
     "steps": 15,
     "sampler_name": "DPM++ 2M",
     "scheduler": "Karras",
-    "denoising_strength": 0.15,
+    "denoising_strength": 0.2,
     "gfpgan_visibility": 0.0,
     "codeformer_visibility": 0.0,
     "codeformer_weight": 0.0
@@ -60,16 +60,16 @@
   },
   "pipeline": {
     "txt2img_enabled": true,
-    "img2img_enabled": true,
-    "adetailer_enabled": false,
+    "img2img_enabled": false,
+    "adetailer_enabled": true,
     "upscale_enabled": true,
     "video_enabled": false,
     "apply_global_negative_txt2img": true,
-    "apply_global_negative_img2img": true,
-    "apply_global_negative_upscale": true,
-    "apply_global_negative_adetailer": true,
-    "loop_type": "single",
-    "loop_count": 1,
+    "apply_global_negative_img2img": false,
+    "apply_global_negative_upscale": false,
+    "apply_global_negative_adetailer": false,
+    "loop_type": "pipeline",
+    "loop_count": 3,
     "pack_mode": "selected",
     "images_per_prompt": 1,
     "model_matrix": [],
@@ -85,13 +85,8 @@
     "adetailer_steps": 12,
     "adetailer_denoise": 0.25833333333333336,
     "adetailer_cfg": 6.0,
-<<<<<<< Updated upstream
-    "adetailer_prompt": "",
-    "adetailer_negative_prompt": ""
-=======
     "adetailer_prompt": "natural skin texture, clear eyes, detailed eyelashes, balanced highlights, subtle film grain, sharp focus",
     "adetailer_negative_prompt": "asymmetrical eyes, glossy skin, melted face, face mush, deformed nose, overexposed highlights"
->>>>>>> Stashed changes
   },
   "randomization": {
     "enabled": true,
@@ -194,58 +189,33 @@
     "matrix": {
       "enabled": true,
       "mode": "rotate",
-      "prompt_mode": "append",
+      "prompt_mode": "prepend",
       "limit": 0,
       "slots": [
         {
-          "name": "place",
+          "name": "hair",
           "values": [
-<<<<<<< Updated upstream
-            "jungle",
-            "castle",
-            "misty forest"
-=======
             "blonde",
             "black",
             "brown",
             "red",
             "auburn",
             "silver"
->>>>>>> Stashed changes
           ]
         },
         {
           "name": "clothes",
           "values": [
-<<<<<<< Updated upstream
-            "bikini armor",
-            "chainmail",
-            "swimsuit"
-=======
             "bikini",
             "bikini armor",
             "thong and bralette",
             "diaphanous robes",
             "crystal lingerie"
->>>>>>> Stashed changes
           ]
         },
         {
-          "name": "looks",
+          "name": "style",
           "values": [
-<<<<<<< Updated upstream
-            "resolute",
-            "pleasantly focused",
-            "happy"
-          ]
-        },
-        {
-          "name": "lighting",
-          "values": [
-            "soft golden light",
-            "torchlight and shadow",
-            "blue ambient glow"
-=======
             "sexy",
             "scandalous",
             "radiant",
@@ -271,22 +241,11 @@
             "blue ambient glow",
             "sunset flare",
             "moonlight haze"
->>>>>>> Stashed changes
           ]
         },
         {
           "name": "camera",
           "values": [
-<<<<<<< Updated upstream
-            "close up",
-            "3/4 portrait",
-            "waist-up"
-          ]
-        }
-      ],
-      "raw_text": "# Base: the hero is in [[place]] wearing [[clothes]] and looking [[looks]] with [[lighting]] around them from [[camera]] angle\nplace: jungle | castle | misty forest\nclothes: bikini armor | chainmail | swimsuit\nlooks: resolute | pleasantly focused | happy\nlighting: soft golden light | torchlight and shadow | blue ambient glow\ncamera: close up | 3/4 portrait | waist-up",
-      "base_prompt": "the hero is in [[place]] wearing [[clothes]] and looking [[looks]] with [[lighting]] around them from [[camera]] angle"
-=======
             "low-angle 3/4 portrait",
             "full-body stance",
             "wide-angle cinematic shot",
@@ -296,18 +255,17 @@
       ],
       "raw_text": "# Base: a [[hair]]-haired beautiful woman wearing [[clothes]], looking [[style]] in a [[environment]] under [[lighting]] from a [[camera]] perspective\nhair: blonde | black | brown | red | auburn | silver\nclothes: bikini | bikini armor | thong and bralette | diaphanous robes | crystal lingerie\nstyle: sexy | scandalous | radiant | mystical | fierce\nenvironment: castle hall | misty forest | ancient temple | moonlit beach | glowing ruins\nlighting: soft glowing light | torches and shadow | blue ambient glow | sunset flare | moonlight haze\ncamera: low-angle 3/4 portrait | full-body stance | wide-angle cinematic shot | overhead looking down angle",
       "base_prompt": "a [[hair]]-haired beautiful woman wearing [[clothes]], looking [[style]] in a [[environment]] under [[lighting]] from a [[camera]] perspective"
->>>>>>> Stashed changes
     }
   },
   "aesthetic": {
     "enabled": false,
-    "mode": "script",
+    "mode": "prompt",
     "weight": 0.9,
     "steps": 5,
     "learning_rate": 0.0001,
     "slerp": false,
     "slerp_angle": 0.1,
-    "embedding": "ParadiseGirl-1024",
+    "embedding": "None",
     "text": "paradise",
     "text_is_negative": false,
     "fallback_prompt": ""

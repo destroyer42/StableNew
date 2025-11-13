@@ -462,6 +462,8 @@ class PipelineControlsPanel(ttk.Frame):
             self.txt2img_enabled.set(settings["txt2img_enabled"])
         if "img2img_enabled" in settings:
             self.img2img_enabled.set(settings["img2img_enabled"])
+        if "adetailer_enabled" in settings:
+            self.adetailer_enabled.set(settings["adetailer_enabled"])
         if "upscale_enabled" in settings:
             self.upscale_enabled.set(settings["upscale_enabled"])
         if "video_enabled" in settings:
@@ -497,18 +499,6 @@ class PipelineControlsPanel(ttk.Frame):
             self.set_settings(target)
         finally:
             self._suspend_callbacks = False
-
-    def apply_config(self, cfg: dict[str, Any]) -> None:
-        """Apply a pipeline configuration dictionary to the controls."""
-        if not cfg:
-            return
-        pipeline_cfg = cfg.get("pipeline") if isinstance(cfg.get("pipeline"), dict) else cfg
-        if not isinstance(pipeline_cfg, dict):
-            return
-        try:
-            self.set_settings(pipeline_cfg)
-        except Exception as exc:
-            logger.warning("PipelineControlsPanel: apply_config failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Parsing helpers

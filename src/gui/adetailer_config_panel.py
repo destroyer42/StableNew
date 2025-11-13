@@ -258,9 +258,11 @@ class ADetailerConfigPanel:
         if "adetailer_cfg" in config:
             self.cfg_var.set(config["adetailer_cfg"])
         if "adetailer_prompt" in config:
+            self.prompt_text.configure(state=tk.NORMAL)
             self.prompt_text.delete("1.0", tk.END)
             self.prompt_text.insert("1.0", config["adetailer_prompt"])
         if "adetailer_negative_prompt" in config:
+            self.neg_prompt_text.configure(state=tk.NORMAL)
             self.neg_prompt_text.delete("1.0", tk.END)
             self.neg_prompt_text.insert("1.0", config["adetailer_negative_prompt"])
 

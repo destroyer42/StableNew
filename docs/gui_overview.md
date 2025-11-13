@@ -1,48 +1,52 @@
 # StableNew GUI Overview
 
-The GUI is a Tkinter-based application with a dark ASWF theme.
+The StableNew GUI is a Tkinter-based application using a dark ASWF theme.
 
 ## 1. Architecture Overview
 
-StableNewGUI (main_window.py)
- ├── Theme (theme.py)
- ├── PromptPackPanel
- ├── PipelineControlsPanel
- ├── RandomizationPanel
- ├── AdvancedPromptEditor
- ├── LogPanel
- └── Mediator (pack selection → config context)
+`StableNewGUI` (in `src/gui/main_window.py`) orchestrates:
+
+- Theme (e.g., `src/gui/theme.py`)
+- `PromptPackPanel`
+- `PipelineControlsPanel`
+- Randomization panel
+- Advanced Prompt Editor
+- Log panel
+- Mediators for pack selection and configuration context
 
 ## 2. Theming Rules
 
-- All colors come from src/gui/theme.py.
-- No hard-coded colors elsewhere.
-- Use ASWF blacks and greys for backgrounds.
-- Use ASWF gold for high-contrast text.
+- All colors should come from `src/gui/theme.py`.
+- No hard-coded color constants elsewhere in the GUI.
+- ASWF blacks and greys are used for backgrounds.
+- ASWF gold is used for high-contrast text and accents.
 - Buttons:
   - Primary: gold or green on dark background.
-  - Danger: red on dark background.
+  - Danger: red on dark background (e.g., Stop, Exit).
 
 ## 3. Layout Rules
 
 - Every tab must have consistent padding and background.
-- Controls must be arranged in a grid/pack with:
-  - Minimum padding (4–8px).
-  - Stretch/resizing enabled where appropriate.
-- Scrollbars required for:
+- Controls should be arranged with:
+  - Reasonable padding (4–8 px).
+  - Grid/pack weight so resizing works sensibly.
+- Scrollbars are required for:
   - Randomization panel.
   - Advanced prompt editor.
-  - Panels that exceed height.
+  - Any panel that can overflow the window height.
+
+- Prefer multiline wrapping over horizontal scrolling when possible.
 
 ## 4. Behavior Constraints
 
-- Never block the main thread.
-- Load configurations on explicit user action (no autoload).
-- Show warnings for unsaved changes.
-- Ensure that selecting packs does NOT modify the config editor implicitly.
+- Never block the Tk main thread with long-running operations.
+- Configuration loads should be explicit (e.g., via buttons), not surprising side effects.
+- Selecting packs should NOT silently modify editor state unless explicitly designed.
+- Warn users about unsaved changes before discarding or overwriting configs.
 
 ## 5. Resilience
 
-- GUI logs maintain last 20 lines.
-- Crash detection on startup.
-- Cleanup routine runs if improper shutdown detected.
+- Keep the GUI resilient to crashes:
+  - Maintain recent log lines for post-crash inspection.
+  - Include startup checks that can detect unclean shutdowns and trigger clean-up.
+- Make it clear to the user when the pipeline is running vs idle.

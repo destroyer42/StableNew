@@ -13,15 +13,25 @@ class ConfigService:
         self.presets_dir.mkdir(parents=True, exist_ok=True)
         self.lists_dir.mkdir(parents=True, exist_ok=True)
 
+    def _resolve_pack_path(self, pack: str | Path) -> Path:
+        candidate = Path(pack)
+        if candidate.suffix.lower() == ".json":
+            base = candidate.name
+        elif candidate.suffix:
+            base = candidate.with_suffix("").name
+        else:
+            base = candidate.name
+        return self.packs_dir / f"{base}.json"
+
     def load_pack_config(self, pack: str) -> dict[str, Any]:
-        path = self.packs_dir / f"{pack}.json"
+        path = self._resolve_pack_path(pack)
         if not path.exists():
             return {}
         with open(path, encoding="utf-8") as f:
             return cast(dict[str, Any], json.load(f))
 
     def save_pack_config(self, pack: str, cfg: dict) -> None:
-        path = self.packs_dir / f"{pack}.json"
+        path = self._resolve_pack_path(pack)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
 

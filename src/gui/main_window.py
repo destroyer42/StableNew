@@ -145,6 +145,7 @@ class StableNewGUI:
         self.video_enabled = tk.BooleanVar(value=False)
         self._config_dirty = False
         self._config_panel_prefs_bound = False
+        self._preferences_ready = False
 
         # Initialize progress-related attributes
         self._progress_eta_default = "ETA: --:--"
@@ -161,6 +162,7 @@ class StableNewGUI:
         except Exception:
             pass
         self._reset_config_dirty_state()
+        self._preferences_ready = True
 
         # Initialize summary variables for live config display
         self.txt2img_summary_var = tk.StringVar(value="")
@@ -613,11 +615,35 @@ class StableNewGUI:
         # Setup state callbacks
         self._setup_state_callbacks()
 
+        # Attempt to auto-launch WebUI / discover API on startup
+        try:
+            self._launch_webui()
+        except Exception:
+            logger.exception("Failed to launch WebUI")
+
+        try:
+            self.root.after(1500, self._check_api_connection)
+        except Exception:
+            logger.warning("Unable to schedule API connection check")
+
     def _build_api_status_frame(self, parent):
         """Build the API status frame using APIStatusPanel."""
-        # Create API status panel
-        self.api_status_panel = APIStatusPanel(parent, coordinator=self, style="Dark.TFrame")
-        self.api_status_panel.pack(fill=tk.X, padx=5, pady=(0, 5))
+        frame = ttk.Frame(parent, style="Dark.TFrame")
+        frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+
+        self.api_status_panel = APIStatusPanel(frame, coordinator=self, style="Dark.TFrame")
+        self.api_status_panel.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.check_api_btn = ttk.Button(
+            frame,
+            text="Check API",
+            command=self._check_api_connection,
+            style="Accent.TButton",
+        )
+        self.check_api_btn.pack(side=tk.RIGHT, padx=(6, 0))
+        self._attach_tooltip(
+            self.check_api_btn, "Manually retry connecting to the Stable Diffusion WebUI API."
+        )
 
     def _build_prompt_pack_panel(self, parent):
         """Build the prompt pack selection panel."""
@@ -978,6 +1004,19 @@ class StableNewGUI:
             self.pipeline_controls_panel.apply_config(cfg)
         except Exception:
             logger.debug("Pipeline controls apply_config skipped", exc_info=True)
+        try:
+            if getattr(self, "adetailer_panel", None):
+                self.adetailer_panel.set_config(cfg.get("adetailer", {}))
+        except Exception:
+            logger.debug("ADetailer config apply skipped", exc_info=True)
+        try:
+            self._load_randomization_config(cfg)
+        except Exception:
+            logger.debug("Randomization config apply skipped", exc_info=True)
+        try:
+            self._load_aesthetic_config(cfg)
+        except Exception:
+            logger.debug("Aesthetic config apply skipped", exc_info=True)
 
     def _ui_toggle_lock(self) -> None:
         """Toggle the config lock state."""
@@ -1058,8 +1097,11 @@ class StableNewGUI:
         if not result:
             return
 
-        # Get current editor config
-        editor_cfg = self.pipeline_controls_panel.get_settings()
+        # Capture the full editor config (txt2img/img2img/upscale/pipeline/randomization/etc.)
+        editor_cfg = self._get_config_from_forms()
+        if not editor_cfg:
+            messagebox.showerror("Error", "Unable to read the current editor configuration.")
+            return
 
         # Save in worker thread
         def save_worker():
@@ -1080,6 +1122,8 @@ class StableNewGUI:
                 self.root.after(
                     0, lambda: messagebox.showerror("Error", f"Failed to save configs: {error_msg}")
                 )
+
+        threading.Thread(target=save_worker, daemon=True).start()
 
     def _refresh_preset_dropdown(self) -> None:
         """Refresh the preset dropdown with current presets."""
@@ -1151,6 +1195,12 @@ class StableNewGUI:
                 )
                 return
             self.prompt_pack_panel.set_selected_packs(valid_packs)
+            try:
+                self.root.update_idletasks()
+            except Exception:
+                pass
+            selected_after = self.prompt_pack_panel.get_selected_packs()
+            self.current_selected_packs = selected_after or valid_packs
             self.ctx.active_list = name
             messagebox.showinfo("Success", f"List '{name}' loaded ({len(valid_packs)} packs).")
             self._reset_config_dirty_state()
@@ -1946,6 +1996,8 @@ class StableNewGUI:
 
     def _autosave_preferences_if_needed(self, force: bool = False) -> None:
         """Autosave preferences (including randomization enabled flag) with 2s throttle."""
+        if not getattr(self, "_preferences_ready", False) and not force:
+            return
         now = time.time()
         last = getattr(self, "_last_pref_autosave", 0.0)
         if not force and now - last < 2.0:
@@ -5678,113 +5730,6 @@ class StableNewGUI:
 
         return preferences
 
-    def _build_pipeline_tab(self, parent):
-        """Build pipeline execution tab"""
-        # API Connection Frame
-        api_frame = ttk.LabelFrame(
-            parent, text="API Connection", padding=10, style="Dark.TLabelframe"
-        )
-        api_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        ttk.Label(api_frame, text="API URL:").grid(row=0, column=0, sticky=tk.W, padx=5)
-        ttk.Entry(api_frame, textvariable=self.api_url_var, width=40).grid(
-            row=0, column=1, padx=5, pady=2
-        )
-
-        self.check_api_btn = ttk.Button(api_frame, text="Check API", command=self._check_api)
-        self.check_api_btn.grid(row=0, column=2, padx=5)
-
-        self.api_status_label = ttk.Label(api_frame, text="Not connected", foreground="red")
-        self.api_status_label.grid(row=0, column=3, padx=5)
-
-        # Prompt Frame
-        prompt_frame = ttk.LabelFrame(parent, text="Prompt", padding=10, style="Dark.TLabelframe")
-        prompt_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-
-        ttk.Label(prompt_frame, text="Enter your prompt:").pack(anchor=tk.W)
-        self.prompt_text = scrolledtext.ScrolledText(prompt_frame, height=6, wrap=tk.WORD)
-        self.prompt_text.pack(fill=tk.BOTH, expand=True, pady=5)
-        self.prompt_text.insert(1.0, "a beautiful landscape, high quality, detailed")
-
-        # Preset Frame
-        preset_frame = ttk.LabelFrame(parent, text="Preset", padding=10, style="Dark.TLabelframe")
-        preset_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        ttk.Label(preset_frame, text="Select preset:").grid(row=0, column=0, padx=5)
-        self.preset_var = tk.StringVar()
-        self.preset_combo = ttk.Combobox(
-            preset_frame, textvariable=self.preset_var, state="readonly", width=20
-        )
-        self.preset_combo.grid(row=0, column=1, padx=5)
-        self._refresh_presets()
-
-        ttk.Button(preset_frame, text="Refresh", command=self._refresh_presets).grid(
-            row=0, column=2, padx=5
-        )
-
-        # Options Frame
-        options_frame = ttk.LabelFrame(parent, text="Options", padding=10, style="Dark.TLabelframe")
-        options_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        ttk.Label(options_frame, text="Batch size:").grid(row=0, column=0, padx=5)
-        self.batch_size_var = tk.IntVar(value=1)
-        ttk.Spinbox(options_frame, from_=1, to=10, textvariable=self.batch_size_var, width=10).grid(
-            row=0, column=1, padx=5
-        )
-
-        ttk.Label(options_frame, text="Run name (optional):").grid(row=0, column=2, padx=5)
-        self.run_name_var = tk.StringVar()
-        ttk.Entry(options_frame, textvariable=self.run_name_var, width=20).grid(
-            row=0, column=3, padx=5
-        )
-
-        # Pipeline stages
-        self.enable_img2img_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            options_frame, text="Enable img2img cleanup", variable=self.enable_img2img_var
-        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
-
-        self.enable_upscale_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            options_frame, text="Enable upscaling", variable=self.enable_upscale_var
-        ).grid(row=1, column=2, columnspan=2, sticky=tk.W, padx=5, pady=2)
-
-        # Execution Frame
-        exec_frame = ttk.Frame(parent, padding=10)
-        exec_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        self.run_pipeline_btn = ttk.Button(
-            exec_frame, text="Run Pipeline", command=self._run_pipeline, style="Accent.TButton"
-        )
-        self.run_pipeline_btn.pack(side=tk.LEFT, padx=5)
-
-        self.create_video_btn = ttk.Button(
-            exec_frame, text="Create Video from Output", command=self._create_video
-        )
-        self.create_video_btn.pack(side=tk.LEFT, padx=5)
-
-        ttk.Label(exec_frame, textvariable=self.progress_var).pack(side=tk.LEFT, padx=10)
-
-        progress_frame = ttk.Frame(parent, padding=10)
-        progress_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
-
-        self.progress_bar = ttk.Progressbar(
-            progress_frame,
-            orient=tk.HORIZONTAL,
-            mode="determinate",
-            maximum=100,
-            length=200,
-        )
-        self.progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.progress_bar["value"] = 0
-
-        ttk.Label(progress_frame, textvariable=self.progress_percent_var, style="Dark.TLabel").pack(
-            side=tk.LEFT, padx=8
-        )
-        ttk.Label(progress_frame, textvariable=self.eta_var, style="Dark.TLabel").pack(
-            side=tk.LEFT, padx=8
-        )
-
     def _build_settings_tab(self, parent):
         """Build settings tab"""
         settings_text = scrolledtext.ScrolledText(parent, wrap=tk.WORD)
@@ -5824,32 +5769,6 @@ class StableNewGUI:
         self.preset_combo["values"] = presets
         if presets and not self.preset_var.get():
             self.preset_var.set(presets[0])
-
-    def _check_api(self):
-        """Check API connection"""
-        self._apply_status_text("Checking API...")
-        self._add_log_message("Checking SD WebUI API connection...")
-
-        def check():
-            url = self.api_url_var.get()
-            client = SDWebUIClient(base_url=url)
-            if client.check_api_ready():
-                self.client = client
-                self.pipeline = Pipeline(self.client, self.structured_logger)
-                self.controller.set_pipeline(self.pipeline)
-                self.root.after(
-                    0, lambda: self.api_status_label.config(text="Connected", foreground="green")
-                )
-                self.root.after(0, lambda: self._add_log_message("✓ API is ready"))
-                self.root.after(0, lambda: self._apply_status_text("API connected"))
-            else:
-                self.root.after(
-                    0, lambda: self.api_status_label.config(text="Failed", foreground="red")
-                )
-                self.root.after(0, lambda: self._add_log_message("✗ API not available"))
-                self.root.after(0, lambda: self._apply_status_text("API check failed"))
-
-        threading.Thread(target=check, daemon=True).start()
 
     def _run_pipeline(self):
         """Run the full pipeline using controller"""
