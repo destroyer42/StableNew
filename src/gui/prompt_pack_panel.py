@@ -68,7 +68,7 @@ class PromptPackPanel(ttk.Frame):
         on_advanced_editor: Callable[[], None] | None = None,
         **kwargs,
     ):
-        logger.info("[DIAG] PromptPackPanel.__init__: start", extra={"flush": True})
+        logger.debug("PromptPackPanel: init start")
         """
         Initialize the PromptPackPanel.
 
@@ -90,18 +90,20 @@ class PromptPackPanel(ttk.Frame):
         # Internal state
         self._last_selected_pack: str | None = None
         self._last_curselection: tuple[int, ...] = ()
+        self._suppress_selection_callbacks = False
+        self._is_handling_selection = False
 
         # Build UI
         self._build_ui()
 
         # Load initial packs
         self.refresh_packs(silent=True)
-        logger.info("[DIAG] PromptPackPanel.__init__: after refresh_packs", extra={"flush": True})
+        logger.debug("PromptPackPanel: initial refresh complete")
 
         # Optional env flag to disable selection watcher for diagnostics
         if os.environ.get("STABLENEW_NO_PACK_WATCH", "").lower() in {"1", "true", "yes"}:
-            logger.info(
-                "[DIAG] PromptPackPanel: selection watch disabled by STABLENEW_NO_PACK_WATCH"
+            logger.debug(
+                "PromptPackPanel: selection watch disabled by STABLENEW_NO_PACK_WATCH"
             )
         else:
             # Start a lightweight watcher that notices programmatic selection changes
@@ -277,7 +279,17 @@ class PromptPackPanel(ttk.Frame):
             )
 
     def _on_pack_selection_changed(self, event: object = None) -> None:
-        self._notify_selection_changed()
+        if self._suppress_selection_callbacks:
+            logger.debug("PromptPackPanel: selection change suppressed")
+            return
+        if self._is_handling_selection:
+            logger.debug("PromptPackPanel: selection change re-entrant; ignoring")
+            return
+        self._is_handling_selection = True
+        try:
+            self._notify_selection_changed()
+        finally:
+            self._is_handling_selection = False
 
     def _notify_selection_changed(self) -> None:
         if threading.current_thread() is not threading.main_thread():
@@ -289,6 +301,7 @@ class PromptPackPanel(ttk.Frame):
         self._last_selected_pack = selected_packs[0] if selected_packs else None
 
         self._update_selection_highlights(selected_indices)
+        logger.info("PromptPackPanel: selection changed: %s", selected_packs)
 
         if self._on_selection_changed:
             try:
@@ -358,7 +371,7 @@ class PromptPackPanel(ttk.Frame):
                 pack_name = self.tk_safe_call(self.packs_listbox.get, i, wait=True)
                 if pack_name in current_selection:
                     self.packs_listbox.selection_set(i)
-        logger.info(f"PromptPackPanel: Populated {len(names)} packs (async)")
+        logger.debug("PromptPackPanel: populated %s packs (async)", len(names))
 
     def get_selected_packs(self) -> list[str]:
         """
@@ -380,43 +393,34 @@ class PromptPackPanel(ttk.Frame):
             return
 
         desired = {str(name) for name in pack_names}
-        self.packs_listbox.selection_clear(0, tk.END)
-        for i in range(self.packs_listbox.size()):
-            pack_name = self.packs_listbox.get(i)
-            if pack_name in desired:
-                self.packs_listbox.selection_set(i)
-        if pack_names:
-            self.packs_listbox.activate(
-                next(
-                    (i for i in range(self.packs_listbox.size()) if self.packs_listbox.get(i) == pack_names[0]),
-                    0,
-                )
-            )
-        logger.info(f"PromptPackPanel: Set selected packs: {pack_names}")
-        self._notify_selection_changed()
+        selected_indices: list[int] = []
+        self._suppress_selection_callbacks = True
+        try:
+            self.packs_listbox.selection_clear(0, tk.END)
+            for i in range(self.packs_listbox.size()):
+                pack_name = self.packs_listbox.get(i)
+                if pack_name in desired:
+                    self.packs_listbox.selection_set(i)
+                    selected_indices.append(i)
+            if selected_indices:
+                self.packs_listbox.activate(selected_indices[0])
+            else:
+                if self.packs_listbox.size() > 0:
+                    self.packs_listbox.activate(0)
+            self._last_curselection = tuple(selected_indices)
+        finally:
+            self._suppress_selection_callbacks = False
+
+        logger.debug("PromptPackPanel: set_selected_packs -> %s", pack_names)
+        self._on_pack_selection_changed()
 
     def select_first_pack(self) -> None:
         """Select the first pack if available."""
-        logger.info("[DIAG] PromptPackPanel.select_first_pack: start", extra={"flush": True})
-        logger.info("[DIAG] select_first_pack: before size()", extra={"flush": True})
         size = self.tk_safe_call(self.packs_listbox.size)
-        logger.info(f"[DIAG] select_first_pack: size() returned {size}", extra={"flush": True})
         if size > 0:
-            logger.info("[DIAG] select_first_pack: before selection_set(0)", extra={"flush": True})
-            self.tk_safe_call(self.packs_listbox.selection_set, 0)
-            logger.info("[DIAG] select_first_pack: after selection_set(0)", extra={"flush": True})
-            logger.info("[DIAG] select_first_pack: before activate(0)", extra={"flush": True})
-            self.tk_safe_call(self.packs_listbox.activate, 0)
-            logger.info("[DIAG] select_first_pack: after activate(0)", extra={"flush": True})
-            logger.info("PromptPackPanel: First pack selected.")
-            logger.info(
-                "[DIAG] select_first_pack: before _on_pack_selection_changed", extra={"flush": True}
-            )
-            self._on_pack_selection_changed()
-            logger.info(
-                "[DIAG] select_first_pack: after _on_pack_selection_changed", extra={"flush": True}
-            )
-        logger.info("[DIAG] PromptPackPanel.select_first_pack: end", extra={"flush": True})
+            first_name = self.packs_listbox.get(0)
+            self.set_selected_packs([first_name])
+            logger.debug("PromptPackPanel: first pack selected via helper")
 
     def _load_pack_list(self):
         """Load saved pack list."""
@@ -427,7 +431,6 @@ class PromptPackPanel(ttk.Frame):
         list_name = self.saved_lists_var.get()
         if not list_name:
             return
-            logger.info("[DIAG] PromptPackPanel._on_pack_selection_changed: start")
 
         pack_list = self.list_manager.get_list(list_name)
         if pack_list is None:
@@ -442,8 +445,6 @@ class PromptPackPanel(ttk.Frame):
         if not self.list_manager:
             messagebox.showwarning("No Manager", "List manager not configured")
             return
-
-            logger.info("[DIAG] PromptPackPanel._on_pack_selection_changed: end")
         selected_packs = self.get_selected_packs()
         if not selected_packs:
             messagebox.showwarning("No Selection", "Please select prompt packs first")

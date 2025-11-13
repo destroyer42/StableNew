@@ -35,6 +35,10 @@ class TestFunctionalButtons:
         gui = StableNewGUI(root=tk_root)
         gui.config_service = DummyConfigService()
         gui._refresh_list_dropdown()
+        try:
+            gui.root.update()
+        except Exception:
+            pass
 
         listbox = gui.prompt_pack_panel.packs_listbox
         listbox.delete(0, tk.END)
@@ -63,3 +67,11 @@ class TestFunctionalButtons:
         gui = self._prepare_gui(tk_root)
         titles = [gui.center_notebook.tab(t, "text") for t in gui.center_notebook.tabs()]
         assert "Advanced Editor" in titles
+
+    def test_prompt_panel_set_selected_packs_helper(self, tk_root):
+        gui = self._prepare_gui(tk_root)
+        panel = gui.prompt_pack_panel
+
+        panel.set_selected_packs(["PackB"])
+
+        assert panel.get_selected_packs() == ["PackB"]

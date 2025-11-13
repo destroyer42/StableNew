@@ -644,25 +644,69 @@ class SDWebUIClient:
         return data.get("sd_model_checkpoint")
 
 
-# --- Restored missing function for test compatibility ---
-def validate_webui_health(base_url: str = "http://127.0.0.1:7860", timeout: int = 10) -> bool:
+# --- Lightweight health/discovery helpers used by the GUI ---
+def validate_webui_health(base_url: str = "http://127.0.0.1:7860", timeout: int = 10) -> dict[str, Any]:
     """
-    Minimal health check for SD WebUI API. Returns True if /sdapi/v1/sd-models responds.
+    Perform a minimal SD WebUI health probe and return a dict compatible with the GUI.
     """
-    import requests
+    url = (base_url or "http://127.0.0.1:7860").rstrip("/")
+    health = {
+        "url": url,
+        "accessible": False,
+        "models_loaded": False,
+        "samplers_available": False,
+        "model_count": 0,
+        "sampler_count": 0,
+        "errors": [],
+    }
 
     try:
-        response = requests.get(f"{base_url.rstrip('/')}/sdapi/v1/sd-models", timeout=timeout)
+        response = requests.get(f"{url}/sdapi/v1/sd-models", timeout=timeout)
         response.raise_for_status()
-        return True
+        models = response.json()
+        health["accessible"] = True
+        health["models_loaded"] = bool(models)
+        health["model_count"] = len(models)
     except Exception as exc:
-        logging.error(f"validate_webui_health failed: {exc}")
-        return False
+        health["errors"].append(f"Models check failed: {exc}")
+        return health
+
+    try:
+        sampler_response = requests.get(f"{url}/sdapi/v1/samplers", timeout=timeout)
+        sampler_response.raise_for_status()
+        samplers = sampler_response.json()
+        health["samplers_available"] = bool(samplers)
+        health["sampler_count"] = len(samplers)
+    except Exception as exc:
+        health["errors"].append(f"Samplers check failed: {exc}")
+
+    return health
 
 
-# --- Restored missing stub for find_webui_api_port ---
-def find_webui_api_port() -> int:
+def find_webui_api_port(
+    host: str = "127.0.0.1",
+    start_port: int = 7860,
+    max_attempts: int = 5,
+    timeout: float = 0.35,
+) -> str | None:
     """
-    Dummy stub for find_webui_api_port. Returns default port 7860.
+    Quickly probe common ports for a running WebUI instance.
+
+    Returns the first reachable API URL or None if not found.
     """
-    return 7860
+    session = requests.Session()
+    for attempt in range(max(1, max_attempts)):
+        port = start_port + attempt
+        url = f"http://{host}:{port}"
+        try:
+            response = session.get(f"{url}/sdapi/v1/sd-models", timeout=timeout)
+            if response.ok:
+                logger.info("Detected running WebUI at %s", url)
+                return url
+        except requests.RequestException:
+            continue
+
+    logger.debug(
+        "Unable to find WebUI on ports %s-%s", start_port, start_port + max_attempts - 1
+    )
+    return None
