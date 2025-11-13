@@ -1,36 +1,48 @@
-GUI Overview
+# StableNew GUI Overview
 
-This document outlines the top-level layout of the StableNew desktop GUI after PR‑1 (Layout Cleanup & Component De‑duplication).
+The GUI is a Tkinter-based application with a dark ASWF theme.
 
-Tabs & Panels
+## 1. Architecture Overview
 
-- Left Sidebar: Prompt Pack list and selection
-- Center Notebook (Dark.TNotebook)
-  - Pipeline: Configuration editor for txt2img, img2img, upscale, and related summaries
-  - Randomization: Prompt randomizer tools (S/R rules, wildcards, matrix)
-  - General: Global run behavior and Pipeline Controls (looping, batch, stages)
-- Bottom: Action buttons and Log output
+StableNewGUI (main_window.py)
+ ├── Theme (theme.py)
+ ├── PromptPackPanel
+ ├── PipelineControlsPanel
+ ├── RandomizationPanel
+ ├── AdvancedPromptEditor
+ ├── LogPanel
+ └── Mediator (pack selection → config context)
 
-Layout Diagram
+## 2. Theming Rules
 
-```
-+---------------------------------------------------------------+
-| Using: <Config Source>                                        |
-+---------------------------------------------------------------+
-| Packs        |                Center Notebook                 |
-| (list)       |  [ Pipeline ] [ Randomization ] [ General ]    |
-|              |                                               |
-|              |  Pipeline: config editor + summary            |
-|              |  Randomization: S/R, wildcards, matrix        |
-|              |  General: Pipeline Controls + API settings    |
-+---------------------------------------------------------------+
-| Run buttons | Logs                                           |
-+---------------------------------------------------------------+
-```
+- All colors come from src/gui/theme.py.
+- No hard-coded colors elsewhere.
+- Use ASWF blacks and greys for backgrounds.
+- Use ASWF gold for high-contrast text.
+- Buttons:
+  - Primary: gold or green on dark background.
+  - Danger: red on dark background.
 
-Key Notes
+## 3. Layout Rules
 
-- Pipeline controls live only inside the center notebook under the "General" tab. They are not duplicated elsewhere.
-- Tab content containers use the dark theme styles (Dark.TFrame, Dark.TLabel, etc.) for visual consistency.
-- Randomization tab is always present and wired to the prompt randomizer utilities.
+- Every tab must have consistent padding and background.
+- Controls must be arranged in a grid/pack with:
+  - Minimum padding (4–8px).
+  - Stretch/resizing enabled where appropriate.
+- Scrollbars required for:
+  - Randomization panel.
+  - Advanced prompt editor.
+  - Panels that exceed height.
 
+## 4. Behavior Constraints
+
+- Never block the main thread.
+- Load configurations on explicit user action (no autoload).
+- Show warnings for unsaved changes.
+- Ensure that selecting packs does NOT modify the config editor implicitly.
+
+## 5. Resilience
+
+- GUI logs maintain last 20 lines.
+- Crash detection on startup.
+- Cleanup routine runs if improper shutdown detected.

@@ -84,7 +84,7 @@ class StableNewGUI:
         default_preset_name: str | None = None,
     ) -> None:
         self.config_manager = config_manager or ConfigManager()
-        self.preferences = preferences or PreferencesManager()
+        self.preferences_manager = preferences or PreferencesManager()
         self.state_manager = state_manager or StateManager()
         self.controller = controller or PipelineController()
         self.webui = webui_discovery or WebUIDiscovery()
@@ -143,6 +143,8 @@ class StableNewGUI:
         self.adetailer_enabled = tk.BooleanVar(value=False)
         self.upscale_enabled = tk.BooleanVar(value=True)
         self.video_enabled = tk.BooleanVar(value=False)
+        self._config_dirty = False
+        self._config_panel_prefs_bound = False
 
         # Initialize progress-related attributes
         self._progress_eta_default = "ETA: --:--"
@@ -150,7 +152,7 @@ class StableNewGUI:
 
         # Load preferences before building UI
         default_config = self.config_manager.get_default_config()
-        self.preferences = self.preferences.load_preferences(default_config)
+        self.preferences = self.preferences_manager.load_preferences(default_config)
 
         # Build the user interface
         self._build_ui()
@@ -158,6 +160,7 @@ class StableNewGUI:
             self.root.bind("<Configure>", self._on_root_resize, add="+")
         except Exception:
             pass
+        self._reset_config_dirty_state()
 
         # Initialize summary variables for live config display
         self.txt2img_summary_var = tk.StringVar(value="")
@@ -770,6 +773,11 @@ class StableNewGUI:
         # Sidebar actions
         self._build_sidebar_actions(sidebar)
 
+        # Advanced editor tab for legacy editor access
+        advanced_tab = ttk.Frame(self.center_notebook, style="Dark.TFrame")
+        self.center_notebook.add(advanced_tab, text="Advanced Editor")
+        self._build_advanced_editor_tab(advanced_tab)
+
     def _initialize_ui_state_async(self):
         """Initialize UI state asynchronously after mainloop starts."""
         # Restore UI state from preferences
@@ -962,8 +970,14 @@ class StableNewGUI:
 
     def _apply_editor_from_cfg(self, cfg: dict) -> None:
         """Apply config to the editor (config panel)."""
+        if not cfg:
+            return
         if hasattr(self, "config_panel"):
             self.config_panel.set_config(cfg)
+        try:
+            self.pipeline_controls_panel.apply_config(cfg)
+        except Exception:
+            logger.debug("Pipeline controls apply_config skipped", exc_info=True)
 
     def _ui_toggle_lock(self) -> None:
         """Toggle the config lock state."""
@@ -997,8 +1011,16 @@ class StableNewGUI:
                 return
             pack = self.current_selected_packs[0]
             cfg = self.config_service.load_pack_config(pack)
+            if not cfg:
+                self._safe_messagebox(
+                    "info",
+                    "No Saved Config",
+                    f"No config saved for '{pack}'. Showing defaults.",
+                )
+                return
             self._apply_editor_from_cfg(cfg)
             self._update_config_source_banner("Using: Pack Config (view)")
+            self._reset_config_dirty_state()
 
     def _ui_load_preset(self) -> None:
         """Load selected preset into the editor."""
@@ -1010,6 +1032,7 @@ class StableNewGUI:
             self._apply_editor_from_cfg(cfg)
             self.current_preset_name = name
             self._update_config_source_banner(f"Using: Preset: {name}")
+            self._reset_config_dirty_state()
 
     def _check_lock_before_load(self) -> bool:
         """Check if locked and prompt to unlock. Returns True if should proceed."""
@@ -1044,12 +1067,13 @@ class StableNewGUI:
                 for pack in self.current_selected_packs:
                     self.config_service.save_pack_config(pack, editor_cfg)
                 # Success callback on UI thread
-                self.root.after(
-                    0,
-                    lambda: messagebox.showinfo(
+                def _on_success():
+                    messagebox.showinfo(
                         "Success", f"Applied to {num_packs} pack{'s' if num_packs > 1 else ''}."
-                    ),
-                )
+                    )
+                    self._reset_config_dirty_state()
+
+                self.root.after(0, _on_success)
             except Exception as exc:
                 error_msg = str(exc)
                 # Error callback on UI thread
@@ -1115,20 +1139,21 @@ class StableNewGUI:
             return
         try:
             packs = self.config_service.load_list(name)
-            # Clear current selection
-            self.prompt_pack_panel.packs_listbox.selection_clear(0, tk.END)
-            # Select the packs from the list
-            all_packs = list(self.prompt_pack_panel.packs_listbox.get(0, tk.END))
-            for pack in packs:
-                try:
-                    index = all_packs.index(pack)
-                    self.prompt_pack_panel.packs_listbox.selection_set(index)
-                except ValueError:
-                    logger.warning(
-                        f"Pack '{pack}' from list '{name}' not found in available packs."
-                    )
+            if not packs:
+                messagebox.showinfo("Empty List", f"List '{name}' has no packs saved.")
+                return
+            available = list(self.prompt_pack_panel.packs_listbox.get(0, tk.END))
+            valid_packs = [p for p in packs if p in available]
+            if not valid_packs:
+                messagebox.showwarning(
+                    "No Matching Packs",
+                    f"None of the packs from '{name}' are available in this workspace.",
+                )
+                return
+            self.prompt_pack_panel.set_selected_packs(valid_packs)
             self.ctx.active_list = name
-            messagebox.showinfo("Success", f"List '{name}' loaded ({len(packs)} packs).")
+            messagebox.showinfo("Success", f"List '{name}' loaded ({len(valid_packs)} packs).")
+            self._reset_config_dirty_state()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load list: {e}")
 
@@ -1919,11 +1944,11 @@ class StableNewGUI:
         # Throttled autosave to keep last_settings.json aligned with UI
         self._autosave_preferences_if_needed()
 
-    def _autosave_preferences_if_needed(self) -> None:
+    def _autosave_preferences_if_needed(self, force: bool = False) -> None:
         """Autosave preferences (including randomization enabled flag) with 2s throttle."""
         now = time.time()
         last = getattr(self, "_last_pref_autosave", 0.0)
-        if now - last < 2.0:
+        if not force and now - last < 2.0:
             return
         self._last_pref_autosave = now
         try:
@@ -2533,6 +2558,8 @@ class StableNewGUI:
             parent,
             initial_state=initial_state,
             stage_vars=stage_vars,
+            show_variant_controls=False,
+            on_change=self._on_pipeline_controls_changed,
             style="Dark.TFrame",
         )
         # Place inside parent with pack for consistency with surrounding layout
@@ -2565,6 +2592,7 @@ class StableNewGUI:
         self.img2img_vars = self.config_panel.img2img_vars
         self.upscale_vars = self.config_panel.upscale_vars
         self.api_vars = self.config_panel.api_vars
+        self._bind_config_panel_persistence_hooks()
 
     def _build_bottom_panel(self, parent):
         """Build bottom panel with logs and action buttons"""
@@ -3398,6 +3426,11 @@ class StableNewGUI:
             pass
 
     def _run_full_pipeline(self):
+        if not self._confirm_run_with_dirty():
+            return
+        self._run_full_pipeline_impl()
+
+    def _run_full_pipeline_impl(self):
         """Run the complete pipeline"""
         if not self.api_connected:
             messagebox.showerror("API Error", "Please connect to API first")
@@ -3981,6 +4014,92 @@ class StableNewGUI:
         label.pack(fill=tk.X)
         self._register_wrappable_label(label)
         return frame
+
+    def _build_advanced_editor_tab(self, parent: tk.Widget) -> None:
+        shell = ttk.Frame(parent, style="Dark.TFrame")
+        shell.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        canvas, body = make_scrollable(shell, style="Dark.TFrame")
+        self._register_scrollable_section("advanced_editor", canvas, body)
+
+        self._build_info_box(
+            body,
+            "Advanced Prompt Editor",
+            "Manage prompt packs, validate syntax, and edit long-form content in the Advanced "
+            "Prompt Editor. Use this tab to launch the editor without digging through menus.",
+        ).pack(fill=tk.X, pady=(0, 6))
+
+        launch_frame = ttk.Frame(body, style="Dark.TFrame")
+        launch_frame.pack(fill=tk.X, pady=(0, 10))
+        ttk.Button(
+            launch_frame,
+            text="Open Advanced Prompt Editor",
+            style="Primary.TButton",
+            command=self._open_prompt_editor,
+        ).pack(side=tk.LEFT, padx=(0, 12))
+        helper_label = ttk.Label(
+            launch_frame,
+            text="Opens a new window with multi-tab editing, validation, and global negative tools.",
+            style="Dark.TLabel",
+            wraplength=self._current_wraplength(),
+            justify=tk.LEFT,
+        )
+        helper_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._register_wrappable_label(helper_label)
+
+        features_label = ttk.Label(
+            body,
+            text="Features:\n• Block-based and TSV editing modes.\n• Global negative prompt manager.\n"
+            "• Validation for missing embeddings/LoRAs.\n• Model browser with quick insert actions.",
+            style="Dark.TLabel",
+            justify=tk.LEFT,
+            wraplength=self._current_wraplength(),
+        )
+        features_label.pack(fill=tk.X, pady=(0, 10))
+        self._register_wrappable_label(features_label)
+
+    def _bind_config_panel_persistence_hooks(self) -> None:
+        """Ensure key config fields trigger preference persistence when changed."""
+        if getattr(self, "_config_panel_prefs_bound", False):
+            return
+        if not hasattr(self, "config_panel"):
+            return
+
+        tracked_vars = []
+        for key in ("model", "refiner_checkpoint"):
+            var = self.config_panel.txt2img_vars.get(key)
+            if isinstance(var, tk.Variable):
+                tracked_vars.append(var)
+
+        if not tracked_vars:
+            return
+
+        self._config_panel_prefs_bound = True
+        for var in tracked_vars:
+            try:
+                var.trace_add("write", lambda *_: self._on_config_panel_primary_change())
+            except Exception:
+                continue
+
+    def _on_config_panel_primary_change(self) -> None:
+        self._autosave_preferences_if_needed(force=True)
+
+    def _on_pipeline_controls_changed(self) -> None:
+        self._set_config_dirty(True)
+        self._autosave_preferences_if_needed(force=True)
+
+    def _set_config_dirty(self, dirty: bool) -> None:
+        self._config_dirty = bool(dirty)
+
+    def _reset_config_dirty_state(self) -> None:
+        self._set_config_dirty(False)
+
+    def _confirm_run_with_dirty(self) -> bool:
+        if not getattr(self, "_config_dirty", False):
+            return True
+        return messagebox.askyesno(
+            "Unsaved Changes",
+            "The config has unsaved changes that won’t be applied to any pack. Continue anyway?",
+        )
 
     def _register_scrollable_section(
         self, name: str, canvas: tk.Canvas, body: tk.Widget

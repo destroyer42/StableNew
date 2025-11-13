@@ -9,6 +9,10 @@ class ConfigService:
         self.presets_dir = Path(presets_dir)
         self.lists_dir = Path(lists_dir)
 
+        self.packs_dir.mkdir(parents=True, exist_ok=True)
+        self.presets_dir.mkdir(parents=True, exist_ok=True)
+        self.lists_dir.mkdir(parents=True, exist_ok=True)
+
     def load_pack_config(self, pack: str) -> dict[str, Any]:
         path = self.packs_dir / f"{pack}.json"
         if not path.exists():
@@ -43,8 +47,14 @@ class ConfigService:
         if path.exists():
             path.unlink()
 
+    def _resolve_list_path(self, name: str | Path) -> Path:
+        candidate = Path(name)
+        if candidate.suffix.lower() == ".json":
+            return self.lists_dir / candidate.name
+        return self.lists_dir / f"{candidate.stem}.json"
+
     def load_list(self, name: str) -> list[str]:
-        path = self.lists_dir / f"{name}.json"
+        path = self._resolve_list_path(name)
         if not path.exists():
             return []
         with open(path, encoding="utf-8") as f:
@@ -52,16 +62,16 @@ class ConfigService:
         return cast(list[str], data.get("packs", []))
 
     def save_list(self, name: str, packs: list[str], overwrite: bool = True) -> None:
-        path = self.lists_dir / f"{name}.json"
+        path = self._resolve_list_path(name)
         if path.exists() and not overwrite:
             raise FileExistsError(f"List {name} already exists.")
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"packs": packs}, f, indent=2)
 
     def delete_list(self, name: str) -> None:
-        path = self.lists_dir / f"{name}.json"
+        path = self._resolve_list_path(name)
         if path.exists():
             path.unlink()
 
     def list_lists(self) -> list[str]:
-        return [p.stem for p in self.lists_dir.glob("*.json")]
+        return sorted(p.stem for p in self.lists_dir.glob("*.json"))
