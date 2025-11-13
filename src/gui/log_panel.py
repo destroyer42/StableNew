@@ -73,7 +73,7 @@ class LogPanel(ttk.Frame):
     def _build_ui(self):
         """Build the panel UI."""
         # Log frame with dark theme
-        log_frame = ttk.LabelFrame(self, text="📋 Live Log", style="Dark.TFrame", padding=5)
+        log_frame = ttk.LabelFrame(self, text="📋 Live Log", style="Dark.TLabelframe", padding=5)
         log_frame.pack(fill=tk.BOTH, expand=True)
 
         controls_frame = ttk.Frame(log_frame)
@@ -110,9 +110,9 @@ class LogPanel(ttk.Frame):
             log_frame,
             height=self.height,
             wrap=tk.WORD,
-            bg="#1e1e1e",
-            fg="#ffffff",
-            font=("Consolas", 8),
+            bg="#2B2A2C",  # ASWF_DARK_GREY
+            fg="#FFC805",  # ASWF_GOLD
+            font=("Calibri", 11),  # Consistent with theme
             state=tk.DISABLED,
         )
         self.log_text.pack(fill=tk.BOTH, expand=True)

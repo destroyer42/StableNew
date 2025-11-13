@@ -212,7 +212,7 @@ class PipelineControlsPanel(ttk.Frame):
         """Build the panel UI."""
         # Pipeline controls frame
         pipeline_frame = ttk.LabelFrame(
-            self, text="🚀 Pipeline Controls", style="Dark.TFrame", padding=5
+            self, text="🚀 Pipeline Controls", style="Dark.TLabelframe", padding=5
         )
         pipeline_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -226,7 +226,7 @@ class PipelineControlsPanel(ttk.Frame):
 
     def _build_loop_config(self, parent):
         """Build loop configuration controls with logging."""
-        loop_frame = ttk.LabelFrame(parent, text="Loop Config", style="Dark.TFrame", padding=5)
+        loop_frame = ttk.LabelFrame(parent, text="Loop Config", style="Dark.TLabelframe", padding=5)
         loop_frame.pack(fill=tk.X, pady=(0, 5))
 
         def log_loop_type():
@@ -281,7 +281,9 @@ class PipelineControlsPanel(ttk.Frame):
 
     def _build_batch_config(self, parent):
         """Build batch configuration controls with logging."""
-        batch_frame = ttk.LabelFrame(parent, text="Batch Config", style="Dark.TFrame", padding=5)
+        batch_frame = ttk.LabelFrame(
+            parent, text="Batch Config", style="Dark.TLabelframe", padding=5
+        )
         batch_frame.pack(fill=tk.X, pady=(0, 5))
 
         def log_pack_mode():
@@ -339,7 +341,7 @@ class PipelineControlsPanel(ttk.Frame):
     def _build_variant_config(self, parent):
         """Build controls for model/hypernetwork combinations."""
         variant_frame = ttk.LabelFrame(
-            parent, text="Model Matrix & Hypernets", style="Dark.TFrame", padding=5
+            parent, text="Model Matrix & Hypernets", style="Dark.TLabelframe", padding=5
         )
         variant_frame.pack(fill=tk.X, pady=(0, 5))
 
@@ -380,7 +382,7 @@ class PipelineControlsPanel(ttk.Frame):
     def _build_global_negative_toggles(self, parent):
         """Build per-stage Global Negative enable toggles."""
         frame = ttk.LabelFrame(
-            parent, text="Global Negative (per stage)", style="Dark.TFrame", padding=5
+            parent, text="Global Negative (per stage)", style="Dark.TLabelframe", padding=5
         )
         frame.pack(fill=tk.X, pady=(0, 5))
 

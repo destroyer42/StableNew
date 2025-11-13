@@ -18,12 +18,14 @@ from src.api.client import SDWebUIClient, find_webui_api_port, validate_webui_he
 from src.controller.pipeline_controller import PipelineController
 from src.gui.advanced_prompt_editor import AdvancedPromptEditor
 from src.gui.api_status_panel import APIStatusPanel
-from src.gui.center_panel import CenterPanel
 from src.gui.config_panel import ConfigPanel
 from src.gui.enhanced_slider import EnhancedSlider
 from src.gui.log_panel import LogPanel, TkinterLogHandler
 from src.gui.pipeline_controls_panel import PipelineControlsPanel
+from src.gui.prompt_pack_panel import PromptPackPanel
+from src.gui.scrolling import enable_mousewheel, make_scrollable
 from src.gui.state import GUIState, StateManager
+from src.gui.theme import Theme
 from src.gui.tooltip import Tooltip
 from src.pipeline.executor import Pipeline
 from src.services.config_service import ConfigService
@@ -93,16 +95,16 @@ class StableNewGUI:
             self.root = tk.Tk()
         self.root.title(title)
         self.root.geometry(geometry)
-        
+        self.window_min_size = (1024, 720)
+        self.root.minsize(*self.window_min_size)
+
+        # Initialize theme
+        self.theme = Theme()
+        self.theme.apply_root(self.root)
+
         # Initialize ttk style and theme colors
         self.style = ttk.Style()
-        self.bg_color = "#1e1e1e"  # Dark background
-        self.fg_color = "#ffffff"  # White text
-        self.button_bg = "#2d2d2d"  # Darker button background
-        self.entry_bg = "#3c3c3c"  # Entry field background
-        self.button_active = "#404040"  # Active button color
-        
-        self._apply_style()
+        self.theme.apply_ttk_styles(self.style)
 
         # --- ConfigService and ConfigContext wiring ---
         packs_dir = Path("packs")
@@ -117,16 +119,50 @@ class StableNewGUI:
         self.previous_banner_text = "Using: Global Config"
         self.current_preset_name = None
 
+        # Initialize API-related variables
+        self.api_url_var = tk.StringVar(value="http://127.0.0.1:7860")
+        self.preset_var = tk.StringVar(value="default")
+        self._wrappable_labels: list[tk.Widget] = []
+        self.scrollable_sections: dict[str, dict[str, tk.Widget | None]] = {}
+
+        # Initialize aesthetic/randomization defaults before building UI
+        self.aesthetic_script_available = False
+        self.aesthetic_extension_root: Path | None = None
+        self.aesthetic_embeddings: list[str] = ["None"]
+        self.aesthetic_embedding_var = tk.StringVar(value="None")
+        self.aesthetic_status_var = tk.StringVar(value="Aesthetic extension not detected")
+        self.aesthetic_widgets: dict[str, list[tk.Widget]] = {
+            "all": [],
+            "script": [],
+            "prompt": [],
+        }
+
+        # Stage toggles used by multiple panels
+        self.txt2img_enabled = tk.BooleanVar(value=True)
+        self.img2img_enabled = tk.BooleanVar(value=True)
+        self.adetailer_enabled = tk.BooleanVar(value=False)
+        self.upscale_enabled = tk.BooleanVar(value=True)
+        self.video_enabled = tk.BooleanVar(value=False)
+
         # Initialize progress-related attributes
         self._progress_eta_default = "ETA: --:--"
         self._progress_idle_message = "Ready"
 
+        # Load preferences before building UI
+        default_config = self.config_manager.get_default_config()
+        self.preferences = self.preferences.load_preferences(default_config)
+
         # Build the user interface
         self._build_ui()
+        try:
+            self.root.bind("<Configure>", self._on_root_resize, add="+")
+        except Exception:
+            pass
 
-    def _apply_style(self):
-        """Apply ttk theme and style settings. (Restored stub for compatibility)"""
-        self._setup_theme()
+        # Initialize summary variables for live config display
+        self.txt2img_summary_var = tk.StringVar(value="")
+        self.img2img_summary_var = tk.StringVar(value="")
+        self.upscale_summary_var = tk.StringVar(value="")
 
     def _apply_webui_status(self, status) -> None:
         # Update any labels/combos based on discovered status.
@@ -526,7 +562,7 @@ class StableNewGUI:
 
         # Config source banner at the top
         self.config_source_banner = ttk.Label(
-            main_frame, text="Using: Global Config", style="Dark.TLabel"
+            main_frame, text="Using: Pack Config", style="Dark.TLabel"
         )
         self.config_source_banner.pack(anchor=tk.W, padx=5, pady=(0, 5))
 
@@ -549,13 +585,12 @@ class StableNewGUI:
             0, weight=0, minsize=280
         )  # Left: wider pack list for long names
         content_frame.columnconfigure(1, weight=1)  # Center: flexible config
-        content_frame.columnconfigure(2, weight=0, minsize=260)  # Right: pipeline controls
         content_frame.rowconfigure(0, weight=1)
 
         # Left panel - Compact prompt pack selection
         self._build_prompt_pack_panel(content_frame)
 
-        # Right panel - Configuration and pipeline controls (moved up)
+        # Center panel - Configuration notebook
         self._build_config_pipeline_panel(content_frame)
 
         # Bottom frame - Compact log and action buttons (resizable split)
@@ -583,24 +618,250 @@ class StableNewGUI:
 
     def _build_prompt_pack_panel(self, parent):
         """Build the prompt pack selection panel."""
-        # Create a simple frame for now
-        pack_frame = ttk.Frame(parent, style="Dark.TFrame")
-        pack_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 5))
-        
-        ttk.Label(pack_frame, text="Prompt Packs", style="Dark.TLabel").pack(anchor=tk.W, padx=5, pady=5)
+        # Create PromptPackPanel
+        self.prompt_pack_panel = PromptPackPanel(
+            parent,
+            coordinator=self,
+            on_selection_changed=self._on_pack_selection_changed_mediator,
+            style="Dark.TFrame",
+        )
+        self.prompt_pack_panel.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 5))
 
     def _build_config_pipeline_panel(self, parent):
-        """Build the configuration and pipeline controls panel."""
-        # Create a simple frame for now
-        config_frame = ttk.Frame(parent, style="Dark.TFrame")
-        config_frame.grid(row=0, column=1, sticky=tk.NSEW, padx=(0, 5))
-        
-        ttk.Label(config_frame, text="Configuration", style="Dark.TLabel").pack(anchor=tk.W, padx=5, pady=5)
+        """Build the consolidated configuration notebook with Pipeline, Randomization, and General tabs."""
+        # Create main notebook for center panel
+        self.center_notebook = ttk.Notebook(parent, style="Dark.TNotebook")
+        self.center_notebook.grid(row=0, column=1, sticky=tk.NSEW, padx=(0, 5))
+
+        # Pipeline tab - configuration
+        pipeline_tab = ttk.Frame(self.center_notebook, style="Dark.TFrame")
+        self.center_notebook.add(pipeline_tab, text="Pipeline")
+
+        self._build_info_box(
+            pipeline_tab,
+            "Pipeline Configuration",
+            "Configure txt2img, img2img, and upscale behavior for the next run. "
+            "Use override mode to apply these settings to every selected pack.",
+        ).pack(fill=tk.X, padx=10, pady=(10, 4))
+
+        try:
+            override_header = ttk.Frame(pipeline_tab, style="Dark.TFrame")
+            override_header.pack(fill=tk.X, padx=10, pady=(0, 4))
+            override_checkbox = ttk.Checkbutton(
+                override_header,
+                text="Override pack settings with current config",
+                variable=self.override_pack_var,
+                style="Dark.TCheckbutton",
+                command=self._on_override_changed,
+            )
+            override_checkbox.pack(side=tk.LEFT)
+            self._attach_tooltip(
+                override_checkbox,
+                "When enabled, the visible configuration is applied to every selected pack. Disable to use each pack's saved config.",
+            )
+        except Exception:
+            pass
+
+        config_scroll = ttk.Frame(pipeline_tab, style="Dark.TFrame")
+        config_scroll.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        pipeline_canvas, config_body = make_scrollable(config_scroll, style="Dark.TFrame")
+        self._register_scrollable_section("pipeline", pipeline_canvas, config_body)
+
+        self.config_panel = ConfigPanel(config_body, coordinator=self, style="Dark.TFrame")
+        self.config_panel.pack(fill=tk.BOTH, expand=True)
+
+        self.txt2img_vars = self.config_panel.txt2img_vars
+        self.img2img_vars = self.config_panel.img2img_vars
+        self.upscale_vars = self.config_panel.upscale_vars
+        self.api_vars = self.config_panel.api_vars
+        self.config_status_label = self.config_panel.config_status_label
+        self.adetailer_panel = getattr(self.config_panel, "adetailer_panel", None)
+
+        try:
+            summary_frame = ttk.LabelFrame(
+                pipeline_tab, text="Next Run Summary", style="Dark.TLabelframe", padding=5
+            )
+            summary_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+            self.txt2img_summary_var = getattr(self, "txt2img_summary_var", tk.StringVar(value=""))
+            self.img2img_summary_var = getattr(self, "img2img_summary_var", tk.StringVar(value=""))
+            self.upscale_summary_var = getattr(self, "img2img_summary_var", tk.StringVar(value=""))
+            self.upscale_summary_var = getattr(self, "upscale_summary_var", tk.StringVar(value=""))
+
+            for var in (
+                self.txt2img_summary_var,
+                self.img2img_summary_var,
+                self.upscale_summary_var,
+            ):
+                ttk.Label(
+                    summary_frame,
+                    textvariable=var,
+                    style="Dark.TLabel",
+                    font=("Consolas", 9),
+                ).pack(anchor=tk.W, pady=1)
+
+            self._attach_summary_traces()
+            self._update_live_config_summary()
+        except Exception:
+            pass
+
+        # Randomization tab
+        randomization_tab = ttk.Frame(self.center_notebook, style="Dark.TFrame")
+        self.center_notebook.add(randomization_tab, text="Randomization")
+        self._build_randomization_tab(randomization_tab)
+
+        # General tab - pipeline controls and API settings
+        general_tab = ttk.Frame(self.center_notebook, style="Dark.TFrame")
+        self.center_notebook.add(general_tab, text="General")
+
+        general_split = ttk.Frame(general_tab, style="Dark.TFrame")
+        general_split.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 10))
+
+        general_scroll_container = ttk.Frame(general_split, style="Dark.TFrame")
+        general_scroll_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        general_canvas, general_body = make_scrollable(general_scroll_container, style="Dark.TFrame")
+        self._register_scrollable_section("general", general_canvas, general_body)
+
+        sidebar = ttk.Frame(general_split, style="Dark.TFrame", width=220)
+        sidebar.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+
+        self._build_info_box(
+            general_body,
+            "General Settings",
+            "Manage batch size, looping behavior, and API connectivity. "
+            "These settings apply to every run regardless of prompt pack.",
+        ).pack(fill=tk.X, pady=(0, 6))
+
+        video_frame = ttk.Frame(general_body, style="Dark.TFrame")
+        video_frame.pack(fill=tk.X, pady=(0, 4))
+        ttk.Checkbutton(
+            video_frame,
+            text="Enable video stage",
+            variable=self.video_enabled,
+            style="Dark.TCheckbutton",
+        ).pack(anchor=tk.W)
+
+        # Pipeline controls in General tab
+        self._build_pipeline_controls_panel(general_body)
+
+        api_frame = ttk.LabelFrame(
+            general_body, text="API Configuration", style="Dark.TLabelframe", padding=8
+        )
+        api_frame.pack(fill=tk.X, pady=(10, 10))
+        ttk.Label(api_frame, text="Base URL:", style="Dark.TLabel").grid(
+            row=0, column=0, sticky=tk.W, pady=2
+        )
+        ttk.Entry(
+            api_frame,
+            textvariable=self.api_vars.get("base_url"),
+            style="Dark.TEntry",
+        ).grid(row=0, column=1, sticky=tk.EW, pady=2, padx=(5, 0))
+        api_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(api_frame, text="Timeout (s):", style="Dark.TLabel").grid(
+            row=1, column=0, sticky=tk.W, pady=2
+        )
+        ttk.Entry(
+            api_frame,
+            textvariable=self.api_vars.get("timeout"),
+            style="Dark.TEntry",
+        ).grid(row=1, column=1, sticky=tk.EW, pady=2, padx=(5, 0))
+
+        # Sidebar actions
+        self._build_sidebar_actions(sidebar)
 
     def _initialize_ui_state_async(self):
         """Initialize UI state asynchronously after mainloop starts."""
-        # Simple implementation for now
-        pass
+        # Restore UI state from preferences
+        self._restore_ui_state_from_preferences()
+
+    def _build_sidebar_actions(self, parent: tk.Widget) -> None:
+        """Build sidebar buttons for pipeline actions and utilities."""
+
+        actions_box = ttk.LabelFrame(parent, text="Pipeline Actions", style="Dark.TLabelframe", padding=8)
+        actions_box.pack(fill=tk.X, pady=(0, 10))
+
+        def add_action_button(container, text, command, tooltip, style="Dark.TButton"):
+            btn = ttk.Button(container, text=text, command=command, style=style)
+            btn.pack(fill=tk.X, pady=4)
+            self._attach_tooltip(btn, tooltip)
+            return btn
+
+        add_action_button(
+            actions_box,
+            "Run Full Pipeline",
+            self._run_full_pipeline,
+            "Process every highlighted pack sequentially using the current configuration. Override mode applies when enabled.",
+            style="Accent.TButton",
+        )
+        add_action_button(
+            actions_box,
+            "txt2img Only",
+            self._run_txt2img_only,
+            "Generate txt2img outputs for the selected pack(s) only.",
+        )
+        add_action_button(
+            actions_box,
+            "Upscale Only",
+            self._run_upscale_only,
+            "Run only the upscale stage for the currently selected outputs (skips txt2img/img2img).",
+        )
+        add_action_button(
+            actions_box,
+            "Create Video",
+            self._create_video,
+            "Combine rendered images into a video file.",
+        )
+
+        utility_box = ttk.LabelFrame(parent, text="Utilities", style="Dark.TLabelframe", padding=8)
+        utility_box.pack(fill=tk.X)
+        add_action_button(
+            utility_box,
+            "Open Output Folder",
+            self._open_output_folder,
+            "Open the output directory in your system file browser.",
+        )
+        add_action_button(
+            utility_box,
+            "Stop Pipeline",
+            self._stop_execution,
+            "Request cancellation of the pipeline run. The current stage finishes before stopping.",
+            style="Danger.TButton",
+        )
+        add_action_button(
+            utility_box,
+            "Exit StableNew",
+            self._graceful_exit,
+            "Gracefully stop background work and close StableNew.",
+            style="Danger.TButton",
+        )
+
+    def _restore_ui_state_from_preferences(self):
+        """Restore UI state from loaded preferences."""
+        # Set preset
+        if "preset" in self.preferences:
+            self.preset_var.set(self.preferences["preset"])
+
+        # Set selected packs
+        if "selected_packs" in self.preferences:
+            self.current_selected_packs = self.preferences["selected_packs"]
+            # Update pack selection UI if available
+            if hasattr(self, "prompt_pack_panel"):
+                self.prompt_pack_panel.set_selected_packs(self.current_selected_packs)
+
+        # Set override pack
+        if "override_pack" in self.preferences and hasattr(self, "override_pack_var"):
+            self.override_pack_var.set(self.preferences["override_pack"])
+
+        # Set pipeline controls
+        if "pipeline_controls" in self.preferences and hasattr(self, "pipeline_controls_panel"):
+            self.pipeline_controls_panel.set_state(self.preferences["pipeline_controls"])
+
+        # Load config if available
+        if "config" in self.preferences:
+            self.current_config = self.preferences["config"]
+            if hasattr(self, "config_panel"):
+                self._load_config_into_forms(self.current_config)
 
     def _build_action_bar(self, parent):
         """Build the action bar with explicit load controls."""
@@ -609,57 +870,87 @@ class StableNewGUI:
 
         # Load Pack Config button
         load_pack_btn = ttk.Button(
-            action_bar, text="Load Pack Config", command=self._ui_load_pack_config
+            action_bar,
+            text="Load Pack Config",
+            command=self._ui_load_pack_config,
+            style="Dark.TButton",
         )
         load_pack_btn.pack(side=tk.LEFT, padx=(0, 10))
 
         # Preset dropdown and load button
         ttk.Label(action_bar, text="Preset:", style="Dark.TLabel").pack(side=tk.LEFT)
         self.preset_combobox = ttk.Combobox(
-            action_bar, values=self.config_service.list_presets(), state="readonly", width=20
+            action_bar,
+            textvariable=self.preset_var,
+            values=self.config_service.list_presets(),
+            state="readonly",
+            width=30,
+            style="Dark.TCombobox",
         )
         self.preset_combobox.pack(side=tk.LEFT, padx=(5, 10))
-        load_preset_btn = ttk.Button(action_bar, text="Load Preset", command=self._ui_load_preset)
+        load_preset_btn = ttk.Button(
+            action_bar, text="Load Preset", command=self._ui_load_preset, style="Dark.TButton"
+        )
         load_preset_btn.pack(side=tk.LEFT, padx=(0, 10))
 
         # Preset CRUD buttons
         save_preset_btn = ttk.Button(
-            action_bar, text="Save Editor → Preset…", command=self._ui_save_preset
+            action_bar,
+            text="Save Editor → Preset…",
+            command=self._ui_save_preset,
+            style="Dark.TButton",
         )
         save_preset_btn.pack(side=tk.LEFT, padx=(0, 5))
         delete_preset_btn = ttk.Button(
-            action_bar, text="Delete Preset…", command=self._ui_delete_preset
+            action_bar, text="Delete Preset…", command=self._ui_delete_preset, style="Dark.TButton"
         )
         delete_preset_btn.pack(side=tk.LEFT, padx=(0, 20))
 
         # List management
         ttk.Label(action_bar, text="List:", style="Dark.TLabel").pack(side=tk.LEFT)
         self.list_combobox = ttk.Combobox(
-            action_bar, values=self.config_service.list_lists(), state="readonly", width=15
+            action_bar,
+            values=self.config_service.list_lists(),
+            state="readonly",
+            width=24,
+            style="Dark.TCombobox",
         )
         self.list_combobox.pack(side=tk.LEFT, padx=(5, 10))
-        load_list_btn = ttk.Button(action_bar, text="Load List", command=self._ui_load_list)
+        load_list_btn = ttk.Button(
+            action_bar, text="Load List", command=self._ui_load_list, style="Dark.TButton"
+        )
         load_list_btn.pack(side=tk.LEFT, padx=(0, 5))
         save_list_btn = ttk.Button(
-            action_bar, text="Save Selection as List…", command=self._ui_save_list
+            action_bar,
+            text="Save Selection as List…",
+            command=self._ui_save_list,
+            style="Dark.TButton",
         )
         save_list_btn.pack(side=tk.LEFT, padx=(0, 5))
         overwrite_list_btn = ttk.Button(
-            action_bar, text="Overwrite Current List", command=self._ui_overwrite_list
+            action_bar,
+            text="Overwrite Current List",
+            command=self._ui_overwrite_list,
+            style="Dark.TButton",
         )
         overwrite_list_btn.pack(side=tk.LEFT, padx=(0, 5))
-        delete_list_btn = ttk.Button(action_bar, text="Delete List…", command=self._ui_delete_list)
+        delete_list_btn = ttk.Button(
+            action_bar, text="Delete List…", command=self._ui_delete_list, style="Dark.TButton"
+        )
         delete_list_btn.pack(side=tk.LEFT)
 
         # Lock Config button
         self.lock_button = ttk.Button(
-            action_bar, text="Lock This Config", command=self._ui_toggle_lock
+            action_bar, text="Lock This Config", command=self._ui_toggle_lock, style="Dark.TButton"
         )
         self.lock_button.pack(side=tk.LEFT, padx=(20, 10))
 
         # Apply Editor to Packs button
         apply_btn = ttk.Button(
-            action_bar, text="Apply Editor → Pack(s)…", command=self._ui_apply_editor_to_packs
+            action_bar,
+            text="Apply Editor → Pack(s)…",
+            command=self._ui_apply_editor_to_packs,
+            style="Dark.TButton",
         )
         apply_btn.pack(side=tk.LEFT)
 
@@ -670,8 +961,9 @@ class StableNewGUI:
         preview_btn.pack(side=tk.LEFT, padx=(10, 0))
 
     def _apply_editor_from_cfg(self, cfg: dict) -> None:
-        """Apply config to the editor (pipeline controls panel)."""
-        self.pipeline_controls_panel.apply_config(cfg)
+        """Apply config to the editor (config panel)."""
+        if hasattr(self, "config_panel"):
+            self.config_panel.set_config(cfg)
 
     def _ui_toggle_lock(self) -> None:
         """Toggle the config lock state."""
@@ -810,7 +1102,7 @@ class StableNewGUI:
                 if self.current_selected_packs:
                     self._update_config_source_banner("Using: Pack Config (view)")
                 else:
-                    self._update_config_source_banner("Using: Global Config")
+                    self._update_config_source_banner("Using: Pack Config")
             messagebox.showinfo("Success", f"Preset '{name}' deleted.")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to delete preset: {e}")
@@ -1052,208 +1344,13 @@ class StableNewGUI:
 
         # Notebook sits below preset bar
 
-    def _setup_panels(self):
-        self.center_panel = CenterPanel(self.root)
-        notebook = ttk.Notebook(self.center_panel, style="Dark.TNotebook")
-        notebook.grid(row=1, column=0, sticky="nsew")
-        self.config_notebook = notebook
-
-        pipeline_tab = ttk.Frame(notebook, style="Dark.TFrame")
-        randomization_tab = ttk.Frame(notebook, style="Dark.TFrame")
-        general_tab = ttk.Frame(notebook, style="Dark.TFrame")
-
-        notebook.add(pipeline_tab, text="Pipeline")
-        notebook.add(randomization_tab, text="Randomization")
-        notebook.add(general_tab, text="General")
-
-        # Pipeline tab content (preset bar removed from here and placed globally)
-        self._build_info_box(
-            pipeline_tab,
-            "Pipeline Overview",
-            "Configure txt2img, img2img, and upscale behavior for the next run. "
-            "Use override mode to apply these settings to every selected pack.",
-        ).pack(fill=tk.X, padx=10, pady=(10, 4))
-
-        try:
-            override_header = ttk.Frame(pipeline_tab, style="Dark.TFrame")
-            override_header.pack(fill=tk.X, padx=10, pady=(0, 4))
-            override_checkbox = ttk.Checkbutton(
-                override_header,
-                text="Override pack settings with current config",
-                variable=self.override_pack_var,
-                style="Dark.TCheckbutton",
-                command=self._on_override_changed,
-            )
-            override_checkbox.pack(side=tk.LEFT)
-            self._attach_tooltip(
-                override_checkbox,
-                "When enabled, the visible configuration is applied to every selected pack. Disable to use each pack's saved config.",
-            )
-        except Exception:
-            pass
-
-        self.config_panel = ConfigPanel(pipeline_tab, coordinator=self, style="Dark.TFrame")
-        self.config_panel.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
-
-        self.txt2img_vars = self.config_panel.txt2img_vars
-        self.img2img_vars = self.config_panel.img2img_vars
-        self.upscale_vars = self.config_panel.upscale_vars
-        self.api_vars = self.config_panel.api_vars
-        self.config_status_label = self.config_panel.config_status_label
-        self.adetailer_panel = getattr(self.config_panel, "adetailer_panel", None)
-
-        try:
-            summary_frame = ttk.LabelFrame(
-                pipeline_tab, text="Next Run Summary", style="Dark.TFrame", padding=5
-            )
-            summary_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-
-            self.txt2img_summary_var = getattr(self, "txt2img_summary_var", tk.StringVar(value=""))
-            self.img2img_summary_var = getattr(self, "img2img_summary_var", tk.StringVar(value=""))
-            self.upscale_summary_var = getattr(self, "upscale_summary_var", tk.StringVar(value=""))
-
-            for var in (
-                self.txt2img_summary_var,
-                self.img2img_summary_var,
-                self.upscale_summary_var,
-            ):
-                ttk.Label(
-                    summary_frame,
-                    textvariable=var,
-                    style="Dark.TLabel",
-                    font=("Consolas", 9),
-                ).pack(anchor=tk.W, pady=1)
-
-            self._attach_summary_traces()
-            self._update_live_config_summary()
-        except Exception:
-            pass
-
-        # Randomization tab content
-        self._build_randomization_tab(randomization_tab)
-
-        # General tab with pipeline controls, API settings, and sidebar actions
-        general_split = ttk.Frame(general_tab, style="Dark.TFrame")
-        general_split.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 10))
-
-        general_scroll_container, general_body = self._create_scrollable_container(general_split)
-        general_scroll_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        sidebar = ttk.Frame(general_split, style="Dark.TFrame", width=220)
-        sidebar.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
-
-        self._build_info_box(
-            general_body,
-            "General Settings",
-            "Manage batch size, looping behavior, and API connectivity. "
-            "These settings apply to every run regardless of prompt pack.",
-        ).pack(fill=tk.X, pady=(0, 6))
-
-        video_frame = ttk.Frame(general_body, style="Dark.TFrame")
-        video_frame.pack(fill=tk.X, pady=(0, 4))
-        ttk.Checkbutton(
-            video_frame,
-            text="Enable video stage",
-            variable=self.video_enabled,
-            style="Dark.TCheckbutton",
-        ).pack(anchor=tk.W)
-
-        self._build_pipeline_controls_panel(general_body)
-
-        api_frame = ttk.LabelFrame(
-            general_body, text="API Configuration", style="Dark.TFrame", padding=8
-        )
-        api_frame.pack(fill=tk.X, pady=(10, 10))
-        ttk.Label(api_frame, text="Base URL:", style="Dark.TLabel").grid(
-            row=0, column=0, sticky=tk.W, pady=2
-        )
-        ttk.Entry(
-            api_frame,
-            textvariable=self.api_vars.get("base_url"),
-            style="Dark.TEntry",
-            width=32,
-        ).grid(row=0, column=1, sticky=tk.W, pady=2, padx=(5, 0))
-
-        ttk.Label(api_frame, text="Timeout (s):", style="Dark.TLabel").grid(
-            row=1, column=0, sticky=tk.W, pady=2
-        )
-        ttk.Spinbox(
-            api_frame,
-            from_=10,
-            to=600,
-            textvariable=self.api_vars.get("timeout"),
-            width=8,
-        ).grid(row=1, column=1, sticky=tk.W, pady=2, padx=(5, 0))
-
-        for child in api_frame.winfo_children():
-            child.configure(style="Dark.TLabel")
-
-        # Sidebar actions & utilities
-        actions_box = ttk.LabelFrame(
-            sidebar, text="Pipeline Actions", style="Dark.TFrame", padding=8
-        )
-        actions_box.pack(fill=tk.X, pady=(0, 10))
-
-        def add_action_button(parent, text, command, tooltip, style="Dark.TButton"):
-            btn = ttk.Button(parent, text=text, command=command, style=style)
-            btn.pack(fill=tk.X, pady=4)
-            self._attach_tooltip(btn, tooltip)
-            return btn
-
-        add_action_button(
-            actions_box,
-            "Run Full Pipeline",
-            self._run_full_pipeline,
-            "Process every highlighted pack sequentially using the current configuration. Override mode applies when enabled.",
-            style="Accent.TButton",
-        )
-        add_action_button(
-            actions_box,
-            "txt2img Only",
-            self._run_txt2img_only,
-            "Generate txt2img outputs for the selected pack(s) only.",
-        )
-        add_action_button(
-            actions_box,
-            "Upscale Only",
-            self._run_upscale_only,
-            "Run only the upscale stage for the currently selected outputs (skips txt2img/img2img).",
-        )
-        add_action_button(
-            actions_box,
-            "Create Video",
-            self._create_video,
-            "Combine rendered images into a video file.",
-        )
-
-        utility_box = ttk.LabelFrame(sidebar, text="Utilities", style="Dark.TFrame", padding=8)
-        utility_box.pack(fill=tk.X)
-        add_action_button(
-            utility_box,
-            "Open Output Folder",
-            self._open_output_folder,
-            "Open the output directory in your system file browser.",
-        )
-        add_action_button(
-            utility_box,
-            "Stop Pipeline",
-            self._stop_execution,
-            "Request cancellation of the pipeline run. The current stage finishes before stopping.",
-            style="Danger.TButton",
-        )
-        add_action_button(
-            utility_box,
-            "Exit StableNew",
-            self._graceful_exit,
-            "Gracefully stop background work and close StableNew.",
-            style="Danger.TButton",
-        )
-
     def _build_randomization_tab(self, parent: tk.Widget) -> None:
         """Build the randomization tab UI and data bindings."""
 
-        container, body = self._create_scrollable_container(parent)
-        container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 10))
+        scroll_shell = ttk.Frame(parent, style="Dark.TFrame")
+        scroll_shell.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 10))
+        canvas, body = make_scrollable(scroll_shell, style="Dark.TFrame")
+        self._register_scrollable_section("randomization", canvas, body)
 
         self._build_info_box(
             body,
@@ -1307,7 +1404,7 @@ class StableNewGUI:
         ).pack(side=tk.LEFT, padx=(10, 0))
 
         # Prompt S/R section
-        sr_frame = ttk.LabelFrame(body, text="Prompt S/R", style="Dark.TFrame", padding=10)
+        sr_frame = ttk.LabelFrame(body, text="Prompt S/R", style="Dark.TLabelframe", padding=10)
         sr_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
 
         sr_header = ttk.Frame(sr_frame, style="Dark.TFrame")
@@ -1349,7 +1446,7 @@ class StableNewGUI:
         sr_text = scrolledtext.ScrolledText(sr_frame, height=6, wrap=tk.WORD)
         sr_text.pack(fill=tk.BOTH, expand=True)
         self.randomization_widgets["prompt_sr_text"] = sr_text
-        self._enable_mousewheel(sr_text)
+        enable_mousewheel(sr_text)
         # Persist on edits
         self._bind_autosave_text(sr_text)
 
@@ -1400,7 +1497,7 @@ class StableNewGUI:
         wildcard_text = scrolledtext.ScrolledText(wildcard_frame, height=6, wrap=tk.WORD)
         wildcard_text.pack(fill=tk.BOTH, expand=True)
         self.randomization_widgets["wildcard_text"] = wildcard_text
-        self._enable_mousewheel(wildcard_text)
+        enable_mousewheel(wildcard_text)
         self._bind_autosave_text(wildcard_text)
 
         # Prompt matrix section
@@ -1563,12 +1660,12 @@ class StableNewGUI:
         )
         matrix_text.pack(fill=tk.BOTH, expand=True)
         self.randomization_widgets["matrix_text"] = matrix_text
-        self._enable_mousewheel(matrix_text)
+        enable_mousewheel(matrix_text)
         self._bind_autosave_text(matrix_text)
 
         # Aesthetic gradient section
         aesthetic_frame = ttk.LabelFrame(
-            body, text="Aesthetic Gradient", style="Dark.TFrame", padding=10
+            body, text="Aesthetic Gradient", style="Dark.TLabelframe", padding=10
         )
         aesthetic_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
@@ -1633,7 +1730,7 @@ class StableNewGUI:
         self.aesthetic_widgets["all"].extend([self.aesthetic_embedding_combo, refresh_btn])
 
         script_box = ttk.LabelFrame(
-            aesthetic_frame, text="Script Parameters", style="Dark.TFrame", padding=6
+            aesthetic_frame, text="Script Parameters", style="Dark.TLabelframe", padding=6
         )
         script_box.pack(fill=tk.X, pady=(4, 4))
 
@@ -1718,7 +1815,7 @@ class StableNewGUI:
         )
 
         prompt_box = ttk.LabelFrame(
-            aesthetic_frame, text="Fallback Prompt Injection", style="Dark.TFrame", padding=6
+            aesthetic_frame, text="Fallback Prompt Injection", style="Dark.TLabelframe", padding=6
         )
         prompt_box.pack(fill=tk.X, pady=(4, 0))
 
@@ -2438,7 +2535,8 @@ class StableNewGUI:
             stage_vars=stage_vars,
             style="Dark.TFrame",
         )
-        self.pipeline_controls_panel.pack(fill=tk.BOTH, expand=True)
+        # Place inside parent with pack for consistency with surrounding layout
+        self.pipeline_controls_panel.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
         # Restore previous state if available
         if prev_state:
             try:
@@ -2453,316 +2551,20 @@ class StableNewGUI:
         self.images_per_prompt_var = self.pipeline_controls_panel.images_per_prompt_var
 
     def _build_config_display_tab(self, notebook):
-        """Build interactive configuration tabs"""
+        """Build interactive configuration tabs using ConfigPanel"""
 
         config_frame = ttk.Frame(notebook, style="Dark.TFrame")
         notebook.add(config_frame, text="⚙️ Configuration")
 
-        # Configuration status section with dark theme
-        status_frame = ttk.LabelFrame(
-            config_frame, text="Configuration Status", style="Dark.TFrame", padding=5
-        )
-        status_frame.pack(fill=tk.X, padx=10, pady=(5, 10))
+        # Create ConfigPanel component
+        self.config_panel = ConfigPanel(config_frame, coordinator=self, style="Dark.TFrame")
+        self.config_panel.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.config_status_label = ttk.Label(
-            status_frame,
-            text="Ready",
-            style="Dark.TLabel",
-            foreground="#cccccc",
-            font=("Segoe UI", 9),
-            wraplength=600,
-        )
-        self.config_status_label.pack(fill=tk.X)
-
-        # Create nested notebook for stage-specific configurations with proper spacing
-        config_notebook = ttk.Notebook(config_frame, style="Dark.TNotebook")
-        config_notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
-
-        # Create individual tabs for each stage
-        self._build_txt2img_config_tab(config_notebook)
-        self._build_img2img_config_tab(config_notebook)
-        self._build_upscale_config_tab(config_notebook)
-        self._build_api_config_tab(config_notebook)
-
-        # Add buttons for save/load/reset with proper spacing at bottom
-        config_buttons = ttk.Frame(config_frame, style="Dark.TFrame")
-        config_buttons.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5, 10))
-
-        save_all_btn = ttk.Button(
-            config_buttons,
-            text="Save All Changes",
-            command=self._save_all_config,
-            style="Dark.TButton",
-        )
-        save_all_btn.pack(side=tk.LEFT, padx=(0, 5))
-        self._attach_tooltip(
-            save_all_btn,
-            "Write every visible setting to the current preset/override so multi-pack runs stay consistent.",
-        )
-
-        reset_all_btn = ttk.Button(
-            config_buttons, text="Reset All", command=self._reset_all_config, style="Dark.TButton"
-        )
-        reset_all_btn.pack(side=tk.LEFT, padx=(0, 5))
-        self._attach_tooltip(
-            reset_all_btn,
-            "Revert the form back to the base preset. Does not touch pack-specific files.",
-        )
-
-        save_pack_btn = ttk.Button(
-            config_buttons,
-            text="Save Pack Config",
-            command=self._save_current_pack_config,
-            style="Dark.TButton",
-        )
-        save_pack_btn.pack(side=tk.LEFT, padx=(0, 5))
-        self._attach_tooltip(
-            save_pack_btn,
-            "Stores the current values into the highlighted pack's JSON. Available only when a single pack is selected and override is off.",
-        )
-
-        # Auto-apply toggle and top save indicator
-        try:
-            self.auto_apply_var = tk.BooleanVar(value=False)
-            auto_apply_check = ttk.Checkbutton(
-                config_buttons,
-                text="Auto-apply on change",
-                variable=self.auto_apply_var,
-                style="Dark.TCheckbutton",
-            )
-            auto_apply_check.pack(side=tk.LEFT, padx=(10, 5))
-            self._attach_tooltip(
-                auto_apply_check,
-                "Immediately save edits to the active pack/preset whenever a field changes. Helpful for rapid tweaking.",
-            )
-
-            self.top_save_indicator_var = tk.StringVar(value="")
-            self.top_save_indicator = ttk.Label(
-                config_buttons, textvariable=self.top_save_indicator_var, style="Dark.TLabel"
-            )
-            self.top_save_indicator.pack(side=tk.LEFT, padx=(8, 0))
-        except Exception:
-            pass
-
-        # Preset selection dropdown
-        preset_frame = ttk.LabelFrame(config_buttons, text="Base Preset", padding=5)
-        preset_frame.pack(side=tk.LEFT, padx=(10, 10))
-
-        preset_controls = ttk.Frame(preset_frame, style="Dark.TFrame")
-        preset_controls.pack(fill=tk.X)
-
-        self.preset_dropdown = ttk.Combobox(
-            preset_controls,
-            textvariable=self.preset_var,
-            state="readonly",
-            width=15,
-            style="Dark.TCombobox",
-            values=self.config_manager.list_presets(),
-        )
-        self.preset_dropdown.pack(side=tk.LEFT, padx=(0, 4))
-        self.preset_dropdown.bind("<<ComboboxSelected>>", self._on_preset_changed)
-
-        # Preset action buttons
-        preset_buttons = ttk.Frame(preset_controls, style="Dark.TFrame")
-        preset_buttons.pack(side=tk.LEFT)
-
-        load_btn = ttk.Button(
-            preset_buttons,
-            text="↻ Load",
-            command=self._load_selected_preset,
-            width=6,
-            style="Dark.TButton",
-        )
-        load_btn.pack(side=tk.LEFT, padx=1)
-        self._attach_tooltip(load_btn, "Load the selected preset into the current configuration")
-
-        save_as_btn = ttk.Button(
-            preset_buttons,
-            text="💾 Save As",
-            command=self._save_preset_as,
-            width=8,
-            style="Dark.TButton",
-        )
-        save_as_btn.pack(side=tk.LEFT, padx=1)
-        self._attach_tooltip(save_as_btn, "Save current config as a new preset")
-
-        update_btn = ttk.Button(
-            preset_buttons,
-            text="✓ Update",
-            command=self._save_override_preset,
-            width=7,
-            style="Dark.TButton",
-        )
-        update_btn.pack(side=tk.LEFT, padx=1)
-        self._attach_tooltip(update_btn, "Update the selected preset with current settings")
-
-        delete_btn = ttk.Button(
-            preset_buttons,
-            text="🗑 Delete",
-            command=self._delete_selected_preset,
-            width=7,
-            style="Danger.TButton",
-        )
-        delete_btn.pack(side=tk.LEFT, padx=1)
-        self._attach_tooltip(delete_btn, "Delete the selected preset (default cannot be deleted)")
-
-        set_default_btn = ttk.Button(
-            preset_buttons,
-            text="⭐ Set Default",
-            command=self._set_default_preset,
-            width=11,
-            style="Dark.TButton",
-        )
-        set_default_btn.pack(side=tk.LEFT, padx=1)
-        self._attach_tooltip(set_default_btn, "Set this preset to load automatically on startup")
-
-    def _build_pipeline_controls_tab(self, notebook):
-        """Build pipeline execution controls tab"""
-        pipeline_frame = ttk.Frame(notebook, style="Dark.TFrame")
-        notebook.add(pipeline_frame, text="🚀 Pipeline Controls")
-
-        # Pipeline execution options
-        exec_options_frame = ttk.LabelFrame(
-            pipeline_frame, text="Execution Options", style="Dark.TFrame", padding=10
-        )
-        exec_options_frame.pack(fill=tk.X, pady=(10, 10))
-
-        # Stage selection
-        stages_frame = ttk.Frame(exec_options_frame, style="Dark.TFrame")
-        stages_frame.pack(fill=tk.X, pady=(0, 10))
-
-        ttk.Label(stages_frame, text="Pipeline Stages:", style="Dark.TLabel").pack(anchor=tk.W)
-
-        stage_checks_frame = ttk.Frame(stages_frame, style="Dark.TFrame")
-        stage_checks_frame.pack(fill=tk.X, pady=(5, 0))
-
-        self.txt2img_enabled = tk.BooleanVar(value=True)
-        self.img2img_enabled = tk.BooleanVar(value=True)
-        self.upscale_enabled = tk.BooleanVar(value=True)
-        self.video_enabled = tk.BooleanVar(value=False)
-
-        ttk.Checkbutton(
-            stage_checks_frame,
-            text="🎨 txt2img",
-            variable=self.txt2img_enabled,
-            style="Dark.TCheckbutton",
-        ).pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Checkbutton(
-            stage_checks_frame,
-            text="🧹 img2img cleanup",
-            variable=self.img2img_enabled,
-            style="Dark.TCheckbutton",
-        ).pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Checkbutton(
-            stage_checks_frame,
-            text="📈 Upscale",
-            variable=self.upscale_enabled,
-            style="Dark.TCheckbutton",
-        ).pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Checkbutton(
-            stage_checks_frame,
-            text="🎬 Create Video",
-            variable=self.video_enabled,
-            style="Dark.TCheckbutton",
-        ).pack(side=tk.LEFT)
-
-        # Loop configuration
-        loop_frame = ttk.Frame(exec_options_frame, style="Dark.TFrame")
-        loop_frame.pack(fill=tk.X, pady=(10, 0))
-
-        ttk.Label(loop_frame, text="Loop Configuration:", style="Dark.TLabel").pack(anchor=tk.W)
-
-        loop_controls = ttk.Frame(loop_frame, style="Dark.TFrame")
-        loop_controls.pack(fill=tk.X, pady=(5, 0))
-
-        # Loop type
-        self.loop_type_var = tk.StringVar(value="single")
-        ttk.Radiobutton(
-            loop_controls,
-            text="Single run",
-            variable=self.loop_type_var,
-            value="single",
-            style="Dark.TRadiobutton",
-        ).grid(row=0, column=0, sticky=tk.W)
-        ttk.Radiobutton(
-            loop_controls,
-            text="Loop stages",
-            variable=self.loop_type_var,
-            value="stages",
-            style="Dark.TRadiobutton",
-        ).grid(row=0, column=1, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(
-            loop_controls,
-            text="Loop pipeline",
-            variable=self.loop_type_var,
-            value="pipeline",
-            style="Dark.TRadiobutton",
-        ).grid(row=0, column=2, sticky=tk.W, padx=(20, 0))
-
-        # Loop count
-        loop_count_frame = ttk.Frame(loop_controls, style="Dark.TFrame")
-        loop_count_frame.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
-
-        ttk.Label(loop_count_frame, text="Loop count:", style="Dark.TLabel").pack(side=tk.LEFT)
-        self.loop_count_var = tk.StringVar(value="1")
-        loop_count_spin = ttk.Spinbox(
-            loop_count_frame,
-            from_=1,
-            to=100,
-            width=5,
-            textvariable=self.loop_count_var,
-            style="Dark.TEntry",
-        )
-        loop_count_spin.pack(side=tk.LEFT, padx=(5, 0))
-
-        # Batch configuration
-        batch_frame = ttk.LabelFrame(
-            pipeline_frame, text="Batch Configuration", style="Dark.TFrame", padding=10
-        )
-        batch_frame.pack(fill=tk.X, pady=(0, 10))
-
-        # Pack selection mode
-        pack_mode_frame = ttk.Frame(batch_frame, style="Dark.TFrame")
-        pack_mode_frame.pack(fill=tk.X)
-
-        self.pack_mode_var = tk.StringVar(value="selected")
-        ttk.Radiobutton(
-            pack_mode_frame,
-            text="Selected packs only",
-            variable=self.pack_mode_var,
-            value="selected",
-            style="Dark.TRadiobutton",
-        ).pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Radiobutton(
-            pack_mode_frame,
-            text="All packs",
-            variable=self.pack_mode_var,
-            value="all",
-            style="Dark.TRadiobutton",
-        ).pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Radiobutton(
-            pack_mode_frame,
-            text="Custom list",
-            variable=self.pack_mode_var,
-            value="custom",
-            style="Dark.TRadiobutton",
-        ).pack(side=tk.LEFT)
-
-        # Images per prompt
-        images_frame = ttk.Frame(batch_frame, style="Dark.TFrame")
-        images_frame.pack(fill=tk.X, pady=(10, 0))
-
-        ttk.Label(images_frame, text="Images per prompt:", style="Dark.TLabel").pack(side=tk.LEFT)
-        self.images_per_prompt_var = tk.StringVar(value="1")
-        images_spin = ttk.Spinbox(
-            images_frame,
-            from_=1,
-            to=10,
-            width=5,
-            textvariable=self.images_per_prompt_var,
-            style="Dark.TEntry",
-        )
-        images_spin.pack(side=tk.LEFT, padx=(5, 0))
+        # Set up variable references for backward compatibility
+        self.txt2img_vars = self.config_panel.txt2img_vars
+        self.img2img_vars = self.config_panel.img2img_vars
+        self.upscale_vars = self.config_panel.upscale_vars
+        self.api_vars = self.config_panel.api_vars
 
     def _build_bottom_panel(self, parent):
         """Build bottom panel with logs and action buttons"""
@@ -2781,8 +2583,8 @@ class StableNewGUI:
             main_buttons,
             text="Run Full Pipeline",
             command=self._run_full_pipeline,
-            style="Accent.TButton",
-        )  # Blue accent for primary action
+            style="Success.TButton",
+        )  # Green for success/primary action
         self.run_pipeline_btn.pack(side=tk.LEFT, padx=(0, 10))
         self._attach_tooltip(
             self.run_pipeline_btn,
@@ -2857,7 +2659,7 @@ class StableNewGUI:
         self.add_log = self.log_panel.append
         self.log_text = getattr(self.log_panel, "log_text", None)
         if self.log_text is not None:
-            self._enable_mousewheel(self.log_text)
+            enable_mousewheel(self.log_text)
 
         # Attach logging handler to redirect standard logging to GUI
         if not hasattr(self, "gui_log_handler"):
@@ -3190,6 +2992,7 @@ class StableNewGUI:
             )
         # Update internal state
         self.selected_packs = selected_packs
+        self.current_selected_packs = selected_packs
 
         if selected_packs:
             pack_name = selected_packs[0]
@@ -3199,8 +3002,7 @@ class StableNewGUI:
             self.log_message("No pack selected")
             self._last_selected_pack = None
 
-        # Refresh configuration for selected pack
-        self._refresh_config()
+        # NOTE: Pack selection no longer auto-loads config - use Load Pack Config button instead
         if getattr(self, "_diag_enabled", False):
             logger.info("[DIAG] mediator _on_pack_selection_changed_mediator end")
 
@@ -3253,11 +3055,12 @@ class StableNewGUI:
 
         self._refreshing_config = True
         try:
-            selected_indices = self.packs_listbox.curselection()
-            selected_packs = [self.packs_listbox.get(i) for i in selected_indices]
+            selected_indices = self.prompt_pack_panel.packs_listbox.curselection()
+            selected_packs = [self.prompt_pack_panel.packs_listbox.get(i) for i in selected_indices]
 
             # Update UI state based on selection and override mode
-            if self.override_pack_var.get():
+            override_mode = hasattr(self, "override_pack_var") and self.override_pack_var.get()
+            if override_mode:
                 # Override mode: use current GUI config for all selected packs
                 self._handle_override_mode(selected_packs)
             elif len(selected_packs) == 1:
@@ -3298,7 +3101,7 @@ class StableNewGUI:
         if getattr(self, "_diag_enabled", False):
             logger.info(f"[DIAG] _handle_single_pack_mode start; pack={pack_name}")
         # If override mode is NOT enabled, load the pack's config
-        if not self.override_pack_var.get():
+        if not (hasattr(self, "override_pack_var") and self.override_pack_var.get()):
             # Ensure pack has a config file
             pack_config = self.config_manager.ensure_pack_config(
                 pack_name, self.preset_var.get() or "default"
@@ -3318,14 +3121,15 @@ class StableNewGUI:
 
         # Update status
         if hasattr(self, "current_pack_label"):
-            if self.override_pack_var.get():
+            override_enabled = hasattr(self, "override_pack_var") and self.override_pack_var.get()
+            if override_enabled:
                 self.current_pack_label.configure(
                     text=f"Pack: {pack_name} (Override)", foreground="#ffa500"
                 )
             else:
                 self.current_pack_label.configure(text=f"Pack: {pack_name}", foreground="#00ff00")
 
-        if self.override_pack_var.get():
+        if override_enabled:
             self._show_config_status(f"Override mode: current config will apply to {pack_name}")
         else:
             self._show_config_status(f"Showing config for pack: {pack_name}")
@@ -3357,7 +3161,8 @@ class StableNewGUI:
 
         # Update status
         if hasattr(self, "current_pack_label"):
-            if self.override_pack_var.get():
+            override_enabled = hasattr(self, "override_pack_var") and self.override_pack_var.get()
+            if override_enabled:
                 self.current_pack_label.configure(
                     text=f"{len(selected_packs)} packs (Override)", foreground="#ffa500"
                 )
@@ -3366,7 +3171,7 @@ class StableNewGUI:
                     text=f"{len(selected_packs)} packs selected", foreground="#ffff00"
                 )
 
-        if self.override_pack_var.get():
+        if override_enabled:
             self._show_config_status(
                 f"Override mode: current config will apply to all {len(selected_packs)} packs"
             )
@@ -3535,9 +3340,11 @@ class StableNewGUI:
 
     def _save_current_pack_config(self):
         """Save current configuration to the selected pack (single pack mode only)"""
-        selected_indices = self.packs_listbox.curselection()
-        if len(selected_indices) == 1 and not self.override_pack_var.get():
-            pack_name = self.packs_listbox.get(selected_indices[0])
+        selected_indices = self.prompt_pack_panel.packs_listbox.curselection()
+        if len(selected_indices) == 1 and not (
+            hasattr(self, "override_pack_var") and self.override_pack_var.get()
+        ):
+            pack_name = self.prompt_pack_panel.packs_listbox.get(selected_indices[0])
             current_config = self._get_config_from_forms()
 
             if self.config_manager.save_pack_config(pack_name, current_config):
@@ -3589,55 +3396,6 @@ class StableNewGUI:
             Tooltip(widget, text, delay=delay)
         except Exception:
             pass
-
-    def _enable_mousewheel(self, widget: tk.Widget) -> None:
-        """Enable cross-platform mousewheel scrolling for a widget that supports yview."""
-
-        def _on_mousewheel(event):
-            delta = event.delta
-            if not delta and getattr(event, "num", None) in (4, 5):
-                delta = 120 if event.num == 4 else -120
-            step = int(-1 * (delta / 120))
-            try:
-                widget.yview_scroll(step, "units")
-            except Exception:
-                return
-            return "break"
-
-        def _bind(_event):
-            widget.bind_all("<MouseWheel>", _on_mousewheel)
-            widget.bind_all("<Button-4>", _on_mousewheel)
-            widget.bind_all("<Button-5>", _on_mousewheel)
-
-        def _unbind(_event):
-            widget.unbind_all("<MouseWheel>")
-            widget.unbind_all("<Button-4>")
-            widget.unbind_all("<Button-5>")
-
-        widget.bind("<Enter>", _bind, add="+")
-        widget.bind("<Leave>", _unbind, add="+")
-
-    def _create_scrollable_container(self, parent: tk.Widget):
-        """
-        Return (container_frame, scrollable_frame) where scrollable_frame grows inside a canvas with vertical scrollbar.
-        Caller is responsible for packing the container.
-        """
-
-        container = ttk.Frame(parent, style="Dark.TFrame")
-        canvas = tk.Canvas(container, bg="#2b2b2b", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas, style="Dark.TFrame")
-
-        scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self._enable_mousewheel(canvas)
-        return container, scrollable_frame
 
     def _run_full_pipeline(self):
         """Run the complete pipeline"""
@@ -4028,7 +3786,7 @@ class StableNewGUI:
             return
 
         # Check if packs are selected
-        selected_indices = self.packs_listbox.curselection()
+        selected_indices = self.prompt_pack_panel.packs_listbox.curselection()
         if not selected_indices:
             messagebox.showerror("Selection Error", "Please select at least one prompt pack")
             return
@@ -4038,7 +3796,9 @@ class StableNewGUI:
         def txt2img_thread():
             try:
                 # Get selected packs
-                selected_packs = [self.packs_listbox.get(i) for i in selected_indices]
+                selected_packs = [
+                    self.prompt_pack_panel.packs_listbox.get(i) for i in selected_indices
+                ]
 
                 # Create run directory
                 run_dir = self.structured_logger.create_run_directory("txt2img_only")
@@ -4186,10 +3946,14 @@ class StableNewGUI:
             except Exception:
                 pack_names = []
 
-        if not pack_names and hasattr(self, "packs_listbox"):
+        if (
+            not pack_names
+            and hasattr(self, "prompt_pack_panel")
+            and hasattr(self.prompt_pack_panel, "packs_listbox")
+        ):
             try:
-                selected_indices = self.packs_listbox.curselection()
-                pack_names = [self.packs_listbox.get(i) for i in selected_indices]
+                selected_indices = self.prompt_pack_panel.packs_listbox.curselection()
+                pack_names = [self.prompt_pack_panel.packs_listbox.get(i) for i in selected_indices]
             except Exception:
                 pack_names = []
 
@@ -4206,11 +3970,54 @@ class StableNewGUI:
 
     def _build_info_box(self, parent, title: str, text: str):
         """Reusable helper for informational sections within tabs."""
-        frame = ttk.LabelFrame(parent, text=title, style="Dark.TFrame", padding=6)
-        ttk.Label(frame, text=text, style="Dark.TLabel", wraplength=520, justify=tk.LEFT).pack(
-            fill=tk.X
+        frame = ttk.LabelFrame(parent, text=title, style="Dark.TLabelframe", padding=6)
+        label = ttk.Label(
+            frame,
+            text=text,
+            style="Dark.TLabel",
+            wraplength=self._current_wraplength(),
+            justify=tk.LEFT,
         )
+        label.pack(fill=tk.X)
+        self._register_wrappable_label(label)
         return frame
+
+    def _register_scrollable_section(
+        self, name: str, canvas: tk.Canvas, body: tk.Widget
+    ) -> None:
+        scrollbar = getattr(canvas, "_vertical_scrollbar", None)
+        self.scrollable_sections[name] = {
+            "canvas": canvas,
+            "body": body,
+            "scrollbar": scrollbar,
+        }
+
+    def _current_wraplength(self, width: int | None = None) -> int:
+        if width is None or width <= 0:
+            try:
+                width = self.root.winfo_width()
+            except Exception:
+                width = None
+        if not width or width <= 1:
+            width = self.window_min_size[0]
+        return max(int(width * 0.55), 360)
+
+    def _register_wrappable_label(self, label: tk.Widget) -> None:
+        self._wrappable_labels.append(label)
+        try:
+            label.configure(wraplength=self._current_wraplength())
+        except Exception:
+            pass
+
+    def _on_root_resize(self, event) -> None:
+        if getattr(event, "widget", None) is not self.root:
+            return
+        wrap = self._current_wraplength(event.width)
+        for label in list(self._wrappable_labels):
+            try:
+                label.configure(wraplength=wrap)
+            except Exception:
+                continue
 
     def _open_output_folder(self):
         """Open the output folder"""
@@ -4234,11 +4041,11 @@ class StableNewGUI:
 
     def _open_prompt_editor(self):
         """Open the advanced prompt pack editor"""
-        selected_indices = self.packs_listbox.curselection()
+        selected_indices = self.prompt_pack_panel.packs_listbox.curselection()
         pack_path = None
 
         if selected_indices:
-            pack_name = self.packs_listbox.get(selected_indices[0])
+            pack_name = self.prompt_pack_panel.packs_listbox.get(selected_indices[0])
             pack_path = Path("packs") / pack_name
 
         # Initialize advanced editor if not already done
@@ -4424,7 +4231,7 @@ class StableNewGUI:
 
         # Compact generation settings
         gen_frame = ttk.LabelFrame(
-            scrollable_frame, text="Generation Settings", style="Dark.TFrame", padding=5
+            scrollable_frame, text="Generation Settings", style="Dark.TLabelframe", padding=5
         )
         gen_frame.pack(fill=tk.X, pady=2)
 
@@ -4494,7 +4301,7 @@ class StableNewGUI:
 
         # Dimensions - compact single row
         dims_frame = ttk.LabelFrame(
-            scrollable_frame, text="Image Dimensions", style="Dark.TFrame", padding=5
+            scrollable_frame, text="Image Dimensions", style="Dark.TLabelframe", padding=5
         )
         dims_frame.pack(fill=tk.X, pady=2)
 
@@ -4525,7 +4332,7 @@ class StableNewGUI:
 
         # Advanced Settings
         advanced_frame = ttk.LabelFrame(
-            scrollable_frame, text="Advanced Settings", style="Dark.TFrame", padding=5
+            scrollable_frame, text="Advanced Settings", style="Dark.TLabelframe", padding=5
         )
         advanced_frame.pack(fill=tk.X, pady=2)
 
@@ -4587,7 +4394,7 @@ class StableNewGUI:
 
         # Model Selection
         model_frame = ttk.LabelFrame(
-            scrollable_frame, text="Model & VAE Selection", style="Dark.TFrame", padding=5
+            scrollable_frame, text="Model & VAE Selection", style="Dark.TLabelframe", padding=5
         )
         model_frame.pack(fill=tk.X, pady=2)
 
@@ -4740,9 +4547,9 @@ class StableNewGUI:
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-        self._enable_mousewheel(canvas)
-        self._enable_mousewheel(canvas)
-        self._enable_mousewheel(canvas)
+        enable_mousewheel(canvas)
+        enable_mousewheel(canvas)
+        enable_mousewheel(canvas)
 
         # Live summary for next run (txt2img)
         try:
@@ -4786,7 +4593,7 @@ class StableNewGUI:
 
         # Generation Settings
         gen_frame = ttk.LabelFrame(
-            scrollable_frame, text="Generation Settings", style="Dark.TFrame", padding=5
+            scrollable_frame, text="Generation Settings", style="Dark.TLabelframe", padding=5
         )
         gen_frame.pack(fill=tk.X, pady=2)
 
@@ -4870,7 +4677,7 @@ class StableNewGUI:
 
         # Advanced Settings
         advanced_frame = ttk.LabelFrame(
-            scrollable_frame, text="Advanced Settings", style="Dark.TFrame", padding=5
+            scrollable_frame, text="Advanced Settings", style="Dark.TLabelframe", padding=5
         )
         advanced_frame.pack(fill=tk.X, pady=2)
 
@@ -4932,7 +4739,7 @@ class StableNewGUI:
 
         # Model Selection
         model_frame = ttk.LabelFrame(
-            scrollable_frame, text="Model & VAE Selection", style="Dark.TFrame", padding=5
+            scrollable_frame, text="Model & VAE Selection", style="Dark.TLabelframe", padding=5
         )
         model_frame.pack(fill=tk.X, pady=2)
 
@@ -5027,7 +4834,7 @@ class StableNewGUI:
 
         # Upscaling Method
         method_frame = ttk.LabelFrame(
-            scrollable_frame, text="Upscaling Method", style="Dark.TFrame", padding=5
+            scrollable_frame, text="Upscaling Method", style="Dark.TLabelframe", padding=5
         )
         method_frame.pack(fill=tk.X, pady=2)
 
@@ -5054,7 +4861,7 @@ class StableNewGUI:
 
         # Basic Upscaling Settings
         basic_frame = ttk.LabelFrame(
-            scrollable_frame, text="Basic Settings", style="Dark.TFrame", padding=5
+            scrollable_frame, text="Basic Settings", style="Dark.TLabelframe", padding=5
         )
         basic_frame.pack(fill=tk.X, pady=2)
 
@@ -5126,7 +4933,7 @@ class StableNewGUI:
 
         # Face Restoration
         face_frame = ttk.LabelFrame(
-            scrollable_frame, text="Face Restoration", style="Dark.TFrame", padding=5
+            scrollable_frame, text="Face Restoration", style="Dark.TLabelframe", padding=5
         )
         face_frame.pack(fill=tk.X, pady=2)
 
@@ -5219,7 +5026,7 @@ class StableNewGUI:
 
         # API settings
         api_frame = ttk.LabelFrame(
-            tab_frame, text="API Connection", style="Dark.TFrame", padding=10
+            tab_frame, text="API Connection", style="Dark.TLabelframe", padding=10
         )
         api_frame.pack(fill=tk.X, pady=5)
 
@@ -5250,13 +5057,20 @@ class StableNewGUI:
 
             # When packs are selected and not in override mode, persist to each selected pack
             selected = []
-            if hasattr(self, "packs_listbox"):
-                selected = [self.packs_listbox.get(i) for i in self.packs_listbox.curselection()]
+            if hasattr(self, "prompt_pack_panel") and hasattr(
+                self.prompt_pack_panel, "packs_listbox"
+            ):
+                selected = [
+                    self.prompt_pack_panel.packs_listbox.get(i)
+                    for i in self.prompt_pack_panel.packs_listbox.curselection()
+                ]
             # Fallback: if UI focus cleared the visual selection, use last-known pack
             if (not selected) and hasattr(self, "_last_selected_pack") and self._last_selected_pack:
                 selected = [self._last_selected_pack]
 
-            if selected and not self.override_pack_var.get():
+            if selected and not (
+                hasattr(self, "override_pack_var") and self.override_pack_var.get()
+            ):
                 saved_any = False
                 for pack_name in selected:
                     if self.config_manager.save_pack_config(pack_name, config):
@@ -5380,7 +5194,7 @@ class StableNewGUI:
         self._load_config_into_forms(config)
 
         # If override mode is enabled, this becomes the new override config
-        if self.override_pack_var.get():
+        if hasattr(self, "override_pack_var") and self.override_pack_var.get():
             self.current_config = config
             self.log_message(
                 f"✓ Loaded preset '{preset_name}' (Pipeline + Randomization + General)",
@@ -5413,12 +5227,12 @@ class StableNewGUI:
 
     def _save_config_to_packs(self):
         """Save current configuration to selected pack(s)"""
-        selected_indices = self.packs_listbox.curselection()
+        selected_indices = self.prompt_pack_panel.packs_listbox.curselection()
         if not selected_indices:
             self.log_message("No packs selected", "WARNING")
             return
 
-        selected_packs = [self.packs_listbox.get(i) for i in selected_indices]
+        selected_packs = [self.prompt_pack_panel.packs_listbox.get(i) for i in selected_indices]
         current_config = self._get_config_from_forms()
 
         saved_count = 0
@@ -5446,7 +5260,7 @@ class StableNewGUI:
         config = self.config_manager.load_preset(preset_name)
         if config:
             self.current_preset = preset_name
-            if not self.override_pack_var.get():
+            if not (hasattr(self, "override_pack_var") and self.override_pack_var.get()):
                 self._load_config_into_forms(config)
             self.current_config = config
             self.log_message(f"✓ Loaded preset: {preset_name}", "SUCCESS")
@@ -5583,7 +5397,7 @@ class StableNewGUI:
         # Refresh configuration display based on new override state
         self._refresh_config()
 
-        if self.override_pack_var.get():
+        if hasattr(self, "override_pack_var") and self.override_pack_var.get():
             self.log_message(
                 "📝 Override mode enabled - current config will apply to all selected packs", "INFO"
             )
@@ -5594,12 +5408,12 @@ class StableNewGUI:
         """Preserve pack selection when config changes"""
         if hasattr(self, "_last_selected_pack") and self._last_selected_pack:
             # Find and reselect the last selected pack
-            current_selection = self.packs_listbox.curselection()
+            current_selection = self.prompt_pack_panel.packs_listbox.curselection()
             if not current_selection:  # Only restore if nothing is selected
-                for i in range(self.packs_listbox.size()):
-                    if self.packs_listbox.get(i) == self._last_selected_pack:
-                        self.packs_listbox.selection_set(i)
-                        self.packs_listbox.activate(i)
+                for i in range(self.prompt_pack_panel.packs_listbox.size()):
+                    if self.prompt_pack_panel.packs_listbox.get(i) == self._last_selected_pack:
+                        self.prompt_pack_panel.packs_listbox.selection_set(i)
+                        self.prompt_pack_panel.packs_listbox.activate(i)
                         # Pack selection restored silently - no need to log every restore
                         break
 
@@ -5608,10 +5422,10 @@ class StableNewGUI:
         if getattr(self, "_diag_enabled", False):
             logger.info("[DIAG] _load_config_into_forms: start", extra={"flush": True})
         # Preserve current pack selection before updating forms
-        current_selection = self.packs_listbox.curselection()
+        current_selection = self.prompt_pack_panel.packs_listbox.curselection()
         selected_pack = None
         if current_selection:
-            selected_pack = self.packs_listbox.get(current_selection[0])
+            selected_pack = self.prompt_pack_panel.packs_listbox.get(current_selection[0])
 
         try:
             if hasattr(self, "config_panel"):
@@ -5655,20 +5469,20 @@ class StableNewGUI:
                 )
 
         # Restore pack selection if it was lost during form updates
-        if selected_pack and not self.packs_listbox.curselection():
+        if selected_pack and not self.prompt_pack_panel.packs_listbox.curselection():
             if getattr(self, "_diag_enabled", False):
                 logger.info(
                     "[DIAG] _load_config_into_forms: restoring pack selection",
                     extra={"flush": True},
                 )
-            for i in range(self.packs_listbox.size()):
-                if self.packs_listbox.get(i) == selected_pack:
+            for i in range(self.prompt_pack_panel.packs_listbox.size()):
+                if self.prompt_pack_panel.packs_listbox.get(i) == selected_pack:
                     # Use unwrapped selection_set to avoid triggering callback recursively
                     if hasattr(self.prompt_pack_panel, "_orig_selection_set"):
                         self.prompt_pack_panel._orig_selection_set(i)
                     else:
-                        self.packs_listbox.selection_set(i)
-                    self.packs_listbox.activate(i)
+                        self.prompt_pack_panel.packs_listbox.selection_set(i)
+                    self.prompt_pack_panel.packs_listbox.activate(i)
                     break
         if getattr(self, "_diag_enabled", False):
             logger.info("[DIAG] _load_config_into_forms: end", extra={"flush": True})
@@ -5699,12 +5513,12 @@ class StableNewGUI:
             # Restore pack selections
             selected_packs = prefs.get("selected_packs", [])
             if selected_packs and hasattr(self, "packs_listbox"):
-                self.packs_listbox.selection_clear(0, tk.END)
+                self.prompt_pack_panel.packs_listbox.selection_clear(0, tk.END)
                 for pack_name in selected_packs:
-                    for index in range(self.packs_listbox.size()):
-                        if self.packs_listbox.get(index) == pack_name:
-                            self.packs_listbox.selection_set(index)
-                            self.packs_listbox.activate(index)
+                    for index in range(self.prompt_pack_panel.packs_listbox.size()):
+                        if self.prompt_pack_panel.packs_listbox.get(index) == pack_name:
+                            self.prompt_pack_panel.packs_listbox.selection_set(index)
+                            self.prompt_pack_panel.packs_listbox.activate(index)
                 self._update_selection_highlights()
                 self.selected_packs = selected_packs
                 if selected_packs:
@@ -5733,7 +5547,8 @@ class StableNewGUI:
 
         if hasattr(self, "packs_listbox"):
             preferences["selected_packs"] = [
-                self.packs_listbox.get(i) for i in self.packs_listbox.curselection()
+                self.prompt_pack_panel.packs_listbox.get(i)
+                for i in self.prompt_pack_panel.packs_listbox.curselection()
             ]
 
         if hasattr(self, "pipeline_controls_panel") and self.pipeline_controls_panel is not None:
@@ -5747,7 +5562,9 @@ class StableNewGUI:
     def _build_pipeline_tab(self, parent):
         """Build pipeline execution tab"""
         # API Connection Frame
-        api_frame = ttk.LabelFrame(parent, text="API Connection", padding=10)
+        api_frame = ttk.LabelFrame(
+            parent, text="API Connection", padding=10, style="Dark.TLabelframe"
+        )
         api_frame.pack(fill=tk.X, padx=10, pady=5)
 
         ttk.Label(api_frame, text="API URL:").grid(row=0, column=0, sticky=tk.W, padx=5)
@@ -5762,7 +5579,7 @@ class StableNewGUI:
         self.api_status_label.grid(row=0, column=3, padx=5)
 
         # Prompt Frame
-        prompt_frame = ttk.LabelFrame(parent, text="Prompt", padding=10)
+        prompt_frame = ttk.LabelFrame(parent, text="Prompt", padding=10, style="Dark.TLabelframe")
         prompt_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         ttk.Label(prompt_frame, text="Enter your prompt:").pack(anchor=tk.W)
@@ -5771,7 +5588,7 @@ class StableNewGUI:
         self.prompt_text.insert(1.0, "a beautiful landscape, high quality, detailed")
 
         # Preset Frame
-        preset_frame = ttk.LabelFrame(parent, text="Preset", padding=10)
+        preset_frame = ttk.LabelFrame(parent, text="Preset", padding=10, style="Dark.TLabelframe")
         preset_frame.pack(fill=tk.X, padx=10, pady=5)
 
         ttk.Label(preset_frame, text="Select preset:").grid(row=0, column=0, padx=5)
@@ -5787,7 +5604,7 @@ class StableNewGUI:
         )
 
         # Options Frame
-        options_frame = ttk.LabelFrame(parent, text="Options", padding=10)
+        options_frame = ttk.LabelFrame(parent, text="Options", padding=10, style="Dark.TLabelframe")
         options_frame.pack(fill=tk.X, padx=10, pady=5)
 
         ttk.Label(options_frame, text="Batch size:").grid(row=0, column=0, padx=5)

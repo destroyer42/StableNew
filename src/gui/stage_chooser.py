@@ -10,6 +10,8 @@ from tkinter import ttk
 
 from PIL import Image, ImageTk
 
+from .theme import Theme
+
 logger = logging.getLogger(__name__)
 
 
@@ -161,7 +163,7 @@ class StageChooser:
 
     def _build_choices(self, parent):
         """Build stage choice buttons."""
-        choices_frame = ttk.LabelFrame(parent, text="Processing Options", style="Dark.TFrame")
+        choices_frame = ttk.LabelFrame(parent, text="Processing Options", style="Dark.TLabelframe")
         choices_frame.pack(fill=tk.X, pady=(0, 15))
 
         # Grid layout for buttons
@@ -172,52 +174,48 @@ class StageChooser:
         img2img_btn = tk.Button(
             btn_frame,
             text="🎨 img2img\n(Cleanup/Refine)",
-            bg="#0078d4",
-            fg="white",
-            font=("Segoe UI", 11, "bold"),
+            font=("Calibri", 11, "bold"),
             width=18,
             height=3,
             command=lambda: self._select_choice(StageChoice.IMG2IMG),
         )
+        Theme().style_button_primary(img2img_btn)
         img2img_btn.grid(row=0, column=0, padx=5, pady=5)
 
         # ADetailer button
         adetailer_btn = tk.Button(
             btn_frame,
             text="✨ ADetailer\n(Face/Detail Fix)",
-            bg="#7c4dff",
-            fg="white",
-            font=("Segoe UI", 11, "bold"),
+            font=("Calibri", 11, "bold"),
             width=18,
             height=3,
             command=lambda: self._select_choice(StageChoice.ADETAILER),
         )
+        Theme().style_button_primary(adetailer_btn)
         adetailer_btn.grid(row=0, column=1, padx=5, pady=5)
 
         # Upscale button
         upscale_btn = tk.Button(
             btn_frame,
             text="🔍 Upscale\n(Enhance Quality)",
-            bg="#00897b",
-            fg="white",
-            font=("Segoe UI", 11, "bold"),
+            font=("Calibri", 11, "bold"),
             width=18,
             height=3,
             command=lambda: self._select_choice(StageChoice.UPSCALE),
         )
+        Theme().style_button_primary(upscale_btn)
         upscale_btn.grid(row=1, column=0, padx=5, pady=5)
 
         # None button
         none_btn = tk.Button(
             btn_frame,
             text="⏭️ None\n(Skip to Next)",
-            bg="#5d4037",
-            fg="white",
-            font=("Segoe UI", 11, "bold"),
+            font=("Calibri", 11, "bold"),
             width=18,
             height=3,
             command=lambda: self._select_choice(StageChoice.NONE),
         )
+        Theme().style_button_primary(none_btn)
         none_btn.grid(row=1, column=1, padx=5, pady=5)
 
     def _build_batch_toggle(self, parent):
@@ -247,24 +245,22 @@ class StageChooser:
             retune_btn = tk.Button(
                 action_frame,
                 text="⚙️ Re-tune Settings",
-                bg="#2b2b2b",
-                fg="#42a5f5",
-                font=("Segoe UI", 10, "underline"),
+                font=("Calibri", 10, "underline"),
                 relief=tk.FLAT,
                 cursor="hand2",
                 command=self._on_retune,
             )
+            Theme().style_button_primary(retune_btn)
             retune_btn.pack(side=tk.LEFT)
 
         # Cancel button
         cancel_btn = tk.Button(
             action_frame,
             text="Cancel Remaining",
-            bg="#d32f2f",
-            fg="white",
-            font=("Segoe UI", 10),
+            font=("Calibri", 10),
             command=self._on_cancel,
         )
+        Theme().style_button_danger(cancel_btn)
         cancel_btn.pack(side=tk.RIGHT, padx=(10, 0))
 
     def _load_preview(self):

@@ -1,7 +1,7 @@
 # PR-2: ConfigService Implementation Details
 
-**Date:** November 12, 2025  
-**Author:** GitHub Copilot  
+**Date:** November 12, 2025
+**Author:** GitHub Copilot
 **Scope:** `src/services/config_service.py`
 
 ## Overview

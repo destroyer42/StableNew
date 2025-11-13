@@ -1,7 +1,7 @@
 # PR-7: List Management Implementation Details
 
-**Date:** November 13, 2025  
-**Author:** GitHub Copilot  
+**Date:** November 13, 2025
+**Author:** GitHub Copilot
 **Scope:** `src/gui/main_window.py`, `src/services/config_service.py`
 
 ## Overview

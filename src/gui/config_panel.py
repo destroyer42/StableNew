@@ -12,6 +12,7 @@ from tkinter import ttk
 from typing import Any
 
 from .adetailer_config_panel import ADetailerConfigPanel
+from .theme import ASWF_BLACK, ASWF_GOLD, ASWF_LIGHT_GREY, ASWF_OK_GREEN
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ class ConfigPanel(ttk.Frame):
         """Build the panel UI."""
         # Configuration status section
         status_frame = ttk.LabelFrame(
-            self, text="Configuration Status", style="Dark.TFrame", padding=5
+            self, text="Configuration Status", style="Dark.TLabelframe", padding=5
         )
         status_frame.pack(fill=tk.X, padx=10, pady=(5, 10))
 
@@ -109,7 +110,7 @@ class ConfigPanel(ttk.Frame):
             status_frame,
             text="Ready",
             style="Dark.TLabel",
-            foreground="#cccccc",
+            foreground=ASWF_LIGHT_GREY,
             font=("Segoe UI", 9),
             wraplength=600,
         )
@@ -152,7 +153,7 @@ class ConfigPanel(ttk.Frame):
         container = ttk.Frame(tab, style="Dark.TFrame")
         container.pack(fill=tk.BOTH, expand=True)
 
-        canvas = tk.Canvas(container, bg="#2b2b2b", highlightthickness=0)
+        canvas = tk.Canvas(container, bg=ASWF_BLACK, highlightthickness=0)
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas, style="Dark.TFrame")
 
@@ -199,7 +200,9 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_vars["refiner_switch_at"] = tk.DoubleVar(value=0.8)
         self.txt2img_vars["refiner_switch_steps"] = tk.IntVar(value=0)
 
-        basic_frame = ttk.LabelFrame(scrollable_frame, text="Basic Settings", padding=10)
+        basic_frame = ttk.LabelFrame(
+            scrollable_frame, text="Basic Settings", padding=10, style="Dark.TLabelframe"
+        )
         basic_frame.pack(fill=tk.X, padx=10, pady=5)
 
         row = 0
@@ -224,7 +227,9 @@ class ConfigPanel(ttk.Frame):
         self.txt2img_widgets["cfg_scale"] = cfg_spin
 
         # Dimensions section with bounds warning
-        dim_frame = ttk.LabelFrame(scrollable_frame, text="Image Dimensions", padding=10)
+        dim_frame = ttk.LabelFrame(
+            scrollable_frame, text="Image Dimensions", padding=10, style="Dark.TLabelframe"
+        )
         dim_frame.pack(fill=tk.X, padx=10, pady=5)
 
         row = 0
@@ -258,14 +263,16 @@ class ConfigPanel(ttk.Frame):
         self.dim_warning_label = ttk.Label(
             dim_frame,
             text=f"⚠️ Maximum recommended: {MAX_DIMENSION}x{MAX_DIMENSION}",
-            foreground="#FF9800",
+            foreground=ASWF_GOLD,
             font=("Segoe UI", 8),
         )
         self.dim_warning_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=2)
         row += 1
 
         # Sampler section
-        sampler_frame = ttk.LabelFrame(scrollable_frame, text="Sampler Settings", padding=10)
+        sampler_frame = ttk.LabelFrame(
+            scrollable_frame, text="Sampler Settings", padding=10, style="Dark.TLabelframe"
+        )
         sampler_frame.pack(fill=tk.X, padx=10, pady=5)
 
         row = 0
@@ -320,7 +327,9 @@ class ConfigPanel(ttk.Frame):
         self._build_hypernetwork_section(scrollable_frame, self.txt2img_vars, "txt2img")
 
         # Hires fix section
-        hires_frame = ttk.LabelFrame(scrollable_frame, text="Hires Fix", padding=10)
+        hires_frame = ttk.LabelFrame(
+            scrollable_frame, text="Hires Fix", padding=10, style="Dark.TLabelframe"
+        )
         hires_frame.pack(fill=tk.X, padx=10, pady=5)
 
         row = 0
@@ -404,7 +413,9 @@ class ConfigPanel(ttk.Frame):
         row += 1
 
         # Face Restoration section (NEW)
-        face_frame = ttk.LabelFrame(scrollable_frame, text="Face Restoration", padding=10)
+        face_frame = ttk.LabelFrame(
+            scrollable_frame, text="Face Restoration", padding=10, style="Dark.TLabelframe"
+        )
         face_frame.pack(fill=tk.X, padx=10, pady=5)
 
         row = 0
@@ -450,7 +461,9 @@ class ConfigPanel(ttk.Frame):
         row += 1
 
         # Refiner section (SDXL)
-        refiner_frame = ttk.LabelFrame(scrollable_frame, text="🎨 Refiner (SDXL)", padding=10)
+        refiner_frame = ttk.LabelFrame(
+            scrollable_frame, text="🎨 Refiner (SDXL)", padding=10, style="Dark.TLabelframe"
+        )
         refiner_frame.pack(fill=tk.X, padx=10, pady=5)
 
         row = 0
@@ -496,7 +509,7 @@ class ConfigPanel(ttk.Frame):
 
         # Live computed mapping label
         self.refiner_mapping_label = ttk.Label(
-            refiner_frame, text="", font=("Segoe UI", 8), foreground="#888888"
+            refiner_frame, text="", font=("Segoe UI", 8), foreground=ASWF_LIGHT_GREY
         )
         self.refiner_mapping_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 2))
         row += 1
@@ -506,12 +519,14 @@ class ConfigPanel(ttk.Frame):
             refiner_frame,
             text="💡 Set either ratio or absolute step (ratio ignored if step > 0)",
             font=("Segoe UI", 8),
-            foreground="#888888",
+            foreground=ASWF_LIGHT_GREY,
         )
         refiner_help.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=2)
 
         # Seed and advanced
-        advanced_frame = ttk.LabelFrame(scrollable_frame, text="Advanced", padding=10)
+        advanced_frame = ttk.LabelFrame(
+            scrollable_frame, text="Advanced", padding=10, style="Dark.TLabelframe"
+        )
         advanced_frame.pack(fill=tk.X, padx=10, pady=5)
 
         row = 0
@@ -549,7 +564,7 @@ class ConfigPanel(ttk.Frame):
         container = ttk.Frame(tab, style="Dark.TFrame")
         container.pack(fill=tk.BOTH, expand=True)
 
-        canvas = tk.Canvas(container, bg="#2b2b2b")
+        canvas = tk.Canvas(container, bg=ASWF_BLACK)
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas, style="Dark.TFrame")
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -579,7 +594,9 @@ class ConfigPanel(ttk.Frame):
         self.img2img_vars["negative_adjust"] = tk.StringVar(value="")
 
         # Basic settings
-        basic_frame = ttk.LabelFrame(scrollable_frame, text="img2img Settings", padding=10)
+        basic_frame = ttk.LabelFrame(
+            scrollable_frame, text="img2img Settings", padding=10, style="Dark.TLabelframe"
+        )
         basic_frame.pack(fill=tk.X, padx=10, pady=10)
 
         row = 0
@@ -729,7 +746,9 @@ class ConfigPanel(ttk.Frame):
         self.upscale_vars["codeformer_weight"] = tk.DoubleVar(value=0.5)
 
         # Settings
-        settings_frame = ttk.LabelFrame(container, text="Upscale Settings", padding=10)
+        settings_frame = ttk.LabelFrame(
+            container, text="Upscale Settings", padding=10, style="Dark.TLabelframe"
+        )
         settings_frame.pack(fill=tk.X, padx=10, pady=10)
 
         row = 0
@@ -894,7 +913,9 @@ class ConfigPanel(ttk.Frame):
         self.api_vars["timeout"] = tk.IntVar(value=30)
 
         # Settings
-        settings_frame = ttk.LabelFrame(tab, text="API Settings", padding=10)
+        settings_frame = ttk.LabelFrame(
+            tab, text="API Settings", padding=10, style="Dark.TLabelframe"
+        )
         settings_frame.pack(fill=tk.X, padx=10, pady=10)
 
         row = 0
@@ -1086,7 +1107,7 @@ class ConfigPanel(ttk.Frame):
         if "hypernetwork_strength" not in var_dict:
             var_dict["hypernetwork_strength"] = tk.DoubleVar(value=1.0)
 
-        frame = ttk.LabelFrame(parent, text="Hypernetwork", padding=10)
+        frame = ttk.LabelFrame(parent, text="Hypernetwork", padding=10, style="Dark.TLabelframe")
         frame.pack(fill=tk.X, padx=10, pady=5)
 
         ttk.Label(frame, text="Hypernetwork:").grid(row=0, column=0, sticky=tk.W, pady=2)
@@ -1116,6 +1137,7 @@ class ConfigPanel(ttk.Frame):
             orient=tk.HORIZONTAL,
             variable=var_dict["hypernetwork_strength"],
             length=180,
+            style="Dark.Horizontal.TScale",
         )
         slider.grid(row=1, column=1, sticky=tk.W, pady=2)
 
@@ -1143,7 +1165,7 @@ class ConfigPanel(ttk.Frame):
         try:
             self._ensure_save_indicator()
             # Colorize: green for Saved, orange for Apply/others
-            color = "#00c853" if (text or "").lower() == "saved" else "#ffa500"
+            color = ASWF_OK_GREEN if (text or "").lower() == "saved" else ASWF_GOLD
             try:
                 self._save_indicator.configure(foreground=color)
             except Exception:

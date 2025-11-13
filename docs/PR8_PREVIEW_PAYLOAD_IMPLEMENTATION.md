@@ -1,7 +1,7 @@
 # PR-8: Preview Payload & Validate Implementation Details
 
-**Date:** November 12, 2025  
-**Author:** GitHub Copilot  
+**Date:** November 12, 2025
+**Author:** GitHub Copilot
 **Scope:** `src/gui/main_window.py`
 
 ## Overview
@@ -15,7 +15,7 @@ Implemented the "Preview Payload & Validate (Dry Run)" feature to give users con
 Added a centralized method to determine the active configuration for a pack based on the current `ConfigContext.source`:
 
 - **GLOBAL_LOCK**: Uses `ctx.locked_cfg` if set
-- **PRESET**: Uses `ctx.editor_cfg` 
+- **PRESET**: Uses `ctx.editor_cfg`
 - **PACK**: Loads pack-specific config, falls back to `ctx.editor_cfg` defaults
 
 This ensures preview uses the same config resolution as actual runs.

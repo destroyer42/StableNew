@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+
 class ConfigService:
     def __init__(self, packs_dir: Path, presets_dir: Path, lists_dir: Path):
         self.packs_dir = Path(packs_dir)

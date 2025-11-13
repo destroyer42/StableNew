@@ -29,11 +29,12 @@ def test_editor_reloads_pack_when_already_open(tmp_path, tk_root):
 def test_live_config_summaries_reflect_current_values(minimal_gui_app):
     app = minimal_gui_app
 
-    app.txt2img_vars["steps"].set(36)
-    app.txt2img_vars["sampler_name"].set("Heun")
-    app.txt2img_vars["cfg_scale"].set(8.5)
-    app.txt2img_vars["width"].set(832)
-    app.txt2img_vars["height"].set(1152)
+    # Access variables through config panel (new architecture)
+    app.config_panel.txt2img_vars["steps"].set(36)
+    app.config_panel.txt2img_vars["sampler_name"].set("Heun")
+    app.config_panel.txt2img_vars["cfg_scale"].set(8.5)
+    app.config_panel.txt2img_vars["width"].set(832)
+    app.config_panel.txt2img_vars["height"].set(1152)
     app._update_live_config_summary()
 
     summary_txt2img = app.txt2img_summary_var.get()
@@ -41,11 +42,11 @@ def test_live_config_summaries_reflect_current_values(minimal_gui_app):
     assert "sampler Heun" in summary_txt2img
     assert "832x1152" in summary_txt2img
 
-    app.upscale_vars["upscale_mode"].set("img2img")
-    app.upscale_vars["steps"].set(12)
-    app.upscale_vars["denoising_strength"].set(0.55)
-    app.upscale_vars["sampler_name"].set("DPM++ 2M")
-    app.upscale_vars["upscaling_resize"].set(1.5)
+    app.config_panel.upscale_vars["upscale_mode"].set("img2img")
+    app.config_panel.upscale_vars["steps"].set(12)
+    app.config_panel.upscale_vars["denoising_strength"].set(0.55)
+    app.config_panel.upscale_vars["sampler_name"].set("DPM++ 2M")
+    app.config_panel.upscale_vars["upscaling_resize"].set(1.5)
     app._update_live_config_summary()
 
     summary_upscale = app.upscale_summary_var.get()

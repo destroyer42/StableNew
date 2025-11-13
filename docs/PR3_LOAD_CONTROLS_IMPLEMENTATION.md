@@ -1,7 +1,7 @@
 # PR-3: Explicit Load Controls Implementation Details
 
-**Date:** November 12, 2025  
-**Author:** GitHub Copilot  
+**Date:** November 12, 2025
+**Author:** GitHub Copilot
 **Scope:** `src/gui/main_window.py`
 
 ## Overview

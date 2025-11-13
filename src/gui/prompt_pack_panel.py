@@ -11,6 +11,7 @@ from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 
 from ..utils.file_io import get_prompt_packs
+from .theme import ASWF_BLACK, ASWF_DARK_GREY, ASWF_GOLD
 from .tooltip import Tooltip
 
 
@@ -152,7 +153,7 @@ class PromptPackPanel(ttk.Frame):
     def _build_ui(self):
         """Build the panel UI."""
         # Prompt packs section - compact
-        packs_frame = ttk.LabelFrame(self, text="📝 Prompt Packs", style="Dark.TFrame", padding=5)
+        packs_frame = ttk.LabelFrame(self, text="📝 Prompt Packs", style="Dark.TLabelframe", padding=5)
         packs_frame.pack(fill=tk.BOTH, expand=True)
 
         # Compact list management
@@ -176,7 +177,7 @@ class PromptPackPanel(ttk.Frame):
             list_mgmt_frame,
             textvariable=self.saved_lists_var,
             style="Dark.TCombobox",
-            width=15,
+            width=24,
             state="readonly",
         )
         self.saved_lists_combo.pack(side=tk.LEFT, padx=(3, 2))
@@ -230,10 +231,10 @@ class PromptPackPanel(ttk.Frame):
         packs_list_frame.pack(fill=tk.BOTH, expand=True)
 
         # Listbox with scrollbar
-        listbox_frame = tk.Frame(packs_list_frame, bg="#2b2b2b")
+        listbox_frame = tk.Frame(packs_list_frame, bg=ASWF_DARK_GREY)
         listbox_frame.pack(fill=tk.BOTH, expand=True)
 
-        scrollbar = tk.Scrollbar(listbox_frame, bg="#404040", troughcolor="#2b2b2b")
+        scrollbar = tk.Scrollbar(listbox_frame, bg=ASWF_DARK_GREY, troughcolor=ASWF_BLACK)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         self.packs_listbox = tk.Listbox(
@@ -241,16 +242,16 @@ class PromptPackPanel(ttk.Frame):
             selectmode=tk.EXTENDED,
             yscrollcommand=scrollbar.set,
             exportselection=False,
-            bg="#3d3d3d",
-            fg="#ffffff",
-            selectbackground="#0078d4",
-            selectforeground="#ffffff",
-            font=("Segoe UI", 9, "bold"),
             borderwidth=2,
             highlightthickness=1,
-            highlightcolor="#0078d4",
+            highlightcolor=ASWF_GOLD,
             activestyle="dotbox",
         )
+        # Apply theme styling
+        from .theme import Theme
+
+        theme = Theme()
+        theme.style_listbox(self.packs_listbox)
         self.packs_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.packs_listbox.yview)
         self._attach_tooltip(

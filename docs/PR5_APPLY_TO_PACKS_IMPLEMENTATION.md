@@ -1,7 +1,7 @@
 # PR-5: Apply to Packs Implementation Details
 
-**Date:** November 12, 2025  
-**Author:** GitHub Copilot  
+**Date:** November 12, 2025
+**Author:** GitHub Copilot
 **Scope:** `src/gui/main_window.py`
 
 ## Overview
@@ -55,7 +55,7 @@ No way to efficiently update multiple packs with refined configurations. Users h
 ### Manual Test Case
 1. Select multiple packs
 2. Modify editor config
-3. Click "Apply Editor → Pack(s)…" 
+3. Click "Apply Editor → Pack(s)…"
 4. Confirm dialog shows correct count
 5. Config applied to all selected packs
 6. Success message displayed
