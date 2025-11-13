@@ -29,11 +29,11 @@ def _refresh_models_async(self):
     try:
         # 1. Perform blocking API call in worker thread
         models = self.client.get_models()
-        
+
         # 2. Marshal widget updates to main thread
         def update_widgets():
             self.model_combo["values"] = models
-            
+
         self.root.after(0, update_widgets)
     except Exception as exc:
         # 3. Marshal errors to main thread too

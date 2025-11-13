@@ -7,26 +7,26 @@ param(
 
 function Create-Shortcut {
     param($Name, $Target, $Description, $IconIndex = 0)
-    
+
     $WshShell = New-Object -comObject WScript.Shell
     $Desktop = [System.Environment]::GetFolderPath('Desktop')
     $Shortcut = $WshShell.CreateShortcut("$Desktop\$Name.lnk")
-    
+
     $Shortcut.TargetPath = $Target
     $Shortcut.WorkingDirectory = "C:\Users\rober\projects\StableNew"
     $Shortcut.Description = $Description
     $Shortcut.WindowStyle = 1
-    
+
     # Try different icon options
     $IconSet = $false
-    
+
     # Try Python icon first
     $PythonPath = (Get-Command python -ErrorAction SilentlyContinue).Source
     if ($PythonPath -and (Test-Path $PythonPath)) {
         $Shortcut.IconLocation = "$PythonPath,0"
         $IconSet = $true
     }
-    
+
     # Fallback to system icons
     if (-not $IconSet) {
         switch ($IconIndex) {
@@ -36,7 +36,7 @@ function Create-Shortcut {
             3 { $Shortcut.IconLocation = "shell32.dll,238" } # Computer icon
         }
     }
-    
+
     $Shortcut.Save()
     Write-Host "✅ Created: $Desktop\$Name.lnk" -ForegroundColor Green
 }
@@ -51,11 +51,11 @@ Create-Shortcut -Name "StableNew" -Target "C:\Users\rober\projects\StableNew\lau
 # Create additional shortcuts
 $CreateExtra = Read-Host "Create additional shortcuts? (CLI, Simple Launcher) [y/N]"
 if ($CreateExtra -match "^[Yy]") {
-    
+
     # CLI shortcut
     $CLITarget = "powershell.exe"
     $CLIArgs = "-NoExit -Command `"cd 'C:\Users\rober\projects\StableNew'; Write-Host 'StableNew CLI Ready - Example: python -m src.cli --help' -ForegroundColor Green`""
-    
+
     $WshShell = New-Object -comObject WScript.Shell
     $Desktop = [System.Environment]::GetFolderPath('Desktop')
     $CLIShortcut = $WshShell.CreateShortcut("$Desktop\StableNew CLI.lnk")
@@ -65,9 +65,9 @@ if ($CreateExtra -match "^[Yy]") {
     $CLIShortcut.Description = "StableNew CLI - Command Line Interface"
     $CLIShortcut.IconLocation = "powershell.exe,0"
     $CLIShortcut.Save()
-    
+
     Write-Host "✅ Created: $Desktop\StableNew CLI.lnk" -ForegroundColor Green
-    
+
     # Simple launcher shortcut
     Create-Shortcut -Name "StableNew Simple" -Target "C:\Users\rober\projects\StableNew\launch_stablenew.bat" -Description "StableNew - Simple Launcher" -IconIndex 1
 }

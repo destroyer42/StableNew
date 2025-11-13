@@ -16,4 +16,3 @@ Download the assets from the storage location above before embedding them in doc
 - Embed walkthroughs in Markdown using relative links (for example, `![Prompt packs](docs/assets/core_flows/prompt_pack_management.webp)`), but ensure the binary itself is delivered out-of-band (for example, via release bundle or CDN).
 - When publishing documentation, copy the referenced assets into the documentation site or release package; do **not** commit them to the repository.
 - Keep filenames stable to avoid broken references in downstream portals.
-

@@ -1,6 +1,3 @@
-import pytest
-
-
 class DummyPipeline:
     def __init__(self):
         self.calls = []

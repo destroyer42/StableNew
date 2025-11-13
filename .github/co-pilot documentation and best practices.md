@@ -311,14 +311,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           lfs: true
-...		  
-		  
+...
+
 
 
 
 Further reading
-		  
-		  
+
+
 Allowlisting additional hosts in the agent's firewall
 You can allowlist additional addresses in the agent's firewall.
 

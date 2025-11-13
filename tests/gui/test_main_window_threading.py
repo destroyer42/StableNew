@@ -99,10 +99,12 @@ def test_refresh_vae_models_async_thread_safe(tk_root, tk_pump):
 
         # Track and stub after() to avoid calling Tk from worker thread
         scheduled_funcs = []
+
         def track_after(ms, func):
             if ms == 0:
                 scheduled_funcs.append(func)
             return "after-0-mock"
+
         tk_root.after = track_after
 
         # Call the async refresh method in a worker thread
@@ -156,10 +158,12 @@ def test_refresh_upscalers_async_thread_safe(tk_root, tk_pump):
 
         # Track and stub after() to avoid calling Tk from worker thread
         scheduled_funcs = []
+
         def track_after(ms, func):
             if ms == 0:
                 scheduled_funcs.append(func)
             return "after-0-mock"
+
         tk_root.after = track_after
 
         # Call the async refresh method in a worker thread
@@ -208,10 +212,12 @@ def test_refresh_schedulers_async_thread_safe(tk_root, tk_pump):
 
         # Track and stub after() to avoid calling Tk from worker thread
         scheduled_funcs = []
+
         def track_after(ms, func):
             if ms == 0:
                 scheduled_funcs.append(func)
             return "after-0-mock"
+
         tk_root.after = track_after
 
         # Call the async refresh method in a worker thread
@@ -255,10 +261,12 @@ def test_refresh_models_async_error_handling(tk_root, tk_pump):
 
         # Track and stub after() to avoid calling Tk from worker thread
         scheduled_funcs = []
+
         def track_after(ms, func):
             if ms == 0:
                 scheduled_funcs.append(func)
             return "after-0-mock"
+
         tk_root.after = track_after
 
         # Mock messagebox to avoid blocking

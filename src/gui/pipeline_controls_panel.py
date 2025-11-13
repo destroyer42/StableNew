@@ -6,7 +6,7 @@ import logging
 import re
 import tkinter as tk
 from tkinter import ttk
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -75,41 +75,45 @@ class PipelineControlsPanel(ttk.Frame):
         Restore the panel state from a dictionary.
         Ignores missing keys and type errors.
         """
+        self._suspend_callbacks = True
         try:
-            if "txt2img_enabled" in state:
-                self.txt2img_enabled.set(bool(state["txt2img_enabled"]))
-            if "img2img_enabled" in state:
-                self.img2img_enabled.set(bool(state["img2img_enabled"]))
-            if "adetailer_enabled" in state:
-                self.adetailer_enabled.set(bool(state["adetailer_enabled"]))
-            if "upscale_enabled" in state:
-                self.upscale_enabled.set(bool(state["upscale_enabled"]))
-            if "video_enabled" in state:
-                self.video_enabled.set(bool(state["video_enabled"]))
-            if "apply_global_negative_txt2img" in state:
-                self.global_neg_txt2img.set(bool(state["apply_global_negative_txt2img"]))
-            if "apply_global_negative_img2img" in state:
-                self.global_neg_img2img.set(bool(state["apply_global_negative_img2img"]))
-            if "apply_global_negative_upscale" in state:
-                self.global_neg_upscale.set(bool(state["apply_global_negative_upscale"]))
-            if "apply_global_negative_adetailer" in state:
-                self.global_neg_adetailer.set(bool(state["apply_global_negative_adetailer"]))
-            if "loop_type" in state:
-                self.loop_type_var.set(str(state["loop_type"]))
-            if "loop_count" in state:
-                self.loop_count_var.set(str(state["loop_count"]))
-            if "pack_mode" in state:
-                self.pack_mode_var.set(str(state["pack_mode"]))
-            if "images_per_prompt" in state:
-                self.images_per_prompt_var.set(str(state["images_per_prompt"]))
-            if "model_matrix" in state:
-                self._set_model_matrix_display(state["model_matrix"])
-            if "hypernetworks" in state:
-                self._set_hypernetwork_display(state["hypernetworks"])
-            if "variant_mode" in state:
-                self.variant_mode_var.set(str(state["variant_mode"]))
-        except Exception as e:
-            logger.warning(f"PipelineControlsPanel: Failed to restore state: {e}")
+            try:
+                if "txt2img_enabled" in state:
+                    self.txt2img_enabled.set(bool(state["txt2img_enabled"]))
+                if "img2img_enabled" in state:
+                    self.img2img_enabled.set(bool(state["img2img_enabled"]))
+                if "adetailer_enabled" in state:
+                    self.adetailer_enabled.set(bool(state["adetailer_enabled"]))
+                if "upscale_enabled" in state:
+                    self.upscale_enabled.set(bool(state["upscale_enabled"]))
+                if "video_enabled" in state:
+                    self.video_enabled.set(bool(state["video_enabled"]))
+                if "apply_global_negative_txt2img" in state:
+                    self.global_neg_txt2img.set(bool(state["apply_global_negative_txt2img"]))
+                if "apply_global_negative_img2img" in state:
+                    self.global_neg_img2img.set(bool(state["apply_global_negative_img2img"]))
+                if "apply_global_negative_upscale" in state:
+                    self.global_neg_upscale.set(bool(state["apply_global_negative_upscale"]))
+                if "apply_global_negative_adetailer" in state:
+                    self.global_neg_adetailer.set(bool(state["apply_global_negative_adetailer"]))
+                if "loop_type" in state:
+                    self.loop_type_var.set(str(state["loop_type"]))
+                if "loop_count" in state:
+                    self.loop_count_var.set(str(state["loop_count"]))
+                if "pack_mode" in state:
+                    self.pack_mode_var.set(str(state["pack_mode"]))
+                if "images_per_prompt" in state:
+                    self.images_per_prompt_var.set(str(state["images_per_prompt"]))
+                if "model_matrix" in state:
+                    self._set_model_matrix_display(state["model_matrix"])
+                if "hypernetworks" in state:
+                    self._set_hypernetwork_display(state["hypernetworks"])
+                if "variant_mode" in state:
+                    self.variant_mode_var.set(str(state["variant_mode"]))
+            except Exception as e:
+                logger.warning(f"PipelineControlsPanel: Failed to restore state: {e}")
+        finally:
+            self._suspend_callbacks = False
 
     """
     A UI panel for pipeline execution controls.
@@ -128,6 +132,8 @@ class PipelineControlsPanel(ttk.Frame):
         parent: tk.Widget,
         initial_state: dict[str, Any] | None = None,
         stage_vars: dict[str, tk.BooleanVar] | None = None,
+        show_variant_controls: bool = False,
+        on_change: Callable[[], None] | None = None,
         **kwargs,
     ):
         """
@@ -143,12 +149,17 @@ class PipelineControlsPanel(ttk.Frame):
         self.parent = parent
         self._initial_state = initial_state or {}
         self._stage_vars = stage_vars or {}
+        self._show_variant_controls = show_variant_controls
+        self._on_change = on_change
+        self._suspend_callbacks = False
+        self._trace_handles: list[tuple[tk.Variable, str]] = []
 
         # Initialize control variables
         self._init_variables()
 
         # Build UI
         self._build_ui()
+        self._bind_change_listeners()
 
     def _init_variables(self):
         """Initialize all control variables with defaults."""
@@ -171,10 +182,18 @@ class PipelineControlsPanel(ttk.Frame):
             value=bool(state.get("video_enabled", False))
         )
         # Global negative per-stage toggles (default True for backward compatibility)
-        self.global_neg_txt2img = tk.BooleanVar(value=bool(state.get("apply_global_negative_txt2img", True)))
-        self.global_neg_img2img = tk.BooleanVar(value=bool(state.get("apply_global_negative_img2img", True)))
-        self.global_neg_upscale = tk.BooleanVar(value=bool(state.get("apply_global_negative_upscale", True)))
-        self.global_neg_adetailer = tk.BooleanVar(value=bool(state.get("apply_global_negative_adetailer", True)))
+        self.global_neg_txt2img = tk.BooleanVar(
+            value=bool(state.get("apply_global_negative_txt2img", True))
+        )
+        self.global_neg_img2img = tk.BooleanVar(
+            value=bool(state.get("apply_global_negative_img2img", True))
+        )
+        self.global_neg_upscale = tk.BooleanVar(
+            value=bool(state.get("apply_global_negative_upscale", True))
+        )
+        self.global_neg_adetailer = tk.BooleanVar(
+            value=bool(state.get("apply_global_negative_adetailer", True))
+        )
 
         # Loop configuration
         self.loop_type_var = tk.StringVar(value=str(state.get("loop_type", "single")))
@@ -182,9 +201,7 @@ class PipelineControlsPanel(ttk.Frame):
 
         # Batch configuration
         self.pack_mode_var = tk.StringVar(value=str(state.get("pack_mode", "selected")))
-        self.images_per_prompt_var = tk.StringVar(
-            value=str(state.get("images_per_prompt", 1))
-        )
+        self.images_per_prompt_var = tk.StringVar(value=str(state.get("images_per_prompt", 1)))
         matrix_state = state.get("model_matrix", [])
         if isinstance(matrix_state, list):
             matrix_display = ", ".join(matrix_state)
@@ -206,7 +223,7 @@ class PipelineControlsPanel(ttk.Frame):
         """Build the panel UI."""
         # Pipeline controls frame
         pipeline_frame = ttk.LabelFrame(
-            self, text="🚀 Pipeline Controls", style="Dark.TFrame", padding=5
+            self, text="🚀 Pipeline Controls", style="Dark.TLabelframe", padding=5
         )
         pipeline_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -215,12 +232,53 @@ class PipelineControlsPanel(ttk.Frame):
 
         # Batch configuration - compact
         self._build_batch_config(pipeline_frame)
-        self._build_variant_config(pipeline_frame)
+        if self._show_variant_controls:
+            self._build_variant_config(pipeline_frame)
         self._build_global_negative_toggles(pipeline_frame)
+
+    def _bind_change_listeners(self) -> None:
+        """Attach variable traces to notify the host of user-driven changes."""
+        if not self._on_change:
+            return
+
+        vars_to_watch: list[tk.Variable] = [
+            self.loop_type_var,
+            self.loop_count_var,
+            self.pack_mode_var,
+            self.images_per_prompt_var,
+            self.model_matrix_var,
+            self.hypernetworks_var,
+            self.variant_mode_var,
+            self.txt2img_enabled,
+            self.img2img_enabled,
+            self.adetailer_enabled,
+            self.upscale_enabled,
+            self.video_enabled,
+            self.global_neg_txt2img,
+            self.global_neg_img2img,
+            self.global_neg_upscale,
+            self.global_neg_adetailer,
+        ]
+
+        callback = lambda *_: self._notify_change()
+        for var in vars_to_watch:
+            try:
+                handle = var.trace_add("write", callback)
+                self._trace_handles.append((var, handle))
+            except Exception:
+                continue
+
+    def _notify_change(self) -> None:
+        if self._suspend_callbacks or not self._on_change:
+            return
+        try:
+            self._on_change()
+        except Exception:
+            logger.debug("PipelineControlsPanel: change callback failed", exc_info=True)
 
     def _build_loop_config(self, parent):
         """Build loop configuration controls with logging."""
-        loop_frame = ttk.LabelFrame(parent, text="Loop Config", style="Dark.TFrame", padding=5)
+        loop_frame = ttk.LabelFrame(parent, text="Loop Config", style="Dark.TLabelframe", padding=5)
         loop_frame.pack(fill=tk.X, pady=(0, 5))
 
         def log_loop_type():
@@ -275,7 +333,9 @@ class PipelineControlsPanel(ttk.Frame):
 
     def _build_batch_config(self, parent):
         """Build batch configuration controls with logging."""
-        batch_frame = ttk.LabelFrame(parent, text="Batch Config", style="Dark.TFrame", padding=5)
+        batch_frame = ttk.LabelFrame(
+            parent, text="Batch Config", style="Dark.TLabelframe", padding=5
+        )
         batch_frame.pack(fill=tk.X, pady=(0, 5))
 
         def log_pack_mode():
@@ -333,7 +393,7 @@ class PipelineControlsPanel(ttk.Frame):
     def _build_variant_config(self, parent):
         """Build controls for model/hypernetwork combinations."""
         variant_frame = ttk.LabelFrame(
-            parent, text="Model Matrix & Hypernets", style="Dark.TFrame", padding=5
+            parent, text="Model Matrix & Hypernets", style="Dark.TLabelframe", padding=5
         )
         variant_frame.pack(fill=tk.X, pady=(0, 5))
 
@@ -351,15 +411,11 @@ class PipelineControlsPanel(ttk.Frame):
             text="Hypernetworks (name:strength, separated by commas):",
             style="Dark.TLabel",
         ).pack(anchor=tk.W, pady=(4, 2))
-        ttk.Entry(variant_frame, textvariable=self.hypernetworks_var, width=40).pack(
-            fill=tk.X
-        )
+        ttk.Entry(variant_frame, textvariable=self.hypernetworks_var, width=40).pack(fill=tk.X)
 
         mode_frame = ttk.Frame(variant_frame, style="Dark.TFrame")
         mode_frame.pack(fill=tk.X, pady=(6, 0))
-        ttk.Label(mode_frame, text="Variant strategy:", style="Dark.TLabel").pack(
-            anchor=tk.W
-        )
+        ttk.Label(mode_frame, text="Variant strategy:", style="Dark.TLabel").pack(anchor=tk.W)
         ttk.Radiobutton(
             mode_frame,
             text="Fan-out (run every combo)",
@@ -377,13 +433,18 @@ class PipelineControlsPanel(ttk.Frame):
 
     def _build_global_negative_toggles(self, parent):
         """Build per-stage Global Negative enable toggles."""
-        frame = ttk.LabelFrame(parent, text="Global Negative (per stage)", style="Dark.TFrame", padding=5)
+        frame = ttk.LabelFrame(
+            parent, text="Global Negative (per stage)", style="Dark.TLabelframe", padding=5
+        )
         frame.pack(fill=tk.X, pady=(0, 5))
 
         def _mk(cb_text, var, key):
             def _log():
                 logger.info(f"PipelineControlsPanel: {key} set to {var.get()}")
-            ttk.Checkbutton(frame, text=cb_text, variable=var, style="Dark.TCheckbutton", command=_log).pack(anchor=tk.W)
+
+            ttk.Checkbutton(
+                frame, text=cb_text, variable=var, style="Dark.TCheckbutton", command=_log
+            ).pack(anchor=tk.W)
 
         _mk("Apply to txt2img", self.global_neg_txt2img, "apply_global_negative_txt2img")
         _mk("Apply to img2img", self.global_neg_img2img, "apply_global_negative_img2img")
@@ -401,6 +462,8 @@ class PipelineControlsPanel(ttk.Frame):
             self.txt2img_enabled.set(settings["txt2img_enabled"])
         if "img2img_enabled" in settings:
             self.img2img_enabled.set(settings["img2img_enabled"])
+        if "adetailer_enabled" in settings:
+            self.adetailer_enabled.set(settings["adetailer_enabled"])
         if "upscale_enabled" in settings:
             self.upscale_enabled.set(settings["upscale_enabled"])
         if "video_enabled" in settings:
@@ -421,6 +484,21 @@ class PipelineControlsPanel(ttk.Frame):
             self._set_hypernetwork_display(settings["hypernetworks"])
         if "variant_mode" in settings:
             self.variant_mode_var.set(str(settings["variant_mode"]))
+
+    def apply_config(self, cfg: dict[str, Any]) -> None:
+        """Apply a configuration payload (e.g., from packs/presets) to the controls."""
+        if not cfg:
+            return
+
+        target = cfg.get("pipeline") if isinstance(cfg.get("pipeline"), dict) else cfg
+        if not isinstance(target, dict):
+            return
+
+        self._suspend_callbacks = True
+        try:
+            self.set_settings(target)
+        finally:
+            self._suspend_callbacks = False
 
     # ------------------------------------------------------------------
     # Parsing helpers

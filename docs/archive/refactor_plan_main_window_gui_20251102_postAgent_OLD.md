@@ -1,9 +1,9 @@
 git# Refactoring Plan: `main_window.py` GUI Overhaul
 
-**Document ID:** `refactor_plan_main_window_gui_20251102_postAgent`  
-**Date:** November 2, 2025  
-**Author:** GitHub Copilot  
-**Status:** Proposed  
+**Document ID:** `refactor_plan_main_window_gui_20251102_postAgent`
+**Date:** November 2, 2025
+**Author:** GitHub Copilot
+**Status:** Proposed
 **Related Docs:** `.github/copilot-instructions.md`
 
 ---

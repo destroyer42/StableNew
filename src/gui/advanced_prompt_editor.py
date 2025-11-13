@@ -4,12 +4,22 @@ Advanced Prompt Pack Editor with validation, embedding/LoRA discovery, and smart
 
 import os
 import re
-from pathlib import Path
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-from .tooltip import Tooltip
 from ..utils.config import DEFAULT_GLOBAL_NEGATIVE_PROMPT
+from .scrolling import make_scrollable
+from .theme import (
+    ASWF_BLACK,
+    ASWF_DARK_GREY,
+    ASWF_ERROR_RED,
+    ASWF_GOLD,
+    ASWF_LIGHT_GREY,
+    ASWF_MED_GREY,
+    ASWF_OK_GREEN,
+)
+from .tooltip import Tooltip
 
 
 class AdvancedPromptEditor:
@@ -37,6 +47,7 @@ class AdvancedPromptEditor:
             class _Dummy:
                 def config(self, **kwargs):
                     return None
+
             self.status_text = _Dummy()
 
         # Ensure key Tk variables exist early to avoid attribute errors during load
@@ -51,10 +62,13 @@ class AdvancedPromptEditor:
             class _Var:
                 def __init__(self, value=""):
                     self._v = value
+
                 def get(self):
                     return self._v
+
                 def set(self, v):
                     self._v = v
+
             if not hasattr(self, "pack_name_var"):
                 self.pack_name_var = _Var()
             if not hasattr(self, "format_var"):
@@ -92,7 +106,7 @@ class AdvancedPromptEditor:
         self.window = tk.Toplevel(root)
         self.window.title("Advanced Prompt Pack Editor")
         self.window.geometry("1200x800")
-        self.window.configure(bg="#2b2b2b")
+        self.window.configure(bg=ASWF_BLACK)
 
         # Apply dark theme
         self._apply_dark_theme()
@@ -117,24 +131,32 @@ class AdvancedPromptEditor:
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _apply_dark_theme(self):
-        """Apply consistent dark theme"""
+        """Apply consistent dark theme using ASWF colors"""
         style = ttk.Style()
         style.theme_use("clam")
 
-        # Configure dark theme styles
-        style.configure("Dark.TFrame", background="#2b2b2b")
-        style.configure("Dark.TLabel", background="#2b2b2b", foreground="white")
-        style.configure("Dark.TButton", background="#404040", foreground="white")
+        # Configure dark theme styles using ASWF colors
+        style.configure("Dark.TFrame", background=ASWF_DARK_GREY)
+        style.configure(
+            "Dark.TLabel", background=ASWF_DARK_GREY, foreground=ASWF_GOLD
+        )  # Gold text on dark background
+        style.configure(
+            "Dark.TButton", background=ASWF_MED_GREY, foreground="white"
+        )  # White text on gray background
         style.configure(
             "Dark.TEntry",
-            background="#3d3d3d",
-            fieldbackground="#3d3d3d",
-            foreground="white",
-            insertcolor="#ffffff",
+            background=ASWF_MED_GREY,
+            fieldbackground=ASWF_MED_GREY,
+            foreground="white",  # White text on gray background
+            insertcolor=ASWF_GOLD,
         )
-        style.configure("Dark.TCombobox", background="#3d3d3d", foreground="white")
-        style.configure("Dark.TNotebook", background="#2b2b2b")
-        style.configure("Dark.TNotebook.Tab", background="#404040", foreground="white")
+        style.configure(
+            "Dark.TCombobox", background=ASWF_MED_GREY, foreground="white"
+        )  # White text on gray background
+        style.configure("Dark.TNotebook", background=ASWF_DARK_GREY)
+        style.configure(
+            "Dark.TNotebook.Tab", background=ASWF_MED_GREY, foreground="white"
+        )  # White text on gray background
 
     def _build_advanced_ui(self):
         """Build the advanced editor interface"""
@@ -159,7 +181,7 @@ class AdvancedPromptEditor:
         toolbar.pack(fill=tk.X, pady=(0, 10))
 
         # File operations
-        file_frame = ttk.LabelFrame(toolbar, text="File", style="Dark.TFrame")
+        file_frame = ttk.LabelFrame(toolbar, text="File", style="Dark.TLabelframe")
         file_frame.pack(side=tk.LEFT, padx=(0, 10))
 
         new_btn = ttk.Button(file_frame, text="New", command=self._new_pack, width=10)
@@ -179,7 +201,7 @@ class AdvancedPromptEditor:
         self._attach_tooltip(save_as_btn, "Save the current pack contents to a new file.")
 
         # Pack operations
-        pack_frame = ttk.LabelFrame(toolbar, text="Pack", style="Dark.TFrame")
+        pack_frame = ttk.LabelFrame(toolbar, text="Pack", style="Dark.TLabelframe")
         pack_frame.pack(side=tk.LEFT, padx=(0, 10))
 
         clone_btn = ttk.Button(pack_frame, text="Clone Pack", command=self._clone_pack, width=12)
@@ -191,7 +213,7 @@ class AdvancedPromptEditor:
         self._attach_tooltip(delete_btn, "Delete the current pack file from disk.")
 
         # Validation operations
-        validation_frame = ttk.LabelFrame(toolbar, text="Validation", style="Dark.TFrame")
+        validation_frame = ttk.LabelFrame(toolbar, text="Validation", style="Dark.TLabelframe")
         validation_frame.pack(side=tk.LEFT, padx=(0, 10))
 
         validate_btn = ttk.Button(
@@ -210,11 +232,13 @@ class AdvancedPromptEditor:
             validation_frame, text="Refresh Models", command=self._refresh_models, width=14
         )
         models_btn.pack(side=tk.LEFT, padx=2, pady=2)
-        self._attach_tooltip(models_btn, "Reload available embeddings and LoRAs for validation checks.")
+        self._attach_tooltip(
+            models_btn, "Reload available embeddings and LoRAs for validation checks."
+        )
 
     def _build_pack_info_panel(self, parent):
         """Build pack information panel"""
-        info_frame = ttk.LabelFrame(parent, text="Pack Information", style="Dark.TFrame")
+        info_frame = ttk.LabelFrame(parent, text="Pack Information", style="Dark.TLabelframe")
         info_frame.pack(fill=tk.X, pady=(0, 10))
 
         info_grid = ttk.Frame(info_frame, style="Dark.TFrame")
@@ -256,7 +280,7 @@ class AdvancedPromptEditor:
 
         # Status
         self.status_label = ttk.Label(
-            info_grid, text="Ready", style="Dark.TLabel", foreground="#00ff00"
+            info_grid, text="Ready", style="Dark.TLabel", foreground=ASWF_OK_GREEN
         )
         self.status_label.grid(row=0, column=6, padx=(20, 0), sticky=tk.E)
 
@@ -299,7 +323,7 @@ class AdvancedPromptEditor:
             controls_frame,
             text="TXT Format: Separate prompts with blank lines",
             style="Dark.TLabel",
-            foreground="#888888",
+            foreground=ASWF_LIGHT_GREY,
         )
         self.format_hint_label.pack(side=tk.RIGHT)
 
@@ -308,25 +332,25 @@ class AdvancedPromptEditor:
         editor_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=(0, 5))
 
         # Create text widget with scrollbars
-        text_container = tk.Frame(editor_frame, bg="#2b2b2b")
+        text_container = tk.Frame(editor_frame, bg=ASWF_BLACK)
         text_container.pack(fill=tk.BOTH, expand=True)
 
         # Vertical scrollbar
-        v_scrollbar = tk.Scrollbar(text_container, bg="#404040")
+        v_scrollbar = tk.Scrollbar(text_container, bg=ASWF_DARK_GREY)
         v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         # Horizontal scrollbar
-        h_scrollbar = tk.Scrollbar(text_container, orient=tk.HORIZONTAL, bg="#404040")
+        h_scrollbar = tk.Scrollbar(text_container, orient=tk.HORIZONTAL, bg=ASWF_DARK_GREY)
         h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
 
         # Text widget
         self.prompts_text = tk.Text(
             text_container,
             wrap=tk.NONE,  # Allow horizontal scrolling
-            bg="#1e1e1e",
+            bg=ASWF_BLACK,
             fg="white",
             insertbackground="white",
-            selectbackground="#0078d4",
+            selectbackground=ASWF_GOLD,
             selectforeground="white",
             font=("Consolas", 11),
             yscrollcommand=v_scrollbar.set,
@@ -356,21 +380,29 @@ class AdvancedPromptEditor:
             quick_frame, text="Quality Tags", command=lambda: self._insert_template("quality")
         )
         quality_btn.pack(side=tk.LEFT, padx=2)
-        self._attach_tooltip(quality_btn, "Insert a template of quality/clarity tags at the cursor.")
+        self._attach_tooltip(
+            quality_btn, "Insert a template of quality/clarity tags at the cursor."
+        )
 
         style_btn = ttk.Button(
             quick_frame, text="Style Tags", command=lambda: self._insert_template("style")
         )
         style_btn.pack(side=tk.LEFT, padx=2)
-        self._attach_tooltip(style_btn, "Insert common style descriptors (e.g., cinematic, photorealistic).")
+        self._attach_tooltip(
+            style_btn, "Insert common style descriptors (e.g., cinematic, photorealistic)."
+        )
 
         negative_btn = ttk.Button(
             quick_frame, text="Negative", command=lambda: self._insert_template("negative")
         )
         negative_btn.pack(side=tk.LEFT, padx=2)
-        self._attach_tooltip(negative_btn, "Insert a negative prompt scaffold for the current block.")
+        self._attach_tooltip(
+            negative_btn, "Insert a negative prompt scaffold for the current block."
+        )
 
-        lora_btn = ttk.Button(quick_frame, text="LoRA", command=lambda: self._insert_template("lora"))
+        lora_btn = ttk.Button(
+            quick_frame, text="LoRA", command=lambda: self._insert_template("lora")
+        )
         lora_btn.pack(side=tk.LEFT, padx=2)
         self._attach_tooltip(lora_btn, "Insert a LoRA template (name and optional weight).")
 
@@ -383,10 +415,14 @@ class AdvancedPromptEditor:
     def _build_global_negative_tab(self):
         """Build the global negative prompt editor"""
         global_frame = ttk.Frame(self.notebook, style="Dark.TFrame")
-        self.notebook.add(global_frame, text="🚫 Global Negative")
+        self.notebook.add(global_frame, text="?? Global Negative")
+
+        shell = ttk.Frame(global_frame, style="Dark.TFrame")
+        shell.pack(fill=tk.BOTH, expand=True)
+        _, body = make_scrollable(shell, style="Dark.TFrame")
 
         # Header
-        header_frame = ttk.Frame(global_frame, style="Dark.TFrame")
+        header_frame = ttk.Frame(body, style="Dark.TFrame")
         header_frame.pack(fill=tk.X, padx=10, pady=10)
 
         ttk.Label(
@@ -399,14 +435,14 @@ class AdvancedPromptEditor:
             header_frame,
             text="This prompt is automatically appended to all negative prompts during generation.",
             style="Dark.TLabel",
-            foreground="#cccccc",
+            foreground=ASWF_LIGHT_GREY,
         ).pack(anchor=tk.W, pady=(5, 0))
 
         # Editor
         self.global_neg_text = scrolledtext.ScrolledText(
-            global_frame,
+            body,
             wrap=tk.WORD,
-            bg="#1e1e1e",
+            bg=ASWF_BLACK,
             fg="white",
             insertbackground="white",
             font=("Consolas", 10),
@@ -419,7 +455,7 @@ class AdvancedPromptEditor:
         self.global_neg_text.insert("1.0", self.global_neg_content)
 
         # Save button
-        button_frame = ttk.Frame(global_frame, style="Dark.TFrame")
+        button_frame = ttk.Frame(body, style="Dark.TFrame")
         button_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
 
         save_global_btn = ttk.Button(
@@ -443,10 +479,14 @@ class AdvancedPromptEditor:
     def _build_validation_tab(self):
         """Build the validation results tab"""
         validation_frame = ttk.Frame(self.notebook, style="Dark.TFrame")
-        self.notebook.add(validation_frame, text="✅ Validation")
+        self.notebook.add(validation_frame, text="? Validation")
+
+        shell = ttk.Frame(validation_frame, style="Dark.TFrame")
+        shell.pack(fill=tk.BOTH, expand=True)
+        _, body = make_scrollable(shell, style="Dark.TFrame")
 
         # Validation controls
-        controls_frame = ttk.Frame(validation_frame, style="Dark.TFrame")
+        controls_frame = ttk.Frame(body, style="Dark.TFrame")
         controls_frame.pack(fill=tk.X, padx=10, pady=10)
 
         run_validation_btn = ttk.Button(
@@ -475,9 +515,9 @@ class AdvancedPromptEditor:
 
         # Results display
         self.validation_text = scrolledtext.ScrolledText(
-            validation_frame,
+            body,
             wrap=tk.WORD,
-            bg="#1e1e1e",
+            bg=ASWF_BLACK,
             fg="white",
             state=tk.DISABLED,
             font=("Consolas", 9),
@@ -485,10 +525,10 @@ class AdvancedPromptEditor:
         self.validation_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
         # Configure text tags for colored output
-        self.validation_text.tag_configure("error", foreground="#ff6b6b")
-        self.validation_text.tag_configure("warning", foreground="#ffa726")
-        self.validation_text.tag_configure("success", foreground="#66bb6a")
-        self.validation_text.tag_configure("info", foreground="#42a5f5")
+        self.validation_text.tag_configure("error", foreground=ASWF_ERROR_RED)
+        self.validation_text.tag_configure("warning", foreground=ASWF_GOLD)
+        self.validation_text.tag_configure("success", foreground=ASWF_OK_GREEN)
+        self.validation_text.tag_configure("info", foreground=ASWF_GOLD)
 
     def _build_status_bar(self, parent):
         """Build status bar at bottom of editor window"""
@@ -502,39 +542,47 @@ class AdvancedPromptEditor:
             textvariable=self._status_var,
             style="Dark.TLabel",
             anchor=tk.W,
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
         )
         self.status_text.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
     def _build_models_tab(self):
         """Build the models browser tab"""
         models_frame = ttk.Frame(self.notebook, style="Dark.TFrame")
-        self.notebook.add(models_frame, text="🎭 Models")
+        self.notebook.add(models_frame, text="?? Models")
+
+        shell = ttk.Frame(models_frame, style="Dark.TFrame")
+        shell.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        _, body = make_scrollable(shell, style="Dark.TFrame")
 
         # Create paned window for embeddings and LoRAs
-        paned_window = ttk.PanedWindow(models_frame, orient=tk.HORIZONTAL)
-        paned_window.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        paned_window = ttk.PanedWindow(body, orient=tk.HORIZONTAL)
+        paned_window.pack(fill=tk.BOTH, expand=True)
 
         # Embeddings panel
-        embeddings_frame = ttk.LabelFrame(paned_window, text="Embeddings", style="Dark.TFrame")
+        embeddings_frame = ttk.LabelFrame(paned_window, text="Embeddings", style="Dark.TLabelframe")
         paned_window.add(embeddings_frame)
 
         self.embeddings_listbox = tk.Listbox(
             embeddings_frame,
-            bg="#3d3d3d",
+            bg=ASWF_MED_GREY,
             fg="white",
-            selectbackground="#0078d4",
+            selectbackground=ASWF_GOLD,
             font=("Consolas", 9),
         )
         self.embeddings_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.embeddings_listbox.bind("<Double-Button-1>", self._insert_embedding)
 
         # LoRAs panel
-        loras_frame = ttk.LabelFrame(paned_window, text="LoRAs", style="Dark.TFrame")
+        loras_frame = ttk.LabelFrame(paned_window, text="LoRAs", style="Dark.TLabelframe")
         paned_window.add(loras_frame)
 
         self.loras_listbox = tk.Listbox(
-            loras_frame, bg="#3d3d3d", fg="white", selectbackground="#0078d4", font=("Consolas", 9)
+            loras_frame,
+            bg=ASWF_MED_GREY,
+            fg="white",
+            selectbackground=ASWF_GOLD,
+            font=("Consolas", 9),
         )
         self.loras_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.loras_listbox.bind("<Double-Button-1>", self._insert_lora)
@@ -543,25 +591,29 @@ class AdvancedPromptEditor:
         self._populate_model_lists()
 
         # Instructions
-        instructions_frame = ttk.Frame(models_frame, style="Dark.TFrame")
+        instructions_frame = ttk.Frame(body, style="Dark.TFrame")
         instructions_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
 
         ttk.Label(
             instructions_frame,
-            text="💡 Double-click to insert into prompt. Embeddings: <embedding:name>, LoRAs: <lora:name:1.0>",
+            text="?? Double-click to insert into prompt. Embeddings: <embedding:name>, LoRAs: <lora:name:1.0>",
             style="Dark.TLabel",
-            foreground="#888888",
+            foreground=ASWF_LIGHT_GREY,
         ).pack()
 
     def _build_help_tab(self):
         """Build the help tab"""
         help_frame = ttk.Frame(self.notebook, style="Dark.TFrame")
-        self.notebook.add(help_frame, text="❓ Help")
+        self.notebook.add(help_frame, text="? Help")
+
+        shell = ttk.Frame(help_frame, style="Dark.TFrame")
+        shell.pack(fill=tk.BOTH, expand=True)
+        _, body = make_scrollable(shell, style="Dark.TFrame")
 
         help_text = scrolledtext.ScrolledText(
-            help_frame,
+            body,
             wrap=tk.WORD,
-            bg="#1e1e1e",
+            bg=ASWF_BLACK,
             fg="white",
             state=tk.DISABLED,
             font=("Consolas", 10),
@@ -783,7 +835,7 @@ Errors and warnings appear in the Validation tab.
         embed_count = len(embeddings)
         lora_count = len(loras)
 
-        if hasattr(self, 'status_text'):
+        if hasattr(self, "status_text"):
             if embed_count or lora_count:
                 status = f"Models: {embed_count} embeddings, {lora_count} LoRAs"
             else:
@@ -807,10 +859,11 @@ Errors and warnings appear in the Validation tab.
 
     def _refresh_models(self):
         """Refresh the model caches"""
-        if hasattr(self, 'status_text'):
+        if hasattr(self, "status_text"):
             self.status_text.config(text="Refreshing models...")
         self._load_model_caches()
         self._populate_model_lists()
+
     def _insert_embedding(self, event=None):
         """Insert selected embedding into prompt"""
         selection = self.embeddings_listbox.curselection()
@@ -1005,7 +1058,7 @@ neg: malformed, bad anatomy, low quality"""
             self.is_modified = False
             if self.window:
                 self.window.title(f"Advanced Prompt Pack Editor - {path.name}")
-            if hasattr(self, '_status_var'):
+            if hasattr(self, "_status_var"):
                 self._status_var.set(f"Saved: {path.name}")
 
             # Notify parent of changes
@@ -1025,7 +1078,10 @@ neg: malformed, bad anatomy, low quality"""
         clone_name = f"{original_name}_copy"
 
         # Find available name within packs directory
-        ext = (self.format_var.get() or (self.current_pack_path.suffix[1:] if self.current_pack_path else "txt")).lower()
+        ext = (
+            self.format_var.get()
+            or (self.current_pack_path.suffix[1:] if self.current_pack_path else "txt")
+        ).lower()
         counter = 1
         while (Path("packs") / f"{clone_name}.{ext}").exists():
             clone_name = f"{original_name}_copy_{counter}"
@@ -1036,7 +1092,7 @@ neg: malformed, bad anatomy, low quality"""
         self.is_modified = True
         if self.window:
             self.window.title(f"Advanced Prompt Pack Editor - {clone_name} (Clone) *")
-        if hasattr(self, '_status_var'):
+        if hasattr(self, "_status_var"):
             self._status_var.set(f"Cloned as: {clone_name}")
 
     def _delete_pack(self):
@@ -1057,7 +1113,7 @@ neg: malformed, bad anatomy, low quality"""
                 self.prompts_text.delete("1.0", tk.END)
                 self.is_modified = False
                 self.window.title("Advanced Prompt Pack Editor - Deleted")
-                if hasattr(self, 'status_text'):
+                if hasattr(self, "status_text"):
                     self.status_text.config(text=f"Deleted: {deleted_name}")
                 # Notify parent of changes
                 if self.on_packs_changed:
@@ -1350,7 +1406,9 @@ neg: malformed, bad anatomy, low quality"""
 
         # Update status label
         if results["errors"]:
-            self.status_label.config(text=f"{len(results['errors'])} errors", foreground="#ff6b6b")
+            self.status_label.config(
+                text=f"{len(results['errors'])} errors", foreground=ASWF_ERROR_RED
+            )
         elif results["warnings"]:
             self.status_label.config(
                 text=f"{len(results['warnings'])} warnings", foreground="#ffa726"
@@ -1450,7 +1508,7 @@ neg: malformed, bad anatomy, low quality"""
             return
 
         self.global_neg_content = content
-        if hasattr(self, '_status_var'):
+        if hasattr(self, "_status_var"):
             self._status_var.set("Global negative prompt updated")
         messagebox.showinfo("Success", "Global negative prompt has been updated.")
 
@@ -1467,7 +1525,7 @@ neg: malformed, bad anatomy, low quality"""
 
         self.global_neg_content = default_neg
         self._refresh_global_negative_display()
-        if hasattr(self, '_status_var'):
+        if hasattr(self, "_status_var"):
             self._status_var.set("Global negative reset to default")
 
     def _check_unsaved_changes(self):

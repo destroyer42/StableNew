@@ -1,5 +1,6 @@
 import base64
 from io import BytesIO
+
 from PIL import Image
 
 from src.pipeline.executor import Pipeline
@@ -26,7 +27,15 @@ class StubClient:
         self.calls.append(("img2img", payload))
         return {"images": [self._png_b64((0, 0, 255))]}
 
-    def upscale_image(self, image_b64, upscaler, upscaling_resize, gfpgan_visibility, codeformer_visibility, codeformer_weight):
+    def upscale_image(
+        self,
+        image_b64,
+        upscaler,
+        upscaling_resize,
+        gfpgan_visibility,
+        codeformer_visibility,
+        codeformer_weight,
+    ):
         self.calls.append(("upscale", {"upscaler": upscaler}))
         return {"image": self._png_b64((255, 255, 0))}
 

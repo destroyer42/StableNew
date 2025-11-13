@@ -4,7 +4,6 @@ from src.utils.file_io import get_safe_filename, read_prompt_pack, read_text_fil
 
 
 class TestFileIO:
-
     def test_read_prompt_pack_txt_format(self, tmp_path):
         """Test reading .txt format prompt pack"""
         pack_content = """beautiful landscape, mountains, lakes

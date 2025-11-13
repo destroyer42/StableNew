@@ -65,7 +65,7 @@ StableNew/
 
 ### GUI Components
 - **PromptPackPanel**: Multi-select pack management with custom lists
-- **PipelineControlsPanel**: Stage toggles, loop configuration, batch settings  
+- **PipelineControlsPanel**: Stage toggles, loop configuration, batch settings
 - **ConfigPanel**: Configuration tabs with dimension validation and new features
   - Hires fix steps control
   - Face restoration (GFPGAN/CodeFormer)

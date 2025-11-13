@@ -96,12 +96,12 @@ mypy src/
    ```python
    def create_video(frames: list[str], output_path: str, fps: int = 30) -> bool:
        """Create video from image frames using FFmpeg.
-       
+
        Args:
            frames: List of image file paths in sequence order
            output_path: Path where video should be saved
            fps: Frames per second (default: 30)
-           
+
        Returns:
            True if video creation succeeded, False otherwise
        """
@@ -262,7 +262,7 @@ pytest -m "not slow and not integration"
    git add .
    git commit -m "feat: add new feature description"
    ```
-   
+
    Use conventional commit messages:
    - `feat:` - New feature
    - `fix:` - Bug fix

@@ -97,7 +97,6 @@ class ConfigPassthroughValidator:
             patch("src.utils.file_io.save_image_from_base64", return_value=True),
             patch("src.utils.file_io.load_image_to_base64", return_value="fake_base64"),
         ):
-
             # Mock model setting methods
             mock_client.set_model = lambda model: True
             mock_client.set_vae = lambda vae: True
@@ -113,7 +112,6 @@ class ConfigPassthroughValidator:
                     ),
                     patch.object(temp_logger, "save_manifest", return_value=None),
                 ):
-
                     result = pipeline.run_full_pipeline(
                         prompt="configuration validation test",
                         config=test_config,

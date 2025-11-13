@@ -1,4 +1,3 @@
-
 # Standalone parser extracted from AdvancedPromptEditor._validate_txt_content
 def parse_prompt_pack_text(content):
     """Parse prompt pack text into positive and negative prompts."""
@@ -20,8 +19,8 @@ def parse_prompt_pack_text(content):
                 positives.append(line)
     return positives, negatives
 
+
 import unittest
-from unittest.mock import MagicMock
 
 
 class TestPromptEditorEnhancements(unittest.TestCase):
@@ -33,12 +32,12 @@ class TestPromptEditorEnhancements(unittest.TestCase):
         content_with_brackets = "a beautiful <lora:model:0.5> landscape <embedding:name>"
 
         # Escape for safe saving
-        escaped = content_with_brackets.replace('<', '&lt;').replace('>', '&gt;')
-        self.assertIn('&lt;lora', escaped)
-        self.assertIn('&gt;', escaped)
+        escaped = content_with_brackets.replace("<", "&lt;").replace(">", "&gt;")
+        self.assertIn("&lt;lora", escaped)
+        self.assertIn("&gt;", escaped)
 
         # Unescape for display
-        unescaped = escaped.replace('&lt;', '<').replace('&gt;', '>')
+        unescaped = escaped.replace("&lt;", "<").replace("&gt;", ">")
         self.assertEqual(unescaped, content_with_brackets)
 
     def test_pack_name_auto_population(self):
@@ -59,17 +58,18 @@ class TestPromptEditorEnhancements(unittest.TestCase):
         content = """name: HeroCharacter\na brave hero\nstanding tall\nneg: bad quality"""
 
         # Extract name from first line
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
         name_prefix = None
         for line in lines:
-            if line.strip().startswith('name:'):
-                name_prefix = line.split(':', 1)[1].strip()
+            if line.strip().startswith("name:"):
+                name_prefix = line.split(":", 1)[1].strip()
                 break
 
         self.assertEqual(name_prefix, "HeroCharacter")
 
         # Verify it can be used in filename
         from datetime import datetime
+
         timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
         expected_filename = f"{name_prefix}_{timestamp}.png"
         self.assertTrue(expected_filename.startswith("HeroCharacter_"))
@@ -85,22 +85,23 @@ class TestPromptEditorEnhancements(unittest.TestCase):
         global_negative = "blurry, bad quality, nsfw, inappropriate"
 
         # Simulate saving
-        import tempfile
         import json
+        import tempfile
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             config = {"global_negative": global_negative}
             json.dump(config, f, ensure_ascii=False)
             temp_path = f.name
 
         try:
             # Simulate loading
-            with open(temp_path, 'r', encoding='utf-8') as f:
+            with open(temp_path, encoding="utf-8") as f:
                 loaded_config = json.load(f)
 
             self.assertEqual(loaded_config["global_negative"], global_negative)
         finally:
             import os
+
             os.unlink(temp_path)
 
     def test_bracket_handling_in_prompts(self):
@@ -114,12 +115,12 @@ class TestPromptEditorEnhancements(unittest.TestCase):
 
         for prompt in prompts_with_brackets:
             # Verify brackets are preserved
-            has_bracket = '<' in prompt or '(' in prompt or '[' in prompt
+            has_bracket = "<" in prompt or "(" in prompt or "[" in prompt
             self.assertTrue(has_bracket, f"Prompt should contain brackets: {prompt}")
 
             # Test escape/unescape cycle for angle brackets
-            escaped = prompt.replace('<', '&lt;').replace('>', '&gt;')
-            unescaped = escaped.replace('&lt;', '<').replace('&gt;', '>')
+            escaped = prompt.replace("<", "&lt;").replace(">", "&gt;")
+            unescaped = escaped.replace("&lt;", "<").replace("&gt;", ">")
             self.assertEqual(unescaped, prompt)
 
 

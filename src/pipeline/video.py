@@ -122,7 +122,10 @@ class VideoCreator:
 
             # Execute FFmpeg
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=300  # 5 minute timeout
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 minute timeout
             )
 
             # Cleanup temp directory

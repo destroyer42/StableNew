@@ -68,8 +68,8 @@
     "adetailer_steps": 12,
     "adetailer_denoise": 0.19166666666666668,
     "adetailer_cfg": 6.0,
-    "adetailer_prompt": "clear eyes, natural pupils, detailed skin, smooth lighting, sharp focus",
-    "adetailer_negative_prompt": "asymmetrical eyes, glossy skin, melted face, face mush, deformed nose"
+    "adetailer_prompt": "",
+    "adetailer_negative_prompt": ""
   },
   "video": {
     "fps": 24,
@@ -96,33 +96,54 @@
     },
     "matrix": {
       "enabled": true,
-      "mode": "rotate",
-      "limit": 8,
+      "mode": "fanout",
+      "limit": 0,
       "slots": [
         {
-          "name": "job",
+          "name": "hair",
           "values": [
-            "enchantress",
-            "babe"
+            "blonde",
+            "black",
+            "brown",
+            "red"
           ]
         },
         {
           "name": "clothes",
           "values": [
             "bikini armor",
-            "bikini"
+            "bikini",
+            "bralette and thong"
           ]
         },
         {
           "name": "style",
           "values": [
             "sexy",
-            "gorgeous"
+            "gorgeous",
+            "radiant"
+          ]
+        },
+        {
+          "name": "light",
+          "values": [
+            "soft glowing light",
+            "shadows and torchlight",
+            "blue ambient glow"
+          ]
+        },
+        {
+          "name": "angle",
+          "values": [
+            "3/4 character",
+            "waist up",
+            "low-angle close up"
           ]
         }
       ],
-      "raw_text": "# Base: a female [[job]] wearing [[clothes]] and looking [[style]]\njob: enchantress | babe\nclothes: bikini armor | bikini\nstyle: sexy | gorgeous",
-      "base_prompt": "a female [[job]] wearing [[clothes]] and looking [[style]]"
+      "raw_text": "# Base: a [[hair]] hair colored female, wearing [[clothes]] and looking [[style]] in the [[light]] with a [[angle]] angle\nhair: blonde | black | brown | red\nclothes: bikini armor | bikini | bralette and thong\nstyle: sexy | gorgeous | radiant\nlight: soft glowing light | shadows and torchlight | blue ambient glow\nangle: 3/4 character | waist up | low-angle close up",
+      "prompt_mode": "prepend",
+      "base_prompt": "a [[hair]] hair colored female, wearing [[clothes]] and looking [[style]] in the [[light]] with a [[angle]] angle"
     }
   },
   "aesthetic": {
@@ -150,12 +171,12 @@
     "apply_global_negative_adetailer": true,
     "txt2img_enabled": true,
     "video_enabled": false,
-    "loop_type": "stages",
-    "loop_count": 2,
+    "loop_type": "single",
+    "loop_count": 1,
     "pack_mode": "selected",
-    "images_per_prompt": 2,
+    "images_per_prompt": 1,
     "model_matrix": [],
     "hypernetworks": [],
-    "variant_mode": "rotate"
+    "variant_mode": "fanout"
   }
 }

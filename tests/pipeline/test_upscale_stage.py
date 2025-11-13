@@ -5,10 +5,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+import src.pipeline.executor as executor_module
 from src.pipeline.executor import Pipeline
 from src.utils.logger import StructuredLogger
-
-import src.pipeline.executor as executor_module
 
 
 def _tiny_image_base64(width: int = 8, height: int = 6) -> str:

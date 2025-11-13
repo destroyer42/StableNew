@@ -4,4 +4,3 @@ villain recoiling in shadow, sparks and dust in air, dramatic depth, strong silh
 <lora:add-detail-xl:0.7> <lora:CinematicStyle_v1:0.55> <lora:DetailedEyes_V3:0.85>
 neg: <embedding:ac_neg1> <embedding:negative_hands> <embedding:sdxl_cyberrealistic_simpleneg-neg> <embedding:stable_yogis_pdxl_negatives2-neg> <embedding:stable_yogis_anatomy_negatives_v1-neg>
 blurry edges, flat light, plastic skin, chaotic background, dull colors, warped limbs
-

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 from itertools import product
-from typing import Any, Iterable, List
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -23,13 +24,10 @@ class VariantSpec:
 
         model_part = f"model={self.model}" if self.model else "model=base"
         if self.hypernetwork:
-            hyper_part = (
-                f"hyper={self.hypernetwork}"
-                + (
-                    f" ({self.hypernetwork_strength:.2f})"
-                    if self.hypernetwork_strength is not None
-                    else ""
-                )
+            hyper_part = f"hyper={self.hypernetwork}" + (
+                f" ({self.hypernetwork_strength:.2f})"
+                if self.hypernetwork_strength is not None
+                else ""
             )
         else:
             hyper_part = "hyper=off"
@@ -41,7 +39,7 @@ class VariantPlan:
     """Describes how to iterate variant combinations."""
 
     mode: str
-    variants: List[VariantSpec]
+    variants: list[VariantSpec]
 
     @property
     def active(self) -> bool:

@@ -12,7 +12,7 @@ powershell -ExecutionPolicy Bypass -File "create_shortcuts.ps1"
 
 **Created Shortcuts:**
 - **StableNew**: Advanced launcher with auto-detection and error checking
-- **StableNew CLI** (optional): Opens PowerShell in StableNew directory for CLI commands  
+- **StableNew CLI** (optional): Opens PowerShell in StableNew directory for CLI commands
 - **StableNew Simple** (optional): Basic batch launcher
 
 ### 🚀 Batch Launchers
@@ -23,7 +23,7 @@ powershell -ExecutionPolicy Bypass -File "create_shortcuts.ps1"
 - **Robust**: Handles multiple installation locations
 - **User-friendly**: Clear status messages and error handling
 
-#### `launch_stablenew.bat`  
+#### `launch_stablenew.bat`
 - **Simple**: Direct launch from current directory
 - **Fast**: Minimal overhead
 - **Basic**: For when you know everything is set up correctly
@@ -50,11 +50,11 @@ python -m src.cli --prompt "your prompt" --preset default
 
 ## Features
 
-✅ **Auto-Path Detection**: Finds StableNew even if moved  
-✅ **Python Validation**: Checks Python installation  
-✅ **Error Handling**: Clear error messages if something goes wrong  
-✅ **Multiple Icons**: Uses Python icon when available  
-✅ **Clean Interface**: Professional launcher with status updates  
+✅ **Auto-Path Detection**: Finds StableNew even if moved
+✅ **Python Validation**: Checks Python installation
+✅ **Error Handling**: Clear error messages if something goes wrong
+✅ **Multiple Icons**: Uses Python icon when available
+✅ **Clean Interface**: Professional launcher with status updates
 
 ## Troubleshooting
 
@@ -62,7 +62,7 @@ python -m src.cli --prompt "your prompt" --preset default
 - Ensure you're running from the StableNew directory
 - Or update the path in the batch file to match your installation
 
-**"Python not found"**  
+**"Python not found"**
 - Install Python from python.org
 - Or add Python to your system PATH
 
@@ -81,6 +81,6 @@ The advanced launcher automatically searches these locations:
 - Current directory (where the batch file is located)
 - `C:\Users\%USERNAME%\projects\StableNew`
 - `C:\StableNew`
-- `D:\StableNew` 
+- `D:\StableNew`
 - `%USERPROFILE%\StableNew`
 - `%USERPROFILE%\Documents\StableNew`

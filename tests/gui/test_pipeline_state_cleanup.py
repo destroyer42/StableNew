@@ -40,7 +40,7 @@ def minimal_app(tmp_path, monkeypatch):
 def test_successive_pipeline_runs_without_restart(minimal_app, monkeypatch):
     """
     Test that running pipeline twice in succession works without hanging.
-    
+
     Regression test for: changing refiner and running again causes hang.
     """
     # Mock pipeline that succeeds quickly
@@ -51,7 +51,7 @@ def test_successive_pipeline_runs_without_restart(minimal_app, monkeypatch):
             run_count[0] += 1
             return {
                 "run_dir": f"output/run_{run_count[0]}",
-                "summary": [{"name": f"image_{run_count[0]}.png"}]
+                "summary": [{"name": f"image_{run_count[0]}.png"}],
             }
 
     minimal_app.pipeline = QuickPipeline()
@@ -86,13 +86,15 @@ def test_cancel_token_reset_between_runs(minimal_app):
     minimal_app.controller.lifecycle_event.wait(timeout=2.0)
 
     # Cancel token should be reset
-    assert not minimal_app.controller.cancel_token.cancelled, \
-        "Cancel token should be reset after run completes"
+    assert (
+        not minimal_app.controller.cancel_token.cancelled
+    ), "Cancel token should be reset after run completes"
 
     # Second run should work
     minimal_app.controller.start_pipeline(lambda: {"run_dir": "test2", "summary": []})
-    assert minimal_app.controller.lifecycle_event.wait(timeout=2.0), \
-        "Second run after cancel should not hang"
+    assert minimal_app.controller.lifecycle_event.wait(
+        timeout=2.0
+    ), "Second run after cancel should not hang"
 
 
 def test_lifecycle_event_reset_before_new_run(minimal_app):
@@ -110,15 +112,18 @@ def test_lifecycle_event_reset_before_new_run(minimal_app):
     # Event should be cleared at start (not remain set from previous run)
     # This is the bug - if event isn't cleared, subsequent waits return immediately
     import time
+
     time.sleep(0.1)  # Give worker thread time to start
 
     # Event should eventually be set again when run completes
-    assert minimal_app.controller.lifecycle_event.wait(timeout=2.0), \
-        "Lifecycle event not properly managed between runs"
+    assert minimal_app.controller.lifecycle_event.wait(
+        timeout=2.0
+    ), "Lifecycle event not properly managed between runs"
 
 
 def test_worker_thread_cleanup_after_error(minimal_app):
     """Test that worker thread is cleaned up after pipeline error."""
+
     class FailingPipeline:
         def run_full_pipeline(self, *args, **kwargs):
             raise RuntimeError("Pipeline failed")
@@ -129,8 +134,9 @@ def test_worker_thread_cleanup_after_error(minimal_app):
     minimal_app.controller.start_pipeline(lambda: {"run_dir": "test", "summary": []})
 
     # Should complete (with error) without hanging
-    assert minimal_app.controller.lifecycle_event.wait(timeout=2.0), \
-        "Error handling should complete without hanging"
+    assert minimal_app.controller.lifecycle_event.wait(
+        timeout=2.0
+    ), "Error handling should complete without hanging"
 
     # Should return to IDLE (not stuck in RUNNING or ERROR)
     assert minimal_app.controller.state_manager.state in [GUIState.IDLE, GUIState.ERROR]
@@ -140,5 +146,6 @@ def test_worker_thread_cleanup_after_error(minimal_app):
     minimal_app.pipeline.run_full_pipeline.return_value = {"run_dir": "test2", "summary": []}
 
     minimal_app.controller.start_pipeline(lambda: {"run_dir": "test2", "summary": []})
-    assert minimal_app.controller.lifecycle_event.wait(timeout=2.0), \
-        "Run after error should not hang"
+    assert minimal_app.controller.lifecycle_event.wait(
+        timeout=2.0
+    ), "Run after error should not hang"

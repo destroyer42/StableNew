@@ -215,6 +215,7 @@ class TestLogPanel:
         # Widget line count includes implicit empty line at end
         widget_lines = int(panel.log_text.index("end-1c").split(".")[0])
         assert widget_lines == 51  # 50 lines + 1 implicit empty line
+
     def test_log_level_tags_are_created(self):
         """Log messages should be tagged for colorization by level."""
         panel = LogPanel(self.root)

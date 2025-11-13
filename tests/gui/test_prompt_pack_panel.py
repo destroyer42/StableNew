@@ -164,9 +164,8 @@ class TestPromptPackPanel(unittest.TestCase):
             self.root, on_selection_changed=mock_on_selection, list_manager=mock_list_manager
         )
 
-        # Simulate selection change
-        panel.packs_listbox.selection_set(0)
-        panel._on_pack_selection_changed()
+        # Simulate selection change via helper to ensure callbacks are safe
+        panel.set_selected_packs(["pack1.txt"])
 
         # Callback should be called with selected packs
         mock_on_selection.assert_called_with(["pack1.txt"])

@@ -47,12 +47,14 @@ class CommandResult:
 
 
 def run_command(command: str, *, env: Optional[dict[str, str]] = None) -> CommandResult:
-    process = subprocess.run(  # noqa: S603,S607 - intentional shell invocation for composite commands
-        command,
-        shell=True,
-        capture_output=True,
-        text=True,
-        env={**os.environ, **(env or {})},
+    process = (
+        subprocess.run(  # noqa: S603,S607 - intentional shell invocation for composite commands
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            env={**os.environ, **(env or {})},
+        )
     )
     return CommandResult(
         command=command,
@@ -131,6 +133,8 @@ def request_codex_suggestion(prompt: str, *, api_key: str) -> str:
         return response.choices[0].message.content.strip()
     except (AttributeError, IndexError) as exc:
         raise RuntimeError("Codex response did not contain any text output") from exc
+
+
 def post_comment(*, repo: str, pr_number: int, body: str, token: str) -> None:
     url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
     response = requests.post(
@@ -214,7 +218,9 @@ def main(argv: list[str]) -> int:
     if not args.skip_tests:
         command_result = run_command(args.command)
 
-    run_url = f"https://github.com/{args.repo}/actions/runs/{os.environ.get('GITHUB_RUN_ID', 'unknown')}"
+    run_url = (
+        f"https://github.com/{args.repo}/actions/runs/{os.environ.get('GITHUB_RUN_ID', 'unknown')}"
+    )
     snapshot = gather_repo_snapshot()
     prompt = render_prompt(
         args.repo,

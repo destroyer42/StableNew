@@ -1,7 +1,7 @@
 # Sprint Summary: PRs C→I Implementation
 
-**Date**: 2025-11-03  
-**Branch**: `copilot/finish-prs-c-to-i-stablenew`  
+**Date**: 2025-11-03
+**Branch**: `copilot/finish-prs-c-to-i-stablenew`
 **Status**: Core objectives achieved, advanced features deferred
 
 ## Overview
@@ -31,7 +31,7 @@ This sprint successfully implemented the foundational GUI refactoring (PRs C-D) 
    - `get_config()` - Returns full configuration dict
    - `set_config(config)` - Updates UI with configuration
    - `validate()` - Returns (ok: bool, messages: List[str])
-   
+
 2. **Hires Fix Steps** (NEW):
    - Separate spinbox for second-pass steps
    - Independent from main steps parameter
@@ -66,7 +66,7 @@ This sprint successfully implemented the foundational GUI refactoring (PRs C-D) 
 
 **Files Created**:
 - `src/gui/api_status_panel.py` (92 lines)
-- `src/gui/log_panel.py` (183 lines)  
+- `src/gui/log_panel.py` (183 lines)
 - `tests/gui/test_api_status_panel.py` (4 test cases)
 - `tests/gui/test_log_panel.py` (9 test cases)
 
@@ -142,7 +142,7 @@ This sprint successfully implemented the foundational GUI refactoring (PRs C-D) 
 These features were in the original plan but are complex enough to warrant separate implementation efforts:
 
 ### 📋 PR F — Per-image Stage Chooser
-**Complexity**: High  
+**Complexity**: High
 **Why Deferred**: Requires modal dialog UI, per-image state tracking, and pipeline branching logic
 
 **Design**:
@@ -151,8 +151,8 @@ These features were in the original plan but are complex enough to warrant separ
 - "Re-tune settings" and "Always do this" features
 - Requires state persistence per image
 
-### 📋 PR G — Editor Fixes & UX Polish  
-**Complexity**: Medium  
+### 📋 PR G — Editor Fixes & UX Polish
+**Complexity**: Medium
 **Why Deferred**: Requires changes to existing `advanced_prompt_editor.py`
 
 **Planned Fixes**:
@@ -164,7 +164,7 @@ These features were in the original plan but are complex enough to warrant separ
 - Enhanced save flow (overwrite vs save-as-new)
 
 ### 📋 PR H — ADetailer Stage
-**Complexity**: High  
+**Complexity**: High
 **Why Deferred**: Requires executor modifications, API integration, new config schema
 
 **Requirements**:

@@ -5,7 +5,8 @@ from collections.abc import Callable
 import pytest
 
 from src.gui.main_window import StableNewGUI
- 
+
+
 @pytest.mark.gui
 def test_progress_eta_display(monkeypatch):
     """Ensure progress/ETA fields update via controller callbacks."""
@@ -53,10 +54,14 @@ def test_progress_eta_display(monkeypatch):
         def configure_progress_callbacks(self, **callbacks):
             self._handlers.update(callbacks)
 
-        def start_pipeline(self, *args, **kwargs):  # defensive check - should never execute in this test
+        def start_pipeline(
+            self, *args, **kwargs
+        ):  # defensive check - should never execute in this test
             raise AssertionError("Pipeline should not start in test")
 
-        def stop_pipeline(self, *args, **kwargs):  # defensive check - should never execute in this test
+        def stop_pipeline(
+            self, *args, **kwargs
+        ):  # defensive check - should never execute in this test
             return True
 
     monkeypatch.setattr("src.gui.main_window.PipelineController", DummyController)

@@ -130,7 +130,7 @@ class ConfigManager:
         """
         """
         Get default configuration.
-        
+
         Returns:
             Default configuration dictionary
         """

@@ -47,6 +47,7 @@ class EnhancedSlider(ttk.Frame):
             main_frame,
             text="◀",
             width=3,
+            style="Dark.TButton",
             command=lambda: self.set_value(self.variable.get() - resolution),
         )
         self.down_arrow.pack(side=tk.LEFT)
@@ -60,6 +61,7 @@ class EnhancedSlider(ttk.Frame):
             variable=self.variable,
             command=self._on_slider_change,
             length=length,
+            style="Dark.Horizontal.TScale",
         )
         self.slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
@@ -68,6 +70,7 @@ class EnhancedSlider(ttk.Frame):
             main_frame,
             text="▶",
             width=3,
+            style="Dark.TButton",
             command=lambda: self.set_value(self.variable.get() + resolution),
         )
         self.up_arrow.pack(side=tk.LEFT)
@@ -134,7 +137,9 @@ class EnhancedSlider(ttk.Frame):
     def _create_widgets(self, width, label):
         """Create the slider widgets"""
         # Left arrow button
-        self.left_btn = ttk.Button(self, text="◀", width=3, command=self._decrease_value)
+        self.left_btn = ttk.Button(
+            self, text="◀", width=3, style="Dark.TButton", command=self._decrease_value
+        )
         self.left_btn.pack(side=tk.LEFT, padx=(0, 2))
 
         # Scale widget
@@ -145,11 +150,14 @@ class EnhancedSlider(ttk.Frame):
             variable=self.variable,
             orient=tk.HORIZONTAL,
             length=width,
+            style="Dark.Horizontal.TScale",
         )
         self.scale.pack(side=tk.LEFT, padx=2)
 
         # Right arrow button
-        self.right_btn = ttk.Button(self, text="▶", width=3, command=self._increase_value)
+        self.right_btn = ttk.Button(
+            self, text="▶", width=3, style="Dark.TButton", command=self._increase_value
+        )
         self.right_btn.pack(side=tk.LEFT, padx=(2, 5))
 
         # Value display label

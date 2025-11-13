@@ -71,12 +71,8 @@ class PreferencesManager:
             return preferences
 
         preferences["preset"] = data.get("preset", preferences["preset"])
-        preferences["selected_packs"] = data.get(
-            "selected_packs", preferences["selected_packs"]
-        )
-        preferences["override_pack"] = bool(
-            data.get("override_pack", preferences["override_pack"])
-        )
+        preferences["selected_packs"] = data.get("selected_packs", preferences["selected_packs"])
+        preferences["override_pack"] = bool(data.get("override_pack", preferences["override_pack"]))
 
         pipeline_overrides = data.get("pipeline_controls", {})
         preferences["pipeline_controls"] = self._merge_dicts(
@@ -84,9 +80,7 @@ class PreferencesManager:
         )
 
         config_overrides = data.get("config", {})
-        preferences["config"] = self._merge_dicts(
-            preferences["config"], config_overrides
-        )
+        preferences["config"] = self._merge_dicts(preferences["config"], config_overrides)
 
         return preferences
 
