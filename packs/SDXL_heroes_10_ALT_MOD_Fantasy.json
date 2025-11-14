@@ -4,7 +4,7 @@
     "cfg_scale": 6.1,
     "width": 1024,
     "height": 1024,
-    "sampler_name": "DPM++ 2M",
+    "sampler_name": "DPM++ 2M SDE",
     "scheduler": "Karras",
     "seed": -1,
     "clip_skip": 2,
@@ -49,7 +49,7 @@
     "steps": 15,
     "sampler_name": "DPM++ 2M",
     "scheduler": "Karras",
-    "denoising_strength": 0.15,
+    "denoising_strength": 0.2,
     "gfpgan_visibility": 0.0,
     "codeformer_visibility": 0.0,
     "codeformer_weight": 0.0
@@ -188,7 +188,7 @@
     },
     "matrix": {
       "enabled": true,
-      "mode": "rotate",
+      "mode": "fanout",
       "prompt_mode": "prepend",
       "limit": 0,
       "slots": [

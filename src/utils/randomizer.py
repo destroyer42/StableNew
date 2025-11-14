@@ -38,7 +38,21 @@ class PromptRandomizer:
     ) -> None:
         cfg = config or {}
         self.enabled = bool(cfg.get("enabled"))
-        self._rng = rng or random.Random()
+        # Optional deterministic seed for reproducible runs.
+        seed = cfg.get("seed", None)
+        seed_value: int | None
+        try:
+            seed_value = int(seed) if seed is not None else None
+        except (TypeError, ValueError):
+            seed_value = None
+
+        # If an external RNG is provided, it wins. Otherwise we construct one,
+        # optionally using the configured seed. random.Random(None) uses
+        # system randomness, so leaving seed_value as None preserves old behavior.
+        if rng is not None:
+            self._rng = rng
+        else:
+            self._rng = random.Random(seed_value)
         self._max_variants = self._resolve_max_variants(cfg, max_variants)
 
         # Prompt S/R
@@ -203,42 +217,59 @@ class PromptRandomizer:
     # ------------------------------------------------------------------ #
 
     def _ordered_sr_choices(self, rule_index: int, replacements: list[str]) -> list[str]:
+        """Legacy helper for fanout S/R mode."""
         if self._sr_mode == "round_robin":
             start = self._sr_indices[rule_index]
             rotated = replacements[start:] + replacements[:start]
             return rotated or replacements
         return list(replacements)
 
-    def _select_replacements_for_rule(
-        self, rule_index: int, replacements: list[str]
-    ) -> list[str]:
-        """
-        Decide which replacements to use for a given S/R rule.
-
-        - mode == "fanout": use ALL replacements (backward-compatible grid behavior)
-        - mode == "random": use ONE random replacement per rule per prompt
-        - mode == "round_robin": use ONE replacement, cycling through the list over time
-        """
-        choices = self._ordered_sr_choices(rule_index, replacements)
-
-        if self._sr_mode == "random":
-            return [self._rng.choice(replacements)]
-        if self._sr_mode == "round_robin":
-            return [choices[0]]
-        return list(replacements)
-
     def _expand_prompt_sr(self, text: str) -> list[tuple[str, list[str]]]:
-        variants: list[tuple[str, list[str]]] = [(text, [])]
-        if not self._sr_rules:
-            return variants
+        """Apply prompt S/R rules.
 
+        New semantics:
+        - mode == "random":        one random replacement per rule (per prompt)
+        - mode == "round_robin":   one sequential replacement per rule (per prompt)
+        - other modes (e.g. "fanout"): legacy fanout behavior
+
+        In 'random' and 'round_robin', we always return a single variant so
+        only the matrix controls the number of prompt variants.
+        """
+        if not self._sr_rules:
+            return [(text, [])]
+
+        # Single-path behavior: one replacement per rule for this prompt
+        if self._sr_mode in {"random", "round_robin"}:
+            current_text = text
+            labels: list[str] = []
+
+            for idx, rule in enumerate(self._sr_rules):
+                search = rule.get("search", "")
+                replacements = rule.get("replacements") or []
+                if not search or not replacements or search not in current_text:
+                    continue
+
+                if self._sr_mode == "random":
+                    replacement = self._rng.choice(replacements)
+                else:  # "round_robin"
+                    index = self._sr_indices[idx] % len(replacements)
+                    replacement = replacements[index]
+                    self._sr_indices[idx] = (index + 1) % len(replacements)
+
+                current_text = current_text.replace(search, replacement)
+                labels.append(f"{search}->{replacement}")
+
+            return [(current_text, labels)]
+
+        # Fallback: legacy fanout over all replacements (if someone explicitly asks for it)
+        variants: list[tuple[str, list[str]]] = [(text, [])]
         for idx, rule in enumerate(self._sr_rules):
             search = rule.get("search", "")
             replacements = rule.get("replacements") or []
             if not search or not replacements:
                 continue
 
-            selected_replacements = self._select_replacements_for_rule(idx, replacements)
+            choices = self._ordered_sr_choices(idx, replacements)
             applied = False
             new_variants: list[tuple[str, list[str]]] = []
             for current_text, current_labels in variants:
@@ -246,7 +277,7 @@ class PromptRandomizer:
                     new_variants.append((current_text, current_labels))
                     continue
                 applied = True
-                for replacement in selected_replacements:
+                for replacement in choices:
                     replaced_text = current_text.replace(search, replacement)
                     new_labels = current_labels + [f"{search}->{replacement}"]
                     new_variants.append((replaced_text, new_labels))
@@ -257,41 +288,58 @@ class PromptRandomizer:
         return variants
 
     def _ordered_wildcard_values(self, token_name: str, values: list[str]) -> list[str]:
+        """Legacy helper for fanout wildcard mode."""
         if self._wildcard_mode == "sequential":
             start = self._wildcard_indices.get(token_name, 0)
             return values[start:] + values[:start]
         return list(values)
 
-    def _select_values_for_wildcard(
-        self, token_name: str, values: list[str]
-    ) -> list[str]:
-        """
-        Decide which values to use for a wildcard token.
-
-        - mode == "fanout": use ALL values (backward-compatible grid behavior)
-        - mode == "random": use ONE random value per token per prompt
-        - mode == "sequential": use ONE value, cycling through values over time
-        """
-        choices = self._ordered_wildcard_values(token_name, values)
-
-        if self._wildcard_mode == "random":
-            return [self._rng.choice(values)]
-        if self._wildcard_mode == "sequential":
-            return [choices[0]]
-        return list(values)
-
     def _expand_wildcards(self, text: str, base_labels: list[str]) -> list[tuple[str, list[str]]]:
-        variants: list[tuple[str, list[str]]] = [(text, base_labels)]
-        if not self._wildcard_tokens:
-            return variants
+        """Apply wildcard expansion.
 
+        New semantics:
+        - mode == "random":      one random value per token per prompt
+        - mode == "sequential":  one sequential value per token per prompt
+        - other modes: legacy fanout over all values
+
+        In 'random' and 'sequential', we always return a single variant so
+        only the matrix controls the number of prompt variants.
+        """
+        if not self._wildcard_tokens:
+            return [(text, base_labels)]
+
+        # Single-path behavior for random / sequential
+        if self._wildcard_mode in {"random", "sequential"}:
+            current_text = text
+            labels = list(base_labels)
+
+            for token in self._wildcard_tokens:
+                token_name = token.get("token")
+                values = token.get("values") or []
+                if not token_name or not values or token_name not in current_text:
+                    continue
+
+                if self._wildcard_mode == "random":
+                    value = self._rng.choice(values)
+                else:  # "sequential"
+                    idx = self._wildcard_indices.get(token_name, 0) % len(values)
+                    value = values[idx]
+                    self._wildcard_indices[token_name] = (idx + 1) % len(values)
+
+                current_text = current_text.replace(token_name, value)
+                labels.append(f"{token_name}={value}")
+
+            return [(current_text, labels)]
+
+        # Fallback: legacy fanout behavior
+        variants: list[tuple[str, list[str]]] = [(text, base_labels)]
         for token in self._wildcard_tokens:
             token_name = token.get("token")
             values = token.get("values") or []
             if not token_name or not values:
                 continue
 
-            selected_values = self._select_values_for_wildcard(token_name, values)
+            choices = self._ordered_wildcard_values(token_name, values)
             applied = False
             new_variants: list[tuple[str, list[str]]] = []
             for current_text, current_labels in variants:
@@ -299,7 +347,7 @@ class PromptRandomizer:
                     new_variants.append((current_text, current_labels))
                     continue
                 applied = True
-                for value in selected_values:
+                for value in choices:
                     replaced_text = current_text.replace(token_name, value)
                     new_labels = current_labels + [f"{token_name}={value}"]
                     new_variants.append((replaced_text, new_labels))
@@ -338,12 +386,19 @@ class PromptRandomizer:
         if not self._matrix_enabled or not self._matrix_slots or not self._matrix_combos:
             return [None]
 
+        # fanout: expand to every matrix combo for this prompt
         if self._matrix_mode == "fanout":
             return self._matrix_combos
 
+        # random: pick a single random combo for this prompt
         if self._matrix_mode == "random":
-            return [self._rng.choice(self._matrix_combos)]
+            # Defensive: if combos exist, choose one; otherwise fall back to [None]
+            if self._matrix_combos:
+                combo = self._rng.choice(self._matrix_combos)
+                return [combo]
+            return [None]
 
+        # default / "rotate": one combo at a time in a stable order
         combo = self._matrix_combos[self._matrix_index]
         self._matrix_index = (self._matrix_index + 1) % len(self._matrix_combos)
         return [combo]

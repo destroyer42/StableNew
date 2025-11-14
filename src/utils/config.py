@@ -208,6 +208,9 @@ class ConfigManager:
             "api": {"base_url": "http://127.0.0.1:7860", "timeout": 300},
             "randomization": {
                 "enabled": False,
+                # Optional seed for deterministic randomization.
+                # When None, a fresh RNG seed is used each run.
+                "seed": None,
                 "prompt_sr": {
                     "enabled": False,
                     "mode": "random",

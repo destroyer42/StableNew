@@ -33,8 +33,8 @@ from src.services.config_service import ConfigService
 from src.utils import StructuredLogger
 from src.utils.aesthetic_detection import detect_aesthetic_extension
 from src.utils.config import ConfigManager
-from src.utils.preferences import PreferencesManager
 from src.utils.file_io import get_prompt_packs, read_prompt_pack
+from src.utils.preferences import PreferencesManager
 from src.utils.randomizer import (
     PromptRandomizer,
     PromptVariant,
@@ -3126,14 +3126,14 @@ class StableNewGUI:
                 self._set_api_url_var(normalized_url)
                 self.log_message(f"Updated API URL to working port: {normalized_url}", "INFO")
 
-            # Refresh models, VAE, upscalers, and schedulers when connected
+            # Refresh models, VAE, samplers, upscalers, and schedulers when connected
             def refresh_all():
                 try:
                     # Perform API calls in worker thread
                     self._refresh_models_async()
                     self._refresh_vae_models_async()
-                    self._refresh_hypernetworks_async()
                     self._refresh_samplers_async()
+                    self._refresh_hypernetworks_async()
                     self._refresh_upscalers_async()
                     self._refresh_schedulers_async()
                 except Exception as exc:
@@ -3720,6 +3720,9 @@ class StableNewGUI:
                         f"🎲 Randomization active: S/R={sr_count}, wildcards={wc_count}, matrix slots={mx_slots}",
                         "INFO",
                     )
+                    seed_val = rand_cfg.get("seed", None)
+                    if seed_val is not None:
+                        self.log_message(f"🎲 Randomization seed: {seed_val}", "INFO")
                     if mx_base:
                         mode_verb = {
                             "replace": "replace",
@@ -6397,6 +6400,65 @@ class StableNewGUI:
                     "Error", f"Failed to refresh VAE models: {err}"
                 ),
             )
+
+    def _refresh_samplers(self):
+        """Refresh the list of available samplers (main thread version)."""
+        if self.client is None:
+            messagebox.showerror("Error", "API client not connected")
+            return
+
+        try:
+            samplers = self.client.get_samplers()
+            sampler_names = sorted(
+                {s.get("name", "") for s in samplers if s.get("name")},
+                key=str.lower,
+            )
+            if hasattr(self, "config_panel"):
+                self.config_panel.set_sampler_options(sampler_names)
+            self.log_message(f"🔄 Loaded {len(samplers)} samplers")
+        except Exception as exc:
+            messagebox.showerror("Error", f"Failed to refresh samplers: {exc}")
+
+    def _refresh_samplers_async(self):
+        """Refresh the list of available samplers (thread-safe version)."""
+        if self.client is None:
+            # Schedule error message on main thread
+            self.root.after(
+                0,
+                lambda: messagebox.showerror("Error", "API client not connected"),
+            )
+            return
+
+        def worker():
+            try:
+                samplers = self.client.get_samplers()
+                names = sorted(
+                    {s.get("name", "") for s in samplers if s.get("name")},
+                    key=str.lower,
+                )
+                # Keep a local cache if needed later
+                self.sampler_names = list(names)
+
+                def update_widgets():
+                    self._add_log_message(f"🔄 Loaded {len(samplers)} samplers")
+                    if hasattr(self, "config_panel"):
+                        self.config_panel.set_sampler_options(self.sampler_names)
+                    if hasattr(self, "pipeline_controls_panel"):
+                        # Let the pipeline controls refresh any sampler-based lists, too
+                        self.pipeline_controls_panel.refresh_dynamic_lists_from_api(
+                            self.client
+                        )
+
+                self.root.after(0, update_widgets)
+            except Exception as exc:
+                self.root.after(
+                    0,
+                    lambda err=exc: messagebox.showerror(
+                        "Error", f"Failed to refresh samplers: {err}"
+                    ),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _refresh_upscalers(self):
         """Refresh the list of available upscalers (main thread version)"""

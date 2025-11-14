@@ -312,7 +312,7 @@ class LogPanel(ttk.Frame):
             # Widget may be destroyed
             self._line_count = 0
 
-    def clipboard_get(self, **kw):  # type: ignore[override]
+    def clipboard_get(self, **kw):
         try:
             return super().clipboard_get(**kw)
         except tk.TclError:
