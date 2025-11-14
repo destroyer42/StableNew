@@ -76,7 +76,20 @@ class PromptRandomizer:
                 for slot in (self._matrix_config.get("slots") or [])
                 if slot.get("name") and slot.get("values")
             ]
-        self._matrix_mode = (self._matrix_config.get("mode") or "fanout").lower()
+
+        raw_mode = (self._matrix_config.get("mode") or "fanout").lower()
+        if raw_mode in {"fanout", "grid", "all"}:
+            self._matrix_mode = "fanout"
+        elif raw_mode in {"rotate", "random", "per_prompt"}:
+            self._matrix_mode = "random"
+        elif raw_mode in {"sequential", "round_robin"}:
+            self._matrix_mode = "sequential"
+        else:
+            logger.warning(
+                "Randomizer: unknown matrix mode '%s'; defaulting to sequential", raw_mode
+            )
+            self._matrix_mode = "sequential"
+
         self._matrix_limit = int(self._matrix_config.get("limit") or 0)
         self._matrix_total_possible = self._estimate_matrix_combo_total()
         self._matrix_effective_limit = self._resolve_matrix_limit()
@@ -120,15 +133,23 @@ class PromptRandomizer:
         # Determine working prompt based on matrix prompt_mode
         working_prompt = prompt_text
         if self._matrix_enabled and self._matrix_base_prompt:
+            base_prompt = self._matrix_base_prompt
             if self._matrix_prompt_mode == "append":
-                # Append matrix base_prompt to pack prompt
-                working_prompt = f"{prompt_text}, {self._matrix_base_prompt}"
+                base_norm = base_prompt.strip().lower()
+                prompt_norm = prompt_text.strip().lower()
+                if base_norm and prompt_norm.endswith(base_norm):
+                    working_prompt = prompt_text
+                else:
+                    working_prompt = f"{prompt_text}, {base_prompt}"
             elif self._matrix_prompt_mode == "prepend":
-                # Prepend matrix base_prompt before pack prompt
-                working_prompt = f"{self._matrix_base_prompt}, {prompt_text}"
+                base_norm = base_prompt.strip().lower()
+                prompt_norm = prompt_text.strip().lower()
+                if base_norm and prompt_norm.startswith(base_norm):
+                    working_prompt = prompt_text
+                else:
+                    working_prompt = f"{base_prompt}, {prompt_text}"
             else:
-                # Default "replace" mode - base_prompt replaces pack prompt
-                working_prompt = self._matrix_base_prompt
+                working_prompt = base_prompt
 
         matrix_combos = self._matrix_combos_for_prompt()
         sr_variants = self._expand_prompt_sr(working_prompt)
@@ -186,10 +207,6 @@ class PromptRandomizer:
             start = self._sr_indices[rule_index]
             rotated = replacements[start:] + replacements[:start]
             return rotated or replacements
-        if self._sr_mode == "random":
-            choices = list(replacements)
-            self._rng.shuffle(choices)
-            return choices
         return list(replacements)
 
     def _select_replacements_for_rule(
@@ -204,13 +221,11 @@ class PromptRandomizer:
         """
         choices = self._ordered_sr_choices(rule_index, replacements)
 
-        if self._sr_mode == "fanout":
-            return choices
-
         if self._sr_mode == "random":
-            return [self._rng.choice(choices)]
-
-        return [choices[0]]
+            return [self._rng.choice(replacements)]
+        if self._sr_mode == "round_robin":
+            return [choices[0]]
+        return list(replacements)
 
     def _expand_prompt_sr(self, text: str) -> list[tuple[str, list[str]]]:
         variants: list[tuple[str, list[str]]] = [(text, [])]
@@ -245,10 +260,6 @@ class PromptRandomizer:
         if self._wildcard_mode == "sequential":
             start = self._wildcard_indices.get(token_name, 0)
             return values[start:] + values[:start]
-        if self._wildcard_mode == "random":
-            choices = list(values)
-            self._rng.shuffle(choices)
-            return choices
         return list(values)
 
     def _select_values_for_wildcard(
@@ -263,13 +274,11 @@ class PromptRandomizer:
         """
         choices = self._ordered_wildcard_values(token_name, values)
 
-        if self._wildcard_mode == "fanout":
-            return choices
-
         if self._wildcard_mode == "random":
-            return [self._rng.choice(choices)]
-
-        return [choices[0]]
+            return [self._rng.choice(values)]
+        if self._wildcard_mode == "sequential":
+            return [choices[0]]
+        return list(values)
 
     def _expand_wildcards(self, text: str, base_labels: list[str]) -> list[tuple[str, list[str]]]:
         variants: list[tuple[str, list[str]]] = [(text, base_labels)]
@@ -323,6 +332,7 @@ class PromptRandomizer:
 
         - Disabled/no slots -> [None]
         - mode == "fanout": return every combination for this prompt (grid behavior)
+        - mode == "random": return one random combo per prompt
         - other modes: return exactly one combo, rotating across prompts ("sequential")
         """
         if not self._matrix_enabled or not self._matrix_slots or not self._matrix_combos:
@@ -330,6 +340,9 @@ class PromptRandomizer:
 
         if self._matrix_mode == "fanout":
             return self._matrix_combos
+
+        if self._matrix_mode == "random":
+            return [self._rng.choice(self._matrix_combos)]
 
         combo = self._matrix_combos[self._matrix_index]
         self._matrix_index = (self._matrix_index + 1) % len(self._matrix_combos)

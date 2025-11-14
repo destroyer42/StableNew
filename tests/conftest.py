@@ -1,3 +1,4 @@
+import os
 import time
 import tkinter as tk
 
@@ -60,9 +61,14 @@ def _mock_webui_discovery(monkeypatch):
     try:
         import src.api.client as api_client  # type: ignore
 
-        monkeypatch.setattr(
-            api_client.SDWebUIClient, "check_api_ready", lambda self: False, raising=False
-        )
+        current_test = os.environ.get("PYTEST_CURRENT_TEST", "")
+        if "tests/test_api.py" not in current_test:
+            monkeypatch.setattr(
+                api_client.SDWebUIClient,
+                "check_api_ready",
+                lambda self, *args, **kwargs: False,
+                raising=False,
+            )
     except Exception:
         pass
 

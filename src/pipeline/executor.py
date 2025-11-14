@@ -13,6 +13,7 @@ from typing import Any
 from PIL import Image
 
 from ..api import SDWebUIClient
+from ..gui.state import CancellationError
 from ..utils import ConfigManager, StructuredLogger, load_image_to_base64, save_image_from_base64
 
 
@@ -136,6 +137,16 @@ class Pipeline:
         """Load images through the shared cache to avoid redundant disk IO."""
         return _cached_image_base64(str(path))
 
+    def _ensure_not_cancelled(self, cancel_token, context: str) -> None:
+        """Raise CancellationError if a cancel token has been triggered."""
+        if (
+            cancel_token
+            and getattr(cancel_token, "is_cancelled", None)
+            and cancel_token.is_cancelled()
+        ):
+            logger.info("Cancellation requested, aborting %s", context)
+            raise CancellationError(f"Cancelled during {context}")
+
     def run_upscale(
         self,
         input_image_path: Path,
@@ -160,13 +171,7 @@ class Pipeline:
         image_name = Path(input_image_path).stem
 
         # Early cancel
-        if (
-            cancel_token
-            and getattr(cancel_token, "is_cancelled", None)
-            and cancel_token.is_cancelled()
-        ):
-            logger.info("upscale cancelled before start")
-            return None
+        self._ensure_not_cancelled(cancel_token, "upscale start")
 
         result = self.run_upscale_stage(
             input_image_path,
@@ -176,13 +181,7 @@ class Pipeline:
         )
 
         # Post cancel
-        if (
-            cancel_token
-            and getattr(cancel_token, "is_cancelled", None)
-            and cancel_token.is_cancelled()
-        ):
-            logger.info("upscale cancelled after upscaling")
-            return None
+        self._ensure_not_cancelled(cancel_token, "post-upscale")
 
         return result
 
@@ -451,9 +450,7 @@ class Pipeline:
             List of generated image metadata
         """
         # Check for cancellation before starting
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("txt2img cancelled before start")
-            return []
+        self._ensure_not_cancelled(cancel_token, "txt2img start")
 
         logger.info(f"Starting txt2img with prompt: {prompt[:50]}...")
         # Extract name prefix if present
@@ -528,9 +525,7 @@ class Pipeline:
         response = self.client.txt2img(payload)
 
         # Check for cancellation after API call
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("txt2img cancelled after API call")
-            return []
+        self._ensure_not_cancelled(cancel_token, "txt2img post-call")
 
         if not response or "images" not in response:
             logger.error("txt2img failed")
@@ -541,9 +536,7 @@ class Pipeline:
 
         for idx, img_base64 in enumerate(response["images"]):
             # Check for cancellation before saving each image
-            if cancel_token and cancel_token.is_cancelled():
-                logger.info(f"txt2img cancelled while saving image {idx}")
-                break
+            self._ensure_not_cancelled(cancel_token, f"txt2img save {idx}")
             # Build image name with optional prefix
             if name_prefix:
                 image_name = f"{name_prefix}_{timestamp}_{idx:03d}"
@@ -580,9 +573,7 @@ class Pipeline:
             List of generated image metadata
         """
         # Check for cancellation before starting
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("txt2img cancelled before start")
-            return []
+        self._ensure_not_cancelled(cancel_token, "txt2img start")
 
         logger.info(f"Starting txt2img with prompt: {prompt[:50]}...")
         # Extract name prefix if present
@@ -645,9 +636,7 @@ class Pipeline:
         response = self.client.txt2img(payload)
 
         # Check for cancellation after API call
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("txt2img cancelled after API call")
-            return []
+        self._ensure_not_cancelled(cancel_token, "txt2img post-call")
 
         if not response or "images" not in response:
             logger.error("txt2img failed")
@@ -658,9 +647,7 @@ class Pipeline:
 
         for idx, img_base64 in enumerate(response["images"]):
             # Check for cancellation before saving each image
-            if cancel_token and cancel_token.is_cancelled():
-                logger.info(f"txt2img cancelled while saving image {idx}")
-                break
+            self._ensure_not_cancelled(cancel_token, f"txt2img save {idx}")
             # Build image name with optional prefix
             if name_prefix:
                 image_name = f"{name_prefix}_{timestamp}_{idx:03d}"
@@ -706,9 +693,7 @@ class Pipeline:
             Generated image metadata
         """
         # Check for cancellation before starting
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("img2img cancelled before start")
-            return None
+        self._ensure_not_cancelled(cancel_token, "img2img start")
 
         logger.info(f"Starting img2img cleanup for: {input_image_path.name}")
 
@@ -753,9 +738,7 @@ class Pipeline:
         response = self.client.img2img(payload)
 
         # Check for cancellation after API call
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("img2img cancelled after API call")
-            return None
+        self._ensure_not_cancelled(cancel_token, "img2img post-call")
 
         if not response or "images" not in response:
             logger.error("img2img failed")
@@ -804,9 +787,7 @@ class Pipeline:
             Enhanced image metadata or None if cancelled/failed
         """
         # Check for cancellation before starting
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("adetailer cancelled before start")
-            return None
+        self._ensure_not_cancelled(cancel_token, "adetailer start")
 
         # Check if ADetailer is enabled
         if not config.get("adetailer_enabled", False):
@@ -895,9 +876,7 @@ class Pipeline:
         response = self.client.img2img(payload)
 
         # Check for cancellation after API call
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("adetailer cancelled after API call")
-            return None
+        self._ensure_not_cancelled(cancel_token, "adetailer post-call")
 
         if not response or "images" not in response:
             logger.error("adetailer failed")
@@ -944,9 +923,7 @@ class Pipeline:
             Upscaled image metadata
         """
         # Check for cancellation before starting
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("upscale cancelled before start")
-            return None
+        self._ensure_not_cancelled(cancel_token, "upscale stage start")
 
         logger.info(f"Starting upscale for: {input_image_path.name}")
 
@@ -965,9 +942,7 @@ class Pipeline:
         )
 
         # Check for cancellation after API call
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("upscale cancelled after API call")
-            return None
+        self._ensure_not_cancelled(cancel_token, "upscale stage post-call")
 
         if not response or "image" not in response:
             logger.error("Upscale failed")
@@ -1015,16 +990,7 @@ class Pipeline:
             Pipeline results summary
         """
         # Check for cancellation at start
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("Pipeline cancelled before start")
-            return {
-                "run_dir": "",
-                "prompt": prompt,
-                "txt2img": [],
-                "img2img": [],
-                "upscaled": [],
-                "summary": [],
-            }
+        self._ensure_not_cancelled(cancel_token, "pipeline start")
 
         logger.info("=" * 60)
         logger.info("Starting full pipeline execution")
@@ -1091,9 +1057,7 @@ class Pipeline:
         emit("txt2img", completed_units)
 
         # Check for cancellation after txt2img
-        if cancel_token and cancel_token.is_cancelled():
-            logger.info("Pipeline cancelled after txt2img")
-            return results
+        self._ensure_not_cancelled(cancel_token, "pipeline post-txt2img")
 
         if not txt2img_results:
             logger.error("Pipeline failed at txt2img stage")
@@ -1108,9 +1072,7 @@ class Pipeline:
 
         # Step 2: img2img cleanup (optional, for each generated image)
         for index, txt2img_meta in enumerate(txt2img_results, start=1):
-            if cancel_token and cancel_token.is_cancelled():
-                logger.info("Pipeline cancelled during img2img loop")
-                break
+            self._ensure_not_cancelled(cancel_token, "pipeline img2img loop")
 
             last_image_path = txt2img_meta["path"]
             final_image_path = last_image_path
@@ -1138,9 +1100,7 @@ class Pipeline:
             else:
                 logger.info(f"⊘ img2img skipped for {txt2img_meta['name']}")
 
-            if cancel_token and cancel_token.is_cancelled():
-                logger.info("Pipeline cancelled before upscale")
-                break
+            self._ensure_not_cancelled(cancel_token, "pipeline pre-upscale")
 
             if upscale_enabled:
                 emit(f"upscale ({image_label})", completed_units)

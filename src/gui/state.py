@@ -63,9 +63,9 @@ class CancelToken:
 class StateManager:
     """Manages application state transitions with callbacks."""
 
-    def __init__(self):
+    def __init__(self, initial_state: GUIState = GUIState.IDLE):
         """Initialize state manager."""
-        self._state = GUIState.IDLE
+        self._state = initial_state
         self._lock = threading.Lock()
         self._callbacks: dict[GUIState, list[Callable]] = {state: [] for state in GUIState}
         self._transition_callbacks: list[Callable[[GUIState, GUIState], None]] = []

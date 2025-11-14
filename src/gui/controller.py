@@ -88,11 +88,11 @@ class PipelineController:
         if not self.state_manager.can_run():
             logger.warning("Cannot start pipeline - not in valid state")
             return False
+        if not self._cleanup_done.is_set():
+            logger.warning("Cannot start pipeline - previous cleanup is still running")
+            return False
         if not self.state_manager.transition_to(GUIState.RUNNING):
             return False
-
-        # 1) Wait for previous cleanup (if any) to finish
-        self._cleanup_done.wait(timeout=10.0)
 
         # 2) New epoch
         with self._epoch_lock:
@@ -103,8 +103,7 @@ class PipelineController:
         except Exception:
             pass
 
-        # 3) Reset per-run signals (allocate new Event)
-        self._cleanup_done = threading.Event()
+        # 3) Reset per-run signals
         self._cleanup_started = False
         self.lifecycle_event.clear()
         self.cancel_token.reset()
@@ -172,6 +171,7 @@ class PipelineController:
             self._do_cleanup(eid, error_occurred=False)
 
         if self._sync_cleanup:
+            logger.debug("Sync cleanup requested (tests only); running inline")
             cleanup()
         else:
             threading.Thread(target=cleanup, daemon=True).start()
@@ -183,40 +183,41 @@ class PipelineController:
             if eid != self._epoch_id:
                 return
 
-        # Single-entry guard
         with self._cleanup_lock:
             if self._cleanup_started:
                 return
             self._cleanup_started = True
+            self._cleanup_done.clear()
 
-        # NEVER join worker thread - violates architecture rule (GUI must not block on threads)
-        # Worker is daemon and will exit naturally when pipeline_func completes
-        with self._join_lock:
-            self._worker = None
-
-        # Terminate subprocess if still around
-        self._terminate_subprocess()
-
-        # State to terminal AFTER teardown
-        if not self.state_manager.is_state(GUIState.ERROR):
-            self.state_manager.transition_to(GUIState.IDLE)
-
-        # Pulse state change
-        self.state_change_event.set()
-        self.state_change_event.clear()
-
-        # Signal “done” last
         try:
-            self._log(
-                f"[controller] Cleanup complete for epoch {eid} (error={error_occurred})", "DEBUG"
-            )
-        except Exception:
-            pass
+            # NEVER join worker thread - violates architecture rule (GUI must not block on threads)
+            with self._join_lock:
+                self._worker = None
 
-        with self._cleanup_lock:
-            self._stop_in_progress = False
-        self.lifecycle_event.set()
-        self._cleanup_done.set()
+            # Terminate subprocess if still around
+            self._terminate_subprocess()
+
+            # State to terminal AFTER teardown
+            if not self.state_manager.is_state(GUIState.ERROR):
+                self.state_manager.transition_to(GUIState.IDLE)
+
+            # Pulse state change
+            self.state_change_event.set()
+            self.state_change_event.clear()
+
+            try:
+                self._log(
+                    f"[controller] Cleanup complete for epoch {eid} (error={error_occurred})",
+                    "DEBUG",
+                )
+            except Exception:
+                pass
+        finally:
+            with self._cleanup_lock:
+                self._cleanup_started = False
+                self._stop_in_progress = False
+            self._cleanup_done.set()
+            self.lifecycle_event.set()
 
         if not error_occurred and not self.cancel_token.is_cancelled():
             self.report_progress("Idle", 0.0, "Idle")

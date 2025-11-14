@@ -115,6 +115,10 @@ class PipelineControlsPanel(ttk.Frame):
         finally:
             self._suspend_callbacks = False
 
+    def refresh_dynamic_lists_from_api(self, _client) -> None:
+        """Placeholder for future dynamic dropdowns (no-op for now)."""
+        return
+
     """
     A UI panel for pipeline execution controls.
 

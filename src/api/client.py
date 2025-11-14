@@ -45,6 +45,8 @@ class SDWebUIClient:
         self.max_backoff = max(0.0, max_backoff)
         self.jitter = max(0.0, jitter)
         self._option_keys = None
+        self.samplers: list[dict[str, Any]] = []
+        self.upscalers: list[dict[str, Any]] = []
 
     def _sleep(self, duration: float) -> None:
         """Sleep helper that can be overridden in tests."""
@@ -427,6 +429,7 @@ class SDWebUIClient:
             return []
 
         logger.info("Retrieved %s samplers", len(data))
+        self.samplers = data
         return data
 
     def get_upscalers(self) -> list[dict[str, Any]]:
@@ -447,6 +450,7 @@ class SDWebUIClient:
             return []
 
         logger.info("Retrieved %s upscalers", len(data))
+        self.upscalers = data
         return data
 
     def get_hypernetworks(self) -> list[dict[str, Any]]:

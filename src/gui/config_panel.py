@@ -1456,9 +1456,58 @@ class ConfigPanel(ttk.Frame):
         self._set_combobox_values(self.txt2img_widgets.get("vae"), vae_models)
         self._set_combobox_values(self.img2img_widgets.get("vae"), vae_models)
 
+    def set_sampler_options(self, samplers: Iterable[str]) -> None:
+        """Update sampler dropdowns across stages."""
+
+        cleaned: list[str] = []
+        for sampler in samplers or []:
+            if sampler is None:
+                continue
+            text = str(sampler).strip()
+            if text and text not in cleaned:
+                cleaned.append(text)
+        if not cleaned:
+            cleaned = ["Euler a"]
+        cleaned.sort(key=str.lower)
+
+        targets = [
+            self.txt2img_widgets.get("sampler_name"),
+            self.txt2img_widgets.get("hr_sampler_name"),
+            self.img2img_widgets.get("sampler_name"),
+            self.upscale_widgets.get("sampler_name"),
+        ]
+        for widget in targets:
+            self._set_combobox_values(widget, cleaned)
+
     def set_upscaler_options(self, upscalers: Iterable[str]) -> None:
-        """Update upscaler list."""
-        self._set_combobox_values(self.upscale_widgets.get("upscaler"), upscalers)
+        """Update upscaler dropdowns (hires + upscale stage)."""
+
+        cleaned: list[str] = []
+        for upscaler in upscalers or []:
+            if upscaler is None:
+                continue
+            text = str(upscaler).strip()
+            if text and text not in cleaned:
+                cleaned.append(text)
+
+        # Ensure latent/None entries remain available for hires fix
+        for fallback in (
+            "Latent",
+            "Latent (antialiased)",
+            "Latent (bicubic)",
+            "Latent (bicubic antialiased)",
+            "Latent (nearest)",
+            "Latent (nearest-exact)",
+            "None",
+        ):
+            if fallback not in cleaned:
+                cleaned.append(fallback)
+
+        cleaned = [c for c in cleaned if c]
+        cleaned.sort(key=str.lower)
+
+        self._set_combobox_values(self.upscale_widgets.get("upscaler"), cleaned)
+        self._set_combobox_values(self.txt2img_widgets.get("hr_upscaler"), cleaned)
 
     def set_scheduler_options(self, schedulers: Iterable[str]) -> None:
         """Update scheduler dropdowns."""
@@ -1483,3 +1532,23 @@ class ConfigPanel(ttk.Frame):
             cleaned.insert(0, "None")
         self._set_combobox_values(self.txt2img_widgets.get("hypernetwork"), cleaned)
         self._set_combobox_values(self.img2img_widgets.get("hypernetwork"), cleaned)
+
+    def refresh_dynamic_lists_from_api(self, client) -> None:
+        """Update sampler/upscaler dropdowns based on the active API client."""
+
+        if client is None:
+            return
+
+        try:
+            sampler_entries = getattr(client, "samplers", []) or []
+            sampler_names = [entry.get("name", "") for entry in sampler_entries if entry.get("name")]
+            self.set_sampler_options(sampler_names)
+        except Exception:
+            logger.exception("Failed to refresh sampler options from API")
+
+        try:
+            upscaler_entries = getattr(client, "upscalers", []) or []
+            upscaler_names = [entry.get("name", "") for entry in upscaler_entries if entry.get("name")]
+            self.set_upscaler_options(upscaler_names)
+        except Exception:
+            logger.exception("Failed to refresh upscaler options from API")

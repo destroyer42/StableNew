@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +96,29 @@ class PreferencesManager:
         except Exception as err:  # pragma: no cover - defensive logging path
             logger.error("Failed to save preferences to %s: %s", self.path, err)
             return False
+
+    def backup_corrupt_preferences(self) -> None:
+        """Move a corrupt preferences file out of the way (or delete if rename fails)."""
+
+        if not self.path.exists():
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"{self.path.stem}_corrupt_{timestamp}{self.path.suffix}"
+        backup_path = self.path.with_name(backup_name)
+
+        try:
+            self.path.rename(backup_path)
+            logger.warning("Backed up corrupt preferences to %s", backup_path)
+            return
+        except Exception as exc:
+            logger.error("Failed to move corrupt preferences to %s: %s", backup_path, exc)
+
+        try:
+            self.path.unlink()
+            logger.warning("Deleted corrupt preferences file at %s", self.path)
+        except Exception:
+            logger.exception("Failed to delete corrupt preferences file at %s", self.path)
 
     def _merge_dicts(self, base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
         """Deep merge two dictionaries without mutating the inputs."""

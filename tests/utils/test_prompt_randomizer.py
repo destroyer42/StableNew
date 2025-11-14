@@ -34,10 +34,13 @@ def test_wildcard_random_selection(monkeypatch):
     rand = random.Random(0)
     randomizer = PromptRandomizer(config, rng=rand)
 
-    first = randomizer.generate("a __creature__")
-    second = randomizer.generate("a __creature__")
-    assert len(first) == len(second) == 1
-    assert {variant.text for variant in first + second} == {"a dragon", "a phoenix"}
+    outputs = []
+    for _ in range(2):
+        variants = randomizer.generate("a __creature__")
+        assert len(variants) == 1
+        outputs.append(variants[0].text)
+
+    assert all(text in {"a dragon", "a phoenix"} for text in outputs)
 
 
 def test_matrix_fanout_limit():

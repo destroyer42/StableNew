@@ -95,7 +95,7 @@ class StableNewGUI:
     ) -> None:
         self.config_manager = config_manager or ConfigManager()
         self.preferences_manager = preferences or PreferencesManager()
-        self.state_manager = state_manager or StateManager()
+        self.state_manager = state_manager or StateManager(initial_state=GUIState.IDLE)
         self.controller = controller or PipelineController(self.state_manager)
         self.webui = webui_discovery or WebUIDiscovery()
         self.structured_logger = StructuredLogger()
@@ -137,6 +137,8 @@ class StableNewGUI:
         self.scrollable_sections: dict[str, dict[str, tk.Widget | None]] = {}
         self._log_min_lines = 7
         self._image_warning_threshold = 250
+        self.upscaler_names: list[str] = []
+        self.sampler_names: list[str] = []
 
         # Initialize aesthetic/randomization defaults before building UI
         self.aesthetic_script_available = False
@@ -166,7 +168,14 @@ class StableNewGUI:
 
         # Load preferences before building UI
         default_config = self.config_manager.get_default_config()
-        self.preferences = self.preferences_manager.load_preferences(default_config)
+        try:
+            self.preferences = self.preferences_manager.load_preferences(default_config)
+        except Exception as exc:
+            logger.error(
+                "Failed to load preferences; falling back to defaults: %s", exc, exc_info=True
+            )
+            self.preferences = self.preferences_manager.default_preferences(default_config)
+            self._handle_preferences_load_failure(exc)
 
         # Build the user interface
         self._build_ui()
@@ -788,6 +797,25 @@ class StableNewGUI:
         self.center_notebook.add(advanced_tab, text="Advanced Editor")
         self._build_advanced_editor_tab(advanced_tab)
 
+    def _handle_preferences_load_failure(self, exc: Exception) -> None:
+        """Notify the user that preferences failed to load and backup the corrupt file."""
+
+        warning_text = (
+            "Your last settings could not be loaded. StableNew has reset to safe defaults.\n\n"
+            "The previous settings file was moved aside (or removed) to prevent future issues."
+        )
+        try:
+            messagebox.showwarning("StableNew", warning_text)
+        except Exception:
+            logger.exception("Failed to display corrupt preferences warning dialog")
+
+        try:
+            self.preferences_manager.backup_corrupt_preferences()
+        except Exception:
+            logger.exception("Failed to backup corrupt preferences file")
+
+        self._reset_randomization_to_defaults()
+
     def _initialize_ui_state_async(self):
         """Initialize UI state asynchronously after mainloop starts."""
         # Restore UI state from preferences
@@ -795,30 +823,63 @@ class StableNewGUI:
 
     def _restore_ui_state_from_preferences(self):
         """Restore UI state from loaded preferences."""
-        # Set preset
-        if "preset" in self.preferences:
-            self.preset_var.set(self.preferences["preset"])
+        try:
+            if "preset" in self.preferences:
+                self.preset_var.set(self.preferences["preset"])
 
-        # Set selected packs
-        if "selected_packs" in self.preferences:
-            self.current_selected_packs = self.preferences["selected_packs"]
-            # Update pack selection UI if available
-            if hasattr(self, "prompt_pack_panel"):
-                self.prompt_pack_panel.set_selected_packs(self.current_selected_packs)
+            if "selected_packs" in self.preferences:
+                self.current_selected_packs = self.preferences["selected_packs"]
+                if hasattr(self, "prompt_pack_panel"):
+                    self.prompt_pack_panel.set_selected_packs(self.current_selected_packs)
 
-        # Set override pack
-        if "override_pack" in self.preferences and hasattr(self, "override_pack_var"):
-            self.override_pack_var.set(self.preferences["override_pack"])
+            if "override_pack" in self.preferences and hasattr(self, "override_pack_var"):
+                self.override_pack_var.set(self.preferences["override_pack"])
 
-        # Set pipeline controls
-        if "pipeline_controls" in self.preferences and hasattr(self, "pipeline_controls_panel"):
-            self.pipeline_controls_panel.set_state(self.preferences["pipeline_controls"])
+            if "pipeline_controls" in self.preferences and hasattr(self, "pipeline_controls_panel"):
+                self.pipeline_controls_panel.set_state(self.preferences["pipeline_controls"])
 
-        # Load config if available
-        if "config" in self.preferences:
-            self.current_config = self.preferences["config"]
-            if hasattr(self, "config_panel"):
-                self._load_config_into_forms(self.current_config)
+            if "config" in self.preferences:
+                self.current_config = self.preferences["config"]
+                if hasattr(self, "config_panel"):
+                    self._load_config_into_forms(self.current_config)
+        except Exception as exc:
+            logger.error("Failed to restore preferences to UI; reverting to defaults: %s", exc)
+            try:
+                fallback_cfg = self.config_manager.get_default_config()
+                self.preferences = self.preferences_manager.default_preferences(fallback_cfg)
+                self.preset_var.set(self.preferences.get("preset", "default"))
+                self.current_selected_packs = []
+                if hasattr(self, "prompt_pack_panel"):
+                    self.prompt_pack_panel.set_selected_packs([])
+                if hasattr(self, "override_pack_var"):
+                    self.override_pack_var.set(False)
+                if hasattr(self, "pipeline_controls_panel"):
+                    self.pipeline_controls_panel.set_state(
+                        self.preferences.get("pipeline_controls", {})
+                    )
+                if hasattr(self, "config_panel"):
+                    self._load_config_into_forms(self.preferences.get("config", {}))
+                self._reset_randomization_to_defaults()
+            except Exception:
+                logger.exception("Failed to apply fallback preferences after restore failure")
+
+    def _reset_randomization_to_defaults(self) -> None:
+        """Reset randomization config to defaults and update UI if available."""
+
+        try:
+            default_cfg = self.config_manager.get_default_config() or {}
+            random_defaults = deepcopy(default_cfg.get("randomization", {}) or {})
+        except Exception as exc:
+            logger.error("Failed to obtain default randomization config: %s", exc)
+            return
+
+        self.preferences.setdefault("config", {})["randomization"] = random_defaults
+
+        if hasattr(self, "randomization_vars"):
+            try:
+                self._load_randomization_config({"randomization": random_defaults})
+            except Exception:
+                logger.exception("Failed to apply default randomization settings to UI")
 
     def _build_action_bar(self, parent):
         """Build the action bar with explicit load controls."""
@@ -2178,51 +2239,51 @@ class StableNewGUI:
         if not vars_dict:
             return
 
-        data = (config or {}).get("randomization", {})
-        vars_dict["enabled"].set(bool(data.get("enabled", False)))
+        try:
+            data = (config or {}).get("randomization", {})
+            vars_dict["enabled"].set(bool(data.get("enabled", False)))
 
-        sr = data.get("prompt_sr", {})
-        vars_dict["prompt_sr_enabled"].set(bool(sr.get("enabled", False)))
-        vars_dict["prompt_sr_mode"].set(sr.get("mode", "random"))
-        sr_text = sr.get("raw_text") or self._format_prompt_sr_rules(sr.get("rules", []))
-        self._set_randomization_text("prompt_sr_text", sr_text)
+            sr = data.get("prompt_sr", {})
+            vars_dict["prompt_sr_enabled"].set(bool(sr.get("enabled", False)))
+            vars_dict["prompt_sr_mode"].set(sr.get("mode", "random"))
+            sr_text = sr.get("raw_text") or self._format_prompt_sr_rules(sr.get("rules", []))
+            self._set_randomization_text("prompt_sr_text", sr_text)
 
-        wildcards = data.get("wildcards", {})
-        vars_dict["wildcards_enabled"].set(bool(wildcards.get("enabled", False)))
-        vars_dict["wildcard_mode"].set(wildcards.get("mode", "random"))
-        wildcard_text = wildcards.get("raw_text") or self._format_token_lines(
-            wildcards.get("tokens", [])
-        )
-        self._set_randomization_text("wildcard_text", wildcard_text)
+            wildcards = data.get("wildcards", {})
+            vars_dict["wildcards_enabled"].set(bool(wildcards.get("enabled", False)))
+            vars_dict["wildcard_mode"].set(wildcards.get("mode", "random"))
+            wildcard_text = wildcards.get("raw_text") or self._format_token_lines(
+                wildcards.get("tokens", [])
+            )
+            self._set_randomization_text("wildcard_text", wildcard_text)
 
-        matrix = data.get("matrix", {})
-        vars_dict["matrix_enabled"].set(bool(matrix.get("enabled", False)))
-        vars_dict["matrix_mode"].set(matrix.get("mode", "fanout"))
-        vars_dict["matrix_prompt_mode"].set(matrix.get("prompt_mode", "replace"))
-        vars_dict["matrix_limit"].set(int(matrix.get("limit", 8)))
+            matrix = data.get("matrix", {})
+            vars_dict["matrix_enabled"].set(bool(matrix.get("enabled", False)))
+            vars_dict["matrix_mode"].set(matrix.get("mode", "fanout"))
+            vars_dict["matrix_prompt_mode"].set(matrix.get("prompt_mode", "replace"))
+            vars_dict["matrix_limit"].set(int(matrix.get("limit", 8)))
 
-        # Load matrix base prompt
-        base_prompt = matrix.get("base_prompt", "")
-        base_prompt_widget = self.randomization_widgets.get("matrix_base_prompt")
-        if base_prompt_widget:
-            base_prompt_widget.delete(0, tk.END)
-            base_prompt_widget.insert(0, base_prompt)
+            base_prompt = matrix.get("base_prompt", "")
+            base_prompt_widget = self.randomization_widgets.get("matrix_base_prompt")
+            if base_prompt_widget:
+                base_prompt_widget.delete(0, tk.END)
+                base_prompt_widget.insert(0, base_prompt)
 
-        # Load matrix slots into UI
-        slots = matrix.get("slots", [])
-        self._clear_matrix_slot_rows()
-        for slot in slots:
-            name = slot.get("name", "")
-            values = slot.get("values", [])
-            if name and values:
-                values_str = " | ".join(values)
-                self._add_matrix_slot_row(name, values_str)
+            slots = matrix.get("slots", [])
+            self._clear_matrix_slot_rows()
+            for slot in slots:
+                name = slot.get("name", "")
+                values = slot.get("values", [])
+                if name and values:
+                    values_str = " | ".join(values)
+                    self._add_matrix_slot_row(name, values_str)
 
-        # Also populate legacy text for users who want to see it
-        matrix_text = matrix.get("raw_text") or self._format_matrix_lines(slots)
-        self._set_randomization_text("matrix_text", matrix_text)
+            matrix_text = matrix.get("raw_text") or self._format_matrix_lines(slots)
+            self._set_randomization_text("matrix_text", matrix_text)
 
-        self._update_randomization_states()
+            self._update_randomization_states()
+        except Exception as exc:
+            logger.error("Failed to load randomization config: %s", exc)
 
     def _collect_aesthetic_config(self) -> dict[str, Any]:
         """Collect aesthetic gradient settings."""
@@ -3072,6 +3133,7 @@ class StableNewGUI:
                     self._refresh_models_async()
                     self._refresh_vae_models_async()
                     self._refresh_hypernetworks_async()
+                    self._refresh_samplers_async()
                     self._refresh_upscalers_async()
                     self._refresh_schedulers_async()
                 except Exception as exc:
@@ -3682,7 +3744,13 @@ class StableNewGUI:
                     "INFO",
                 )
                 self._maybe_warn_large_output(approx_images, f"pack {pack_file.name}")
-                randomizer = PromptRandomizer(rand_cfg)
+                try:
+                    randomizer = PromptRandomizer(rand_cfg)
+                except Exception as exc:
+                    self.log_message(
+                        f"?? Randomization disabled for {pack_file.name}: {exc}", "WARNING"
+                    )
+                    randomizer = PromptRandomizer({})
                 variant_plan = build_variant_plan(config)
                 if variant_plan.active:
                     self.log_message(
@@ -6474,5 +6542,10 @@ class StableNewGUI:
     def _randomize_img2img_seed(self):
         """Generate random seed for img2img"""
         self._randomize_seed("img2img")
+
+
+
+
+
 
 

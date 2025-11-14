@@ -43,7 +43,7 @@
     "negative_adjust": ""
   },
   "upscale": {
-    "upscaler": "4x-UltraSharpV2",
+    "upscaler": "ESRGAN_4x",
     "upscaling_resize": 2.0,
     "upscale_mode": "single",
     "steps": 15,
@@ -91,7 +91,7 @@
   "randomization": {
     "enabled": true,
     "prompt_sr": {
-      "enabled": true,
+      "enabled": false,
       "mode": "random",
       "rules": [
         {
@@ -259,13 +259,13 @@
   },
   "aesthetic": {
     "enabled": false,
-    "mode": "script",
+    "mode": "prompt",
     "weight": 0.9,
     "steps": 5,
     "learning_rate": 0.0001,
     "slerp": false,
     "slerp_angle": 0.1,
-    "embedding": "ParadiseGirl-1024",
+    "embedding": "None",
     "text": "paradise",
     "text_is_negative": false,
     "fallback_prompt": ""
