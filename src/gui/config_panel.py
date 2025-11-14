@@ -1479,6 +1479,12 @@ class ConfigPanel(ttk.Frame):
         for widget in targets:
             self._set_combobox_values(widget, cleaned)
 
+        if self.adetailer_panel is not None:
+            try:
+                self.adetailer_panel.set_sampler_options(cleaned)
+            except Exception:
+                logger.exception("Failed to update ADetailer sampler options")
+
     def set_upscaler_options(self, upscalers: Iterable[str]) -> None:
         """Update upscaler dropdowns (hires + upscale stage)."""
 

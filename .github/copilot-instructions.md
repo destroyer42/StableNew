@@ -2,6 +2,15 @@
 
 > **Context:** Stable Diffusion WebUI automation (txt2img → img2img → upscale → video) with Python 3.11, Tk/Ttk GUI, FFmpeg, pytest, ruff, black, mypy, and pre-commit. This file guides GitHub Copilot coding agent, Copilot Chat, and human contributors for **StableNew**.
 
+ ### AI-Assisted Development
+
+  StableNew uses GitHub Copilot / Codex + ChatGPT under a documented process:
+
+  - [Codex Integration SOP](.github/CODEX_SOP.md)
+  - [Codex Autopilot Workflow v1](docs/dev/Codex_Autopilot_Workflow_v1.md)
+
+  Please read these before using AI tools to modify this repo.
+
 ## 1) Branching & Release Flow
 - **main**: release-only (protected). No direct pushes.
 - **postGemini**: integration branch for GUI + controller work.

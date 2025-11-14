@@ -96,9 +96,16 @@ class StableNewGUI:
         self.config_manager = config_manager or ConfigManager()
         self.preferences_manager = preferences or PreferencesManager()
         self.state_manager = state_manager or StateManager(initial_state=GUIState.IDLE)
-        self.controller = controller or PipelineController(self.state_manager)
-        self.webui = webui_discovery or WebUIDiscovery()
+
+        # Single StructuredLogger instance owned by the GUI and shared with the controller.
         self.structured_logger = StructuredLogger()
+
+        self.controller = controller or PipelineController(self.state_manager)
+        try:
+            self.controller.structured_logger = self.structured_logger
+        except Exception:
+            setattr(self.controller, "structured_logger", self.structured_logger)
+        self.webui = webui_discovery or WebUIDiscovery()
         self._refreshing_config = False
         if root is not None:
             self.root = root

@@ -26,7 +26,7 @@
       "cfg_scale": 6.1,
       "width": 1024,
       "height": 1024,
-      "sampler_name": "DPM++ 2M",
+      "sampler_name": "DPM++ 2M SDE",
       "scheduler": "Karras",
       "seed": -1,
       "clip_skip": 2,
@@ -65,13 +65,13 @@
       "negative_adjust": ""
     },
     "upscale": {
-      "upscaler": "ESRGAN_4x",
+      "upscaler": "4xUltrasharp_4xUltrasharpV10",
       "upscaling_resize": 2.0,
       "upscale_mode": "single",
       "steps": 15,
       "sampler_name": "DPM++ 2M",
       "scheduler": "Karras",
-      "denoising_strength": 0.2,
+      "denoising_strength": 0.15,
       "gfpgan_visibility": 0.0,
       "codeformer_visibility": 0.0,
       "codeformer_weight": 0.0

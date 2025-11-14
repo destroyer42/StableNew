@@ -48,6 +48,23 @@ class SDWebUIClient:
         self.samplers: list[dict[str, Any]] = []
         self.upscalers: list[dict[str, Any]] = []
 
+    def check_connection(self, timeout: float | None = None) -> bool:
+        """
+        Lightweight health check for the WebUI API using the configured base URL.
+
+        This wraps validate_webui_health so callers can probe connectivity using the
+        same client instance without instantiating additional helpers.
+        """
+        effective_timeout = timeout if timeout is not None else min(self.timeout, 5.0)
+        try:
+            health = validate_webui_health(self.base_url, timeout=effective_timeout)
+        except TypeError:
+            # Older validate_webui_health implementations may not accept timeout.
+            health = validate_webui_health(self.base_url)
+        if isinstance(health, dict):
+            return bool(health.get("accessible"))
+        return bool(health)
+
     def _sleep(self, duration: float) -> None:
         """Sleep helper that can be overridden in tests."""
 

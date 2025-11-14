@@ -3,7 +3,7 @@
 import logging
 import tkinter as tk
 from tkinter import ttk
-from typing import Any
+from typing import Any, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -328,3 +328,23 @@ class ADetailerConfigPanel:
             "adetailer_prompt": config["adetailer_prompt"],
             "adetailer_negative_prompt": config["adetailer_negative_prompt"],
         }
+
+    def set_sampler_options(self, samplers: Iterable[str] | None) -> None:
+        """Update the sampler dropdown with the provided options."""
+        cleaned: list[str] = []
+        for sampler in samplers or []:
+            if sampler is None:
+                continue
+            text = str(sampler).strip()
+            if text and text not in cleaned:
+                cleaned.append(text)
+
+        if not cleaned:
+            cleaned = ["Euler a"]
+
+        cleaned.sort(key=str.lower)
+        self.sampler_combo.configure(values=cleaned)
+
+        current = self.sampler_var.get()
+        if current not in cleaned:
+            self.sampler_var.set(cleaned[0])

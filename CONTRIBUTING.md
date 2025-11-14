@@ -1,7 +1,18 @@
 # Contributing to StableNew
 
 Thank you for your interest in contributing to StableNew! This document provides guidelines and instructions for contributing to the project.
+ 
+ 
+ ### AI-Assisted Development
 
+  StableNew uses GitHub Copilot / Codex + ChatGPT under a documented process:
+
+  - [Codex Integration SOP](.github/CODEX_SOP.md)
+  - [Codex Autopilot Workflow v1](docs/dev/Codex_Autopilot_Workflow_v1.md)
+
+  Please read these before using AI tools to modify this repo.
+  
+  
 ## Table of Contents
 
 - [Development Environment Setup](#development-environment-setup)

@@ -11,6 +11,13 @@ A Python 3.11 application that automates the complete image generation pipeline 
 > - `docs/gui_overview.md` – StableNew GUI layout, theming, and behavior constraints
 > - `docs/repo_cleanup_plan.md` – the canonical plan for consolidating docs and cleaning up the repo
 >
+  StableNew uses GitHub Copilot / Codex + ChatGPT under a documented process:
+
+  - [Codex Integration SOP](.github/CODEX_SOP.md)
+  - [Codex Autopilot Workflow v1](docs/dev/Codex_Autopilot_Workflow_v1.md)
+	Please read these before using AI tools to modify this repo.
+	
+	
 > Controller / Lead Engineer agents should also use:
 > - `.github/agents/controller_lead_engineer.md`
 > - `.github/agents/implementer_feature_bugfix.md`
