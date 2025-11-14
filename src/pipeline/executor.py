@@ -45,6 +45,27 @@ class Pipeline:
         self._current_hypernetwork: str | None = None
         self._current_hn_strength: float | None = None
 
+    def _clean_metadata_payload(self, payload: Any) -> Any:
+        """Remove large binary blobs (e.g., base64 images) from metadata payloads."""
+        if not isinstance(payload, dict):
+            return payload
+
+        excluded_keys = {
+            "image",
+            "images",
+            "init_images",
+            "input_image",
+            "input_images",
+            "mask",
+            "image_cfg_scale",
+        }
+        cleaned: dict[str, Any] = {}
+        for key, value in payload.items():
+            if key in excluded_keys:
+                continue
+            cleaned[key] = value
+        return cleaned
+
     def set_progress_controller(self, controller: Any | None) -> None:
         """Attach a progress reporting controller."""
 
@@ -536,7 +557,7 @@ class Pipeline:
                     "stage": "txt2img",
                     "timestamp": timestamp,
                     "prompt": prompt,
-                    "config": payload,
+                    "config": self._clean_metadata_payload(payload),
                     "path": str(image_path),
                 }
 
@@ -653,7 +674,7 @@ class Pipeline:
                     "stage": "txt2img",
                     "timestamp": timestamp,
                     "prompt": prompt,
-                    "config": payload,
+                    "config": self._clean_metadata_payload(payload),
                     "path": str(image_path),
                 }
 
@@ -752,7 +773,7 @@ class Pipeline:
                 "timestamp": timestamp,
                 "prompt": prompt,
                 "input_image": str(input_image_path),
-                "config": payload,
+                "config": self._clean_metadata_payload(payload),
                 "path": str(image_path),
             }
 
@@ -901,7 +922,7 @@ class Pipeline:
                 if apply_global
                 else "",
                 "input_image": str(input_image_path),
-                "config": payload,
+                "config": self._clean_metadata_payload(payload),
                 "path": str(image_path),
             }
 
@@ -1746,7 +1767,7 @@ class Pipeline:
                     "global_negative_terms": self.config_manager.get_global_negative_prompt()
                     if apply_global
                     else "",
-                    "config": payload,
+                    "config": self._clean_metadata_payload(payload),
                     "output_path": str(image_path),
                     "path": str(image_path),
                 }
@@ -1923,7 +1944,7 @@ class Pipeline:
                     if apply_global
                     else "",
                     "input_image": str(input_image_path),
-                    "config": payload,
+                    "config": self._clean_metadata_payload(payload),
                     "path": str(image_path),
                 }
 
@@ -2126,7 +2147,7 @@ class Pipeline:
                         and payload.get("negative_prompt")
                     )
                     else "",
-                    "config": payload,
+                    "config": self._clean_metadata_payload(payload),
                     "path": str(image_path),
                 }
 

@@ -2,45 +2,22 @@
 Tests for ConfigPanel component.
 """
 
-import os
-import sys
-
-# Handle headless testing
-if sys.platform.startswith("linux") and "DISPLAY" not in os.environ:
-    os.environ["DISPLAY"] = ":99"
-
-import pytest
-
-# Skip these tests if tkinter is not available
-pytest.importorskip("tkinter")
+from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
 
-from src.gui.config_panel import ConfigPanel
+import pytest
 
-# Guard: skip cleanly if Tcl/Tk is not available (headless CI)
-try:
-    _tmp_root = tk.Tk()
-    _tmp_root.destroy()
-except tk.TclError:
-    pytest.skip("Tk/Tcl unavailable in this environment", allow_module_level=True)
+from src.gui.config_panel import ConfigPanel
 
 
 class TestConfigPanelBasics:
     """Test basic ConfigPanel functionality."""
 
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.root = tk.Tk()
-        self.root.withdraw()  # Don't show window during tests
-
-    def teardown_method(self):
-        """Clean up after tests."""
-        try:
-            self.root.destroy()
-        except:
-            pass
+    @pytest.fixture(autouse=True)
+    def _setup(self, tk_root):
+        self.root = tk_root
 
     def test_panel_creation(self):
         """Test that ConfigPanel can be created."""
@@ -77,17 +54,9 @@ class TestConfigPanelBasics:
 class TestConfigPanelAPI:
     """Test ConfigPanel public API methods."""
 
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.root = tk.Tk()
-        self.root.withdraw()
-
-    def teardown_method(self):
-        """Clean up after tests."""
-        try:
-            self.root.destroy()
-        except:
-            pass
+    @pytest.fixture(autouse=True)
+    def _setup(self, tk_root):
+        self.root = tk_root
 
     def test_get_config(self):
         """Test get_config returns a dictionary."""
@@ -140,17 +109,9 @@ class TestConfigPanelAPI:
 class TestConfigPanelDimensionBounds:
     """Test dimension validation (≤2260)."""
 
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.root = tk.Tk()
-        self.root.withdraw()
-
-    def teardown_method(self):
-        """Clean up after tests."""
-        try:
-            self.root.destroy()
-        except:
-            pass
+    @pytest.fixture(autouse=True)
+    def _setup(self, tk_root):
+        self.root = tk_root
 
     def test_dimension_bounds_warning(self):
         """Test that dimensions >2260 trigger warnings."""
@@ -201,17 +162,9 @@ class TestConfigPanelDimensionBounds:
 class TestConfigPanelHiresSteps:
     """Test hires_steps feature."""
 
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.root = tk.Tk()
-        self.root.withdraw()
-
-    def teardown_method(self):
-        """Clean up after tests."""
-        try:
-            self.root.destroy()
-        except:
-            pass
+    @pytest.fixture(autouse=True)
+    def _setup(self, tk_root):
+        self.root = tk_root
 
     def test_hires_steps_in_config(self):
         """Test that hires_steps can be set and retrieved."""
@@ -241,17 +194,9 @@ class TestConfigPanelHiresSteps:
 class TestConfigPanelFaceRestoration:
     """Test face restoration toggle and visibility."""
 
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.root = tk.Tk()
-        self.root.withdraw()
-
-    def teardown_method(self):
-        """Clean up after tests."""
-        try:
-            self.root.destroy()
-        except:
-            pass
+    @pytest.fixture(autouse=True)
+    def _setup(self, tk_root):
+        self.root = tk_root
 
     def test_face_restoration_config(self):
         """Test face restoration can be enabled/disabled."""
@@ -284,17 +229,9 @@ class TestConfigPanelFaceRestoration:
 class TestConfigPanelRoundTrip:
     """Test configuration round-trip (set -> get -> set)."""
 
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.root = tk.Tk()
-        self.root.withdraw()
-
-    def teardown_method(self):
-        """Clean up after tests."""
-        try:
-            self.root.destroy()
-        except:
-            pass
+    @pytest.fixture(autouse=True)
+    def _setup(self, tk_root):
+        self.root = tk_root
 
     def test_config_round_trip(self):
         """Test that config can be set, retrieved, and set again."""
@@ -346,17 +283,9 @@ class TestConfigPanelRoundTrip:
 class TestConfigPanelOptionSetters:
     """Test option setter methods (set_model_options, etc.)."""
 
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.root = tk.Tk()
-        self.root.withdraw()
-
-    def teardown_method(self):
-        """Clean up after tests."""
-        try:
-            self.root.destroy()
-        except:
-            pass
+    @pytest.fixture(autouse=True)
+    def _setup(self, tk_root):
+        self.root = tk_root
 
     def test_set_model_options_with_valid_widgets(self):
         """Test setting model options updates combobox values."""

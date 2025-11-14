@@ -80,6 +80,11 @@ class StateManager:
         with self._lock:
             return self._state
 
+    @property
+    def state(self) -> GUIState:
+        """Backward-compatible alias for tests expecting `.state`."""
+        return self.current
+
     def is_state(self, state: GUIState) -> bool:
         """Check if in specific state.
 
@@ -148,7 +153,7 @@ class StateManager:
             True if transition is allowed
         """
         valid_transitions = {
-            GUIState.IDLE: {GUIState.RUNNING},
+            GUIState.IDLE: {GUIState.RUNNING, GUIState.ERROR},
             GUIState.RUNNING: {GUIState.STOPPING, GUIState.IDLE, GUIState.ERROR},
             GUIState.STOPPING: {GUIState.IDLE, GUIState.ERROR},
             GUIState.ERROR: {GUIState.IDLE},

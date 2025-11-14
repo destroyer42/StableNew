@@ -90,9 +90,11 @@ class PromptRandomizer:
 
         estimated = self.estimated_matrix_combos()
         if estimated:
+            slot_names = [slot.get("name") for slot in self._matrix_slots if slot.get("name")]
             logger.info(
-                "Randomizer: matrix slots=%s, limit=%s, precomputed combos=%s",
-                len(self._matrix_slots),
+                "Randomizer matrix: mode=%s slots=%s limit=%s combos=%s",
+                self._matrix_mode,
+                ", ".join(slot_names),
                 self._matrix_limit,
                 estimated,
             )
@@ -316,6 +318,13 @@ class PromptRandomizer:
         return text
 
     def _matrix_combos_for_prompt(self) -> list[dict[str, str] | None]:
+        """
+        Return the matrix combinations to apply for the current prompt.
+
+        - Disabled/no slots -> [None]
+        - mode == "fanout": return every combination for this prompt (grid behavior)
+        - other modes: return exactly one combo, rotating across prompts ("sequential")
+        """
         if not self._matrix_enabled or not self._matrix_slots or not self._matrix_combos:
             return [None]
 

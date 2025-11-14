@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -70,6 +71,14 @@ class ConfigContext:
 
 logger = logging.getLogger(__name__)
 
+
+def sanitize_prompt(text: str) -> str:
+    """Strip leftover [[slot]] / __wildcard__ tokens before sending to WebUI."""
+    if not text:
+        return text
+    cleaned = re.sub(r"\[\[[^\]]+\]\]", "", text)
+    cleaned = re.sub(r"__\w+__", "", cleaned)
+    return " ".join(cleaned.split())
 
 class StableNewGUI:
     def __init__(
@@ -438,6 +447,26 @@ class StableNewGUI:
             self.root.after(0, _do)
         except Exception:
             _do()
+
+    def on_error(self, error: Exception | str) -> None:
+        """Expose a public error handler for legacy controller/test hooks."""
+        if isinstance(error, Exception):
+            message = f"{type(error).__name__}: {error}"
+        else:
+            message = str(error) if error else "Pipeline error"
+
+        self.log_message(f"⛔ Pipeline error: {message}", "ERROR")
+        self._safe_messagebox("error", "Pipeline Error", message)
+
+        try:
+            self.controller.lifecycle_event.set()
+        except Exception:
+            pass
+
+        try:
+            self.state_manager.transition_to(GUIState.ERROR)
+        except Exception:
+            logger.exception("Failed to transition GUI state to ERROR after pipeline error")
 
     # Duplicate _setup_theme and other duplicate/unused methods removed for linter/ruff compliance
 
@@ -3667,7 +3696,8 @@ class StableNewGUI:
                 for i, prompt_data in enumerate(prompts):
                     if cancel.is_cancelled():
                         raise CancellationError("User cancelled during prompt loop")
-                    prompt_text = prompt_data.get("positive", "")
+                    prompt_text = (prompt_data.get("positive") or "").strip()
+                    negative_override = (prompt_data.get("negative") or "").strip()
                     self.log_message(
                         f"📝 Prompt {i+1}/{len(prompts)}: {prompt_text[:50]}...",
                         "INFO",
@@ -3682,9 +3712,11 @@ class StableNewGUI:
                     if not randomized_variants:
                         randomized_variants = [PromptVariant(text=prompt_text, label=None)]
 
+                    sanitized_negative = sanitize_prompt(negative_override) if negative_override else ""
+
                     for random_variant in randomized_variants:
                         random_label = random_variant.label
-                        variant_prompt_text = random_variant.text
+                        variant_prompt_text = sanitize_prompt(random_variant.text)
                         if random_label:
                             self.log_message(f"🎲 Randomization: {random_label}", "INFO")
 
@@ -3695,8 +3727,8 @@ class StableNewGUI:
                                 variant = variant_plan.variants[
                                     rotate_cursor % len(variant_plan.variants)
                                 ]
-                                variants_to_run = [variant]
-                                rotate_cursor += 1
+                            variants_to_run = [variant]
+                            rotate_cursor += 1
                         else:
                             variants_to_run = [None]
 
@@ -3710,11 +3742,18 @@ class StableNewGUI:
                                 stage_variant_label = variant.label
                                 variant_index = variant.index
                                 self.log_message(
-                                    f"🎭 Variant {variant.index + 1}/{len(variant_plan.variants)}: {stage_variant_label}",
+                                    f"?? Variant {variant.index + 1}/{len(variant_plan.variants)}: {stage_variant_label}",
                                     "INFO",
                                 )
 
                             effective_config = apply_variant_to_config(config, variant)
+                            try:
+                                t2i_cfg = effective_config.setdefault("txt2img", {}) or {}
+                                t2i_cfg["prompt"] = variant_prompt_text
+                                if sanitized_negative:
+                                    t2i_cfg["negative_prompt"] = sanitized_negative
+                            except Exception:
+                                logger.exception("Failed to inject randomized prompt into txt2img config")
                             # Log effective model/VAE selections for visibility in live log
                             try:
                                 t2i_cfg = (effective_config or {}).get("txt2img", {}) or {}
@@ -3895,9 +3934,8 @@ class StableNewGUI:
             messagebox.showerror("API Error", "Please connect to API first")
             return
 
-        # Check if packs are selected
-        selected_indices = self.prompt_pack_panel.packs_listbox.curselection()
-        if not selected_indices:
+        selected = self._get_selected_packs()
+        if not selected:
             messagebox.showerror("Selection Error", "Please select at least one prompt pack")
             return
 
@@ -3905,65 +3943,105 @@ class StableNewGUI:
 
         def txt2img_thread():
             try:
-                # Get selected packs
-                selected_packs = [
-                    self.prompt_pack_panel.packs_listbox.get(i) for i in selected_indices
-                ]
-
-                # Create run directory
                 run_dir = self.structured_logger.create_run_directory("txt2img_only")
+                images_per_prompt = self._safe_int_from_var(self.images_per_prompt_var, 1)
+                try:
+                    preset_name = self.preset_var.get() or "default"
+                except Exception:
+                    preset_name = "default"
 
-                # Run txt2img for selected packs
-                for pack_name in selected_packs:
+                for pack_path in selected:
+                    pack_name = pack_path.name
                     self.log_message(f"Processing pack: {pack_name}", "INFO")
 
-                    # Load prompts from pack
-                    pack_path = Path("packs") / pack_name
                     prompts = read_prompt_pack(pack_path)
-
                     if not prompts:
                         self.log_message(f"No prompts found in {pack_name}", "WARNING")
                         continue
 
-                    # Get pack-specific overrides
-                    pack_overrides = self.config_manager.get_pack_overrides(pack_path.stem)
-                    pack_config = self.config_manager.resolve_config("default", pack_overrides)
+                    try:
+                        pack_config = self.config_manager.ensure_pack_config(pack_name, preset_name)
+                    except Exception as exc:
+                        self.log_message(
+                            f"?? Failed to load config for {pack_name}: {exc}. Using default settings.",
+                            "WARNING",
+                        )
+                        pack_config = {}
 
-                    # Generate images for each prompt
-                    for i, prompt_data in enumerate(prompts):
+                    rand_cfg = deepcopy(pack_config.get("randomization") or {})
+                    randomizer = None
+                    if isinstance(rand_cfg, dict) and rand_cfg.get("enabled"):
                         try:
+                            randomizer = PromptRandomizer(rand_cfg)
+                        except Exception as exc:
                             self.log_message(
-                                f"Generating image {i+1}/{len(prompts)}: {prompt_data['positive'][:50]}...",
+                                f"?? Randomization disabled for {pack_name}: {exc}", "WARNING"
+                            )
+                            randomizer = None
+
+                    txt2img_base_cfg = deepcopy(pack_config.get("txt2img", {}) or {})
+                    total_variants = 0
+
+                    for idx, prompt_data in enumerate(prompts):
+                        prompt_text = (prompt_data.get("positive") or "").strip()
+                        negative_override = (prompt_data.get("negative") or "").strip()
+                        sanitized_negative = (
+                            sanitize_prompt(negative_override) if negative_override else ""
+                        )
+                        variants = (
+                            randomizer.generate(prompt_text)
+                            if randomizer
+                            else [PromptVariant(text=prompt_text, label=None)]
+                        )
+                        total_variants += len(variants)
+
+                        if randomizer and len(variants) == 1:
+                            self.log_message(
+                                "?? Randomization produced only one variant. Ensure prompt contains tokens (e.g. __mood__, [[slot]]) and rules have matches.",
                                 "INFO",
                             )
 
-                            # Run txt2img using the pipeline
-                            results = self.pipeline.run_txt2img(
-                                prompt=prompt_data["positive"],
-                                config=pack_config.get("txt2img", {}),
-                                run_dir=run_dir,
-                                batch_size=1,
-                            )
+                        for variant in variants:
+                            variant_prompt = sanitize_prompt(variant.text)
+                            cfg = deepcopy(txt2img_base_cfg)
+                            cfg["prompt"] = variant_prompt
+                            if sanitized_negative:
+                                cfg["negative_prompt"] = sanitized_negative
+                            if variant.label:
+                                self.log_message(f"?? Randomization: {variant.label}", "INFO")
 
-                            if results:
-                                self.log_message(f"✅ Generated {len(results)} images", "SUCCESS")
-                            else:
-                                self.log_message(f"❌ Failed to generate image {i+1}", "ERROR")
+                            try:
+                                results = self.pipeline.run_txt2img(
+                                    prompt=variant_prompt,
+                                    config=cfg,
+                                    run_dir=run_dir,
+                                    batch_size=images_per_prompt,
+                                )
+                                if results:
+                                    self.log_message(
+                                        f"✅ Generated {len(results)} image(s) for prompt {idx+1}",
+                                        "SUCCESS",
+                                    )
+                                else:
+                                    self.log_message(
+                                        f"❌ Failed to generate image {idx+1}", "ERROR"
+                                    )
+                            except Exception as exc:
+                                self.log_message(
+                                    f"❌ Error generating image {idx+1}: {exc}", "ERROR"
+                                )
 
-                        except Exception as e:
-                            self.log_message(f"❌ Error generating image {i+1}: {str(e)}", "ERROR")
-                            continue
+                    approx_images = total_variants * images_per_prompt
+                    self._maybe_warn_large_output(
+                        approx_images, f"txt2img-only pack {pack_name}"
+                    )
 
                 self.log_message("🎉 Txt2img generation completed!", "SUCCESS")
 
-            except Exception as e:
-                self.log_message(f"❌ Txt2img generation failed: {str(e)}", "ERROR")
+            except Exception as exc:
+                self.log_message(f"❌ Txt2img generation failed: {exc}", "ERROR")
 
-        # Run in background thread
-        import threading
-
-        thread = threading.Thread(target=txt2img_thread)
-        thread.daemon = True
+        thread = threading.Thread(target=txt2img_thread, daemon=True)
         thread.start()
 
     def _run_upscale_only(self):
@@ -4302,25 +4380,21 @@ class StableNewGUI:
         self._open_prompt_editor()
 
     def _graceful_exit(self):
-        """Gracefully exit the application"""
+        """Gracefully exit the application and guarantee process termination."""
         self.log_message("Shutting down gracefully...", "INFO")
 
-        # Save any pending manifests
         try:
-            # Finalize logs and manifests
             self.log_message("✅ Graceful shutdown complete", "SUCCESS")
-        except Exception as e:
-            logger.error(f"Error during shutdown: {e}")
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            logger.error("Error during shutdown logging: %s", exc)
 
-        # Persist current preferences
         try:
             preferences = self._collect_preferences()
             if self.preferences_manager.save_preferences(preferences):
                 self.preferences = preferences
-        except Exception as exc:  # pragma: no cover - defensive logging path
-            logger.error(f"Failed to save preferences: {exc}")
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to save preferences: %s", exc)
 
-        # Attempt to stop any running pipeline cleanly
         try:
             if (
                 hasattr(self, "controller")
@@ -4330,17 +4404,21 @@ class StableNewGUI:
                 try:
                     self.controller.stop_pipeline()
                 except Exception:
-                    pass
-                # Wait briefly for cleanup
+                    logger.exception("Error while stopping pipeline during exit")
                 try:
                     self.controller.lifecycle_event.wait(timeout=5.0)
                 except Exception:
-                    pass
+                    logger.exception("Error waiting for controller cleanup during exit")
         except Exception:
-            pass
+            logger.exception("Unexpected error during controller shutdown")
 
-        self.root.quit()
-        self.root.destroy()
+        try:
+            self.root.quit()
+            self.root.destroy()
+        except Exception:
+            logger.exception("Error tearing down Tk root during exit")
+
+        os._exit(0)
 
     def run(self):
         """Start the GUI application"""
