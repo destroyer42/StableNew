@@ -9,7 +9,9 @@
 ### Architecture & Design
 - [ARCHITECTURE](../ARCHITECTURE.md) - System architecture, pipeline flow, and GUI state machine
 - [GUI Revamp Summary](GUI_REVAMP_SUMMARY.md) - GUI component architecture and refactoring details
-- [Sprint Summary (PR F–H)](SPRINT_SUMMARY_PR_F-H.md) - Recent UX polish and threading work
+- [Sprint Summary (PR F-H)](SPRINT_SUMMARY_PR_F-H.md) - Recent UX polish and threading work
+- [PR9 — Randomization Refinement](PR9_RANDOMIZATION_REFINEMENT.md) - Sanitised prompts, dry-run parity, and matrix visibility
+- [PR10 — Single Instance Lock](PR10_SINGLE_INSTANCE_AND_EXIT.md) - Startup guard and reliable shutdown
 
 ### Configuration & Testing
 - [Configuration Testing Guide](CONFIGURATION_TESTING_GUIDE.md) - Testing configuration changes and presets

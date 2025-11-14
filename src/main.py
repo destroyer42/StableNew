@@ -27,7 +27,10 @@ _INSTANCE_PORT = 47631
 def _acquire_single_instance_lock() -> socket.socket | None:
     """Attempt to bind a localhost TCP port as a simple process lock."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if os.name == "nt":
+        sock.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_EXCLUSIVEADDRUSE", socket.SO_REUSEADDR), 1)
+    else:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind(("127.0.0.1", _INSTANCE_PORT))
         sock.listen(1)

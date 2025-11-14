@@ -34,6 +34,18 @@
 - Do **not** use legacy typing (`Optional`, `Dict`, etc.)—prefer PEP 585.
 - Do **not** skip compile/import tests after major refactors.
 
+### 4. Randomization Tokens Leaking Into WebUI
+- **Symptom:** Users saw literal `[[lighting]]` / `__mood__` strings appear in generated images or SD WebUI rejected prompts.
+- **Root Cause:** Prompt randomisation ran after pipeline configs were built, so raw placeholders leaked into the payload; txt2img-only path also bypassed sanitisation.
+- **Fix:** Added `sanitize_prompt()` and injected its result back into every stage config before execution; made txt2img-only reuse the same path.
+- **Lesson:** Any pre-processing that can mutate prompts must happen before configuration snapshots are taken, and shared helpers should be exercised by quick actions as well.
+
+### 5. Multiple Instances & Zombie Processes
+- **Symptom:** Double-clicking StableNew twice launched two GUIs that fought over configs; after a crash, python.exe sometimes stayed alive and blocked relaunch.
+- **Root Cause:** No single-instance guard and Tk teardown occasionally failed, leaving the interpreter running.
+- **Fix:** Added a localhost socket lock in `src/main.py` and hardened `_graceful_exit()` to stop the controller, destroy Tk, and call `os._exit(0)`.
+- **Lesson:** Desktop apps need explicit single-instance logic; rely on OS primitives (sockets/mutexes) and have a last-resort exit path when GUI frameworks misbehave.
+
 ## References
 - See `docs/BUG_FIX_GUI_HANG_SECOND_RUN.md` and `docs/THREADING_FIX.md` for more details.
 - See `CHANGELOG.md` for a summary of recent fixes and improvements.

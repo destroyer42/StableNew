@@ -530,7 +530,7 @@ class SDWebUIClient:
             "post",
             "/sdapi/v1/options",
             json=payload,
-            timeout=30,  # Model switching can take time
+            timeout=75,  # Model switching can take time
         )
 
         if response is None:
