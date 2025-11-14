@@ -133,7 +133,6 @@ class AdvancedPromptEditor:
     def _apply_dark_theme(self):
         """Apply consistent dark theme using ASWF colors"""
         style = ttk.Style()
-        style.theme_use("clam")
 
         # Configure dark theme styles using ASWF colors
         style.configure("Dark.TFrame", background=ASWF_DARK_GREY)

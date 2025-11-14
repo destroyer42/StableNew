@@ -55,6 +55,8 @@ class PipelineController:
         self._cleanup_done = threading.Event()  # signals cleanup completed (per run)
         self._cleanup_done.set()  # no prior run on init; don't block first start
 
+        self._stop_in_progress = False
+
         # Lifecycle signals
         self.lifecycle_event = threading.Event()  # terminal (IDLE/ERROR)
         self.state_change_event = threading.Event()  # pulse on change
@@ -146,8 +148,19 @@ class PipelineController:
         if not self.state_manager.can_stop():
             logger.warning("Cannot stop pipeline - not running")
             return False
+
+        with self._cleanup_lock:
+            if self._stop_in_progress:
+                self._log(
+                    "Cleanup already in progress; ignoring duplicate stop request", "DEBUG"
+                )
+                return False
+            self._stop_in_progress = True
+
         self._log("Stop requested - cancelling pipeline...", "WARNING")
         if not self.state_manager.transition_to(GUIState.STOPPING):
+            with self._cleanup_lock:
+                self._stop_in_progress = False
             return False
         self.cancel_token.cancel()
         self._terminate_subprocess()
@@ -199,6 +212,9 @@ class PipelineController:
             )
         except Exception:
             pass
+
+        with self._cleanup_lock:
+            self._stop_in_progress = False
         self.lifecycle_event.set()
         self._cleanup_done.set()
 

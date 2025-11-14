@@ -33,7 +33,7 @@ from src.utils import StructuredLogger
 from src.utils.aesthetic_detection import detect_aesthetic_extension
 from src.utils.config import ConfigManager
 from src.utils.preferences import PreferencesManager
-from src.utils.prompt_pack import get_prompt_packs, read_prompt_pack
+from src.utils.file_io import get_prompt_packs, read_prompt_pack
 from src.utils.randomizer import (
     PromptRandomizer,
     PromptVariant,
@@ -126,6 +126,8 @@ class StableNewGUI:
         self.preset_var = tk.StringVar(value="default")
         self._wrappable_labels: list[tk.Widget] = []
         self.scrollable_sections: dict[str, dict[str, tk.Widget | None]] = {}
+        self._log_min_lines = 7
+        self._image_warning_threshold = 250
 
         # Initialize aesthetic/randomization defaults before building UI
         self.aesthetic_script_available = False
@@ -200,158 +202,117 @@ class StableNewGUI:
         cfg = self.config_service.load_pack_config(pack)
         return cfg if cfg else deepcopy(self.ctx.editor_cfg)  # fallback to editor defaults
 
-    def _ui_preview_payload(self) -> None:
-        """Preview payload for selected packs (dry-run assembly)."""
-        if not self.current_selected_packs:
-            self._safe_messagebox("warning", "No Packs Selected", "Please select packs to preview.")
+    def _preview_payload_dry_run(self) -> None:
+        """
+        Dry-run the selected packs and report how many prompts/variants would be produced.
+        """
+        selected_packs = self._get_selected_packs()
+        if not selected_packs:
+            self.log_message("No prompt packs selected for dry run", "WARNING")
             return
+        selected_copy = list(selected_packs)
 
-        # Run in background thread to avoid blocking UI
-        def preview_worker():
-            try:
-                results = []
-                for pack in self.current_selected_packs:
-                    cfg = self._effective_cfg_for_pack(pack)
-                    pack_result = self._preview_pack_payload(pack, cfg)
-                    results.append(pack_result)
+        def worker():
+            config_snapshot = self._get_config_snapshot()
+            rand_cfg = deepcopy(config_snapshot.get("randomization") or {})
 
-                # Format results
-                output = self._format_preview_results(results)
+            total_prompts = 0
+            total_variants = 0
+            sample_variants: list[PromptVariant] = []
+            pack_summaries: list[str] = []
 
-                # Update UI on main thread
-                self.root.after(0, lambda: self._display_preview_output(output))
-            except Exception as e:
-                self.root.after(
-                    0, lambda err=e: self._safe_messagebox("error", "Preview Error", str(err))
+            for pack_path in selected_copy:
+                prompts = read_prompt_pack(pack_path)
+                if not prompts:
+                    self.log_message(
+                        f"[DRY RUN] No prompts found in {pack_path.name}", "WARNING"
+                    )
+                    continue
+
+                total_prompts += len(prompts)
+                pack_variants, pack_samples = self._estimate_pack_variants(
+                    prompts, deepcopy(rand_cfg)
                 )
+                total_variants += pack_variants
+                pack_summaries.append(
+                    f"[DRY RUN] Pack {pack_path.name}: {len(prompts)} prompt(s) -> {pack_variants} variant(s)"
+                )
+                for variant in pack_samples:
+                    if len(sample_variants) >= 10:
+                        break
+                    sample_variants.append(variant)
 
-        threading.Thread(target=preview_worker, daemon=True).start()
+            images_per_prompt = self._safe_int_from_var(self.images_per_prompt_var, 1)
+            loop_multiplier = self._safe_int_from_var(self.loop_count_var, 1)
+            predicted_images = total_variants * images_per_prompt * loop_multiplier
 
-    def _preview_pack_payload(self, pack: str, cfg: dict[str, Any]) -> dict[str, Any]:
-        """Generate preview for a single pack."""
-        from ..utils.prompt_pack import read_prompt_pack
-        from ..utils.randomizer import PromptRandomizer
+            summary = (
+                f"[DRY RUN] {len(selected_copy)} pack(s) • "
+                f"{total_prompts} prompt(s) • "
+                f"{total_variants} variant(s) × {images_per_prompt} img/prompt × loops={loop_multiplier} "
+                f"→ ≈ {predicted_images} image(s)"
+            )
+            self.log_message(summary, "INFO")
 
-        # Read pack data
-        pack_data = read_prompt_pack(pack)
-        if not pack_data:
-            return {"pack": pack, "error": "Failed to read pack"}
+            for line in pack_summaries:
+                self.log_message(line, "INFO")
 
-        prompt_text = pack_data.get("prompt", "")
-        if not prompt_text:
-            return {"pack": pack, "error": "No prompt in pack"}
+            for idx, variant in enumerate(sample_variants[:5], start=1):
+                label_part = f" ({variant.label})" if variant.label else ""
+                preview_text = (variant.text or "")[:200]
+                self.log_message(f"[DRY RUN] ex {idx}{label_part}: {preview_text}", "INFO")
 
-        # Create randomizer
-        randomizer_cfg = cfg.get("randomizer", {})
-        randomizer = PromptRandomizer(randomizer_cfg)
+            self._maybe_warn_large_output(predicted_images, "dry run preview")
 
-        # Generate variants (limit to 3 for preview)
-        variants = randomizer.generate(prompt_text)
-        preview_variants = variants[:3]
+        threading.Thread(target=worker, daemon=True).start()
 
-        # Check for diagnostics
-        diagnostics = self._check_prompt_diagnostics(prompt_text, randomizer_cfg)
+    def _safe_int_from_var(self, var: tk.Variable | None, default: int = 1) -> int:
+        try:
+            value = int(var.get()) if var is not None else default
+        except Exception:
+            value = default
+        return value if value > 0 else default
 
-        return {
-            "pack": pack,
-            "variants": [{"text": v.text, "label": v.label} for v in preview_variants],
-            "total_variants": len(variants),
-            "diagnostics": diagnostics,
-        }
+    def _estimate_pack_variants(
+        self, prompts: list[dict[str, str]], rand_cfg: dict[str, Any]
+    ) -> tuple[int, list[PromptVariant]]:
+        total = 0
+        samples: list[PromptVariant] = []
+        if not prompts:
+            return 0, samples
 
-    def _check_prompt_diagnostics(
-        self, prompt_text: str, randomizer_cfg: dict[str, Any]
-    ) -> list[str]:
-        """Check for issues in prompt and config."""
-        issues = []
+        simulator: PromptRandomizer | None = None
+        rand_enabled = bool(rand_cfg.get("enabled")) if isinstance(rand_cfg, dict) else False
+        if rand_enabled:
+            try:
+                simulator = PromptRandomizer(deepcopy(rand_cfg))
+            except Exception:
+                simulator = None
 
-        # Check for unresolved tokens
-        import re
+        for prompt_data in prompts:
+            prompt_text = prompt_data.get("positive", "") or ""
+            if simulator:
+                variants = simulator.generate(prompt_text)
+                if not variants:
+                    variants = [PromptVariant(text=prompt_text, label=None)]
+            else:
+                variants = [PromptVariant(text=prompt_text, label=None)]
 
-        unresolved = re.findall(r"\[\[([^\]]+)\]\]", prompt_text)
-        if unresolved:
-            issues.append(f"Unresolved tokens: {', '.join(unresolved)}")
+            total += len(variants)
+            if len(samples) < 10:
+                samples.extend(variants[:2])
 
-        # Check randomizer config
-        if randomizer_cfg.get("enabled"):
-            # Check S/R rules
-            sr_config = randomizer_cfg.get("prompt_sr", {})
-            if sr_config.get("enabled"):
-                rules = sr_config.get("rules", [])
-                for i, rule in enumerate(rules):
-                    if not rule.get("search") or not rule.get("replacements"):
-                        issues.append(f"S/R rule {i+1}: missing search or replacements")
+        return total, samples
 
-            # Check wildcards
-            wildcard_config = randomizer_cfg.get("wildcards", {})
-            if wildcard_config.get("enabled"):
-                tokens = wildcard_config.get("tokens", [])
-                for i, token in enumerate(tokens):
-                    if not token.get("token") or not token.get("values"):
-                        issues.append(f"Wildcard {i+1}: missing token or values")
+    def _maybe_warn_large_output(self, count: int, context: str) -> None:
+        threshold = getattr(self, "_image_warning_threshold", 0) or 0
+        if threshold and count >= threshold:
+            self.log_message(
+                f"⚠️ Expected to generate approximately {count} image(s) for {context}. "
+                "Adjust randomization or Images/Prompt if this is unintended.",
+                "WARNING",
+            )
 
-            # Check matrix
-            matrix_config = randomizer_cfg.get("matrix", {})
-            if matrix_config.get("enabled"):
-                slots = matrix_config.get("slots", [])
-                empty_slots = [
-                    slot.get("name", f"slot {i+1}")
-                    for i, slot in enumerate(slots)
-                    if not slot.get("values")
-                ]
-                if empty_slots:
-                    issues.append(f"Matrix slots with no values: {', '.join(empty_slots)}")
-
-                # Count combinations
-                if slots:
-                    combo_count = 1
-                    for slot in slots:
-                        values = slot.get("values", [])
-                        if values:
-                            combo_count *= len(values)
-                    issues.append(f"Matrix will generate {combo_count} combinations")
-
-        return issues
-
-    def _format_preview_results(self, results: list[dict[str, Any]]) -> str:
-        """Format preview results for display."""
-        output = ["=== Payload Preview (Dry Run) ===\n"]
-
-        for result in results:
-            pack = result["pack"]
-            output.append(f"Pack: {pack}")
-
-            if "error" in result:
-                output.append(f"  Error: {result['error']}")
-                output.append("")
-                continue
-
-            variants = result["variants"]
-            total = result["total_variants"]
-            diagnostics = result["diagnostics"]
-
-            output.append(f"  Total variants: {total}")
-            output.append("  Preview variants:")
-
-            for i, variant in enumerate(variants, 1):
-                text = variant["text"]
-                label = variant["label"]
-                label_str = f" ({label})" if label else ""
-                output.append(f"    {i}. {text}{label_str}")
-
-            if diagnostics:
-                output.append("  Diagnostics:")
-                for diag in diagnostics:
-                    output.append(f"    ⚠️ {diag}")
-
-            output.append("")
-
-        return "\n".join(output)
-
-    def _display_preview_output(self, output: str) -> None:
-        """Display preview output in the UI."""
-        # For now, show in messagebox; later integrate into preview panel
-        self._safe_messagebox("info", "Preview Results", output)
 
     # -------- mediator selection -> config refresh --------
     def _on_pack_selection_changed_mediator(self, packs: list[str]) -> None:
@@ -576,11 +537,9 @@ class StableNewGUI:
         # Action bar for explicit config loading
         self._build_action_bar(main_frame)
 
-        # Compact top frame for API status
-        self._build_api_status_frame(main_frame)
-
         # Main content + log splitter so the bottom panel stays visible
         vertical_split = ttk.Panedwindow(main_frame, orient=tk.VERTICAL)
+        self._vertical_split = vertical_split
         vertical_split.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
 
         # Main content frame - optimized layout
@@ -603,10 +562,8 @@ class StableNewGUI:
         # Bottom frame - Compact log and action buttons (resizable split)
         bottom_shell = ttk.Frame(vertical_split, style="Dark.TFrame")
         vertical_split.add(bottom_shell, weight=3)
+        self._bottom_pane = bottom_shell
         self._build_bottom_panel(bottom_shell)
-
-        # Status bar - at the very bottom
-        self._build_status_bar(main_frame)
 
         # Defer all heavy UI state initialization until after Tk mainloop starts
         try:
@@ -630,11 +587,13 @@ class StableNewGUI:
 
     def _build_api_status_frame(self, parent):
         """Build the API status frame using APIStatusPanel."""
-        frame = ttk.Frame(parent, style="Dark.TFrame")
-        frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        frame = ttk.Frame(parent, style="Dark.TFrame", relief=tk.SUNKEN)
+        frame.pack(fill=tk.X, padx=5, pady=(4, 0))
+        frame.configure(height=48)
+        frame.pack_propagate(False)
 
         self.api_status_panel = APIStatusPanel(frame, coordinator=self, style="Dark.TFrame")
-        self.api_status_panel.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.api_status_panel.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
 
         self.check_api_btn = ttk.Button(
             frame,
@@ -749,12 +708,9 @@ class StableNewGUI:
         general_split.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 10))
 
         general_scroll_container = ttk.Frame(general_split, style="Dark.TFrame")
-        general_scroll_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        general_scroll_container.pack(fill=tk.BOTH, expand=True)
         general_canvas, general_body = make_scrollable(general_scroll_container, style="Dark.TFrame")
         self._register_scrollable_section("general", general_canvas, general_body)
-
-        sidebar = ttk.Frame(general_split, style="Dark.TFrame", width=220)
-        sidebar.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
 
         self._build_info_box(
             general_body,
@@ -798,9 +754,6 @@ class StableNewGUI:
             style="Dark.TEntry",
         ).grid(row=1, column=1, sticky=tk.EW, pady=2, padx=(5, 0))
 
-        # Sidebar actions
-        self._build_sidebar_actions(sidebar)
-
         # Advanced editor tab for legacy editor access
         advanced_tab = ttk.Frame(self.center_notebook, style="Dark.TFrame")
         self.center_notebook.add(advanced_tab, text="Advanced Editor")
@@ -810,67 +763,6 @@ class StableNewGUI:
         """Initialize UI state asynchronously after mainloop starts."""
         # Restore UI state from preferences
         self._restore_ui_state_from_preferences()
-
-    def _build_sidebar_actions(self, parent: tk.Widget) -> None:
-        """Build sidebar buttons for pipeline actions and utilities."""
-
-        actions_box = ttk.LabelFrame(parent, text="Pipeline Actions", style="Dark.TLabelframe", padding=8)
-        actions_box.pack(fill=tk.X, pady=(0, 10))
-
-        def add_action_button(container, text, command, tooltip, style="Dark.TButton"):
-            btn = ttk.Button(container, text=text, command=command, style=style)
-            btn.pack(fill=tk.X, pady=4)
-            self._attach_tooltip(btn, tooltip)
-            return btn
-
-        add_action_button(
-            actions_box,
-            "Run Full Pipeline",
-            self._run_full_pipeline,
-            "Process every highlighted pack sequentially using the current configuration. Override mode applies when enabled.",
-            style="Accent.TButton",
-        )
-        add_action_button(
-            actions_box,
-            "txt2img Only",
-            self._run_txt2img_only,
-            "Generate txt2img outputs for the selected pack(s) only.",
-        )
-        add_action_button(
-            actions_box,
-            "Upscale Only",
-            self._run_upscale_only,
-            "Run only the upscale stage for the currently selected outputs (skips txt2img/img2img).",
-        )
-        add_action_button(
-            actions_box,
-            "Create Video",
-            self._create_video,
-            "Combine rendered images into a video file.",
-        )
-
-        utility_box = ttk.LabelFrame(parent, text="Utilities", style="Dark.TLabelframe", padding=8)
-        utility_box.pack(fill=tk.X)
-        add_action_button(
-            utility_box,
-            "Open Output Folder",
-            self._open_output_folder,
-            "Open the output directory in your system file browser.",
-        )
-        add_action_button(
-            utility_box,
-            "Stop Pipeline",
-            self._stop_execution,
-            "Request cancellation of the pipeline run. The current stage finishes before stopping.",
-            style="Danger.TButton",
-        )
-        add_action_button(
-            utility_box,
-            "Exit StableNew",
-            self._graceful_exit,
-            "Gracefully stop background work and close StableNew.",
-            style="Danger.TButton",
-        )
 
     def _restore_ui_state_from_preferences(self):
         """Restore UI state from loaded preferences."""
@@ -904,97 +796,125 @@ class StableNewGUI:
         action_bar = ttk.Frame(parent, style="Dark.TFrame")
         action_bar.pack(fill=tk.X, padx=5, pady=(0, 5))
 
-        # Load Pack Config button
-        load_pack_btn = ttk.Button(
-            action_bar,
-            text="Load Pack Config",
-            command=self._ui_load_pack_config,
-            style="Dark.TButton",
-        )
-        load_pack_btn.pack(side=tk.LEFT, padx=(0, 10))
+        button_width = 28
 
-        # Preset dropdown and load button
-        ttk.Label(action_bar, text="Preset:", style="Dark.TLabel").pack(side=tk.LEFT)
+        def add_toolbar_button(container, column, text, command, tooltip=None, style="Dark.TButton"):
+            btn = ttk.Button(container, text=text, command=command, style=style, width=button_width)
+            btn.grid(row=0, column=column, padx=4, pady=2, sticky="ew")
+            container.grid_columnconfigure(column, weight=1)
+            if tooltip:
+                self._attach_tooltip(btn, tooltip)
+            return btn
+
+        row1 = ttk.Frame(action_bar, style="Dark.TFrame")
+        row1.pack(fill=tk.X, pady=(0, 4))
+        row2 = ttk.Frame(action_bar, style="Dark.TFrame")
+        row2.pack(fill=tk.X)
+
+        add_toolbar_button(
+            row1,
+            0,
+            "Load Pack Config",
+            self._ui_load_pack_config,
+            "Load the selected pack's saved configuration into the editor.",
+        )
+
+        preset_container = ttk.Frame(row1, style="Dark.TFrame")
+        preset_container.grid(row=0, column=1, padx=4, pady=2, sticky="ew")
+        row1.grid_columnconfigure(1, weight=2)
+        ttk.Label(preset_container, text="Preset:", style="Dark.TLabel").pack(side=tk.LEFT)
         self.preset_combobox = ttk.Combobox(
-            action_bar,
+            preset_container,
             textvariable=self.preset_var,
             values=self.config_service.list_presets(),
             state="readonly",
             width=30,
             style="Dark.TCombobox",
         )
-        self.preset_combobox.pack(side=tk.LEFT, padx=(5, 10))
-        load_preset_btn = ttk.Button(
-            action_bar, text="Load Preset", command=self._ui_load_preset, style="Dark.TButton"
+        self.preset_combobox.pack(side=tk.LEFT, padx=(5, 6))
+        preset_load_btn = ttk.Button(
+            preset_container, text="Load Preset", command=self._ui_load_preset, style="Dark.TButton"
         )
-        load_preset_btn.pack(side=tk.LEFT, padx=(0, 10))
+        preset_load_btn.pack(side=tk.LEFT)
+        self._attach_tooltip(preset_load_btn, "Load the selected preset into the editor.")
 
-        # Preset CRUD buttons
-        save_preset_btn = ttk.Button(
-            action_bar,
-            text="Save Editor → Preset…",
-            command=self._ui_save_preset,
-            style="Dark.TButton",
+        add_toolbar_button(
+            row1,
+            2,
+            "Save Editor → Preset",
+            self._ui_save_preset,
+            "Persist the current editor configuration to the active preset slot.",
         )
-        save_preset_btn.pack(side=tk.LEFT, padx=(0, 5))
-        delete_preset_btn = ttk.Button(
-            action_bar, text="Delete Preset…", command=self._ui_delete_preset, style="Dark.TButton"
+        add_toolbar_button(
+            row1,
+            3,
+            "Delete Preset",
+            self._ui_delete_preset,
+            "Remove the selected preset from disk.",
+            style="Danger.TButton",
         )
-        delete_preset_btn.pack(side=tk.LEFT, padx=(0, 20))
 
-        # List management
-        ttk.Label(action_bar, text="List:", style="Dark.TLabel").pack(side=tk.LEFT)
+        list_container = ttk.Frame(row2, style="Dark.TFrame")
+        list_container.grid(row=0, column=0, padx=4, pady=2, sticky="ew")
+        row2.grid_columnconfigure(0, weight=2)
+        ttk.Label(list_container, text="List:", style="Dark.TLabel").pack(side=tk.LEFT)
         self.list_combobox = ttk.Combobox(
-            action_bar,
+            list_container,
             values=self.config_service.list_lists(),
             state="readonly",
             width=24,
             style="Dark.TCombobox",
         )
-        self.list_combobox.pack(side=tk.LEFT, padx=(5, 10))
-        load_list_btn = ttk.Button(
-            action_bar, text="Load List", command=self._ui_load_list, style="Dark.TButton"
+        self.list_combobox.pack(side=tk.LEFT, padx=(5, 6))
+        list_load_btn = ttk.Button(
+            list_container, text="Load List", command=self._ui_load_list, style="Dark.TButton"
         )
-        load_list_btn.pack(side=tk.LEFT, padx=(0, 5))
-        save_list_btn = ttk.Button(
-            action_bar,
-            text="Save Selection as List…",
-            command=self._ui_save_list,
-            style="Dark.TButton",
-        )
-        save_list_btn.pack(side=tk.LEFT, padx=(0, 5))
-        overwrite_list_btn = ttk.Button(
-            action_bar,
-            text="Overwrite Current List",
-            command=self._ui_overwrite_list,
-            style="Dark.TButton",
-        )
-        overwrite_list_btn.pack(side=tk.LEFT, padx=(0, 5))
-        delete_list_btn = ttk.Button(
-            action_bar, text="Delete List…", command=self._ui_delete_list, style="Dark.TButton"
-        )
-        delete_list_btn.pack(side=tk.LEFT)
+        list_load_btn.pack(side=tk.LEFT)
+        self._attach_tooltip(list_load_btn, "Load saved pack selections from the chosen list.")
 
-        # Lock Config button
-        self.lock_button = ttk.Button(
-            action_bar, text="Lock This Config", command=self._ui_toggle_lock, style="Dark.TButton"
+        add_toolbar_button(
+            row2,
+            1,
+            "Save Selection as List",
+            self._ui_save_list,
+            "Persist the current pack selection as a reusable list.",
         )
-        self.lock_button.pack(side=tk.LEFT, padx=(20, 10))
-
-        # Apply Editor to Packs button
-        apply_btn = ttk.Button(
-            action_bar,
-            text="Apply Editor → Pack(s)…",
-            command=self._ui_apply_editor_to_packs,
-            style="Dark.TButton",
+        add_toolbar_button(
+            row2,
+            2,
+            "Overwrite List",
+            self._ui_overwrite_list,
+            "Replace the chosen list with the current selection.",
         )
-        apply_btn.pack(side=tk.LEFT)
-
-        # Preview Payload button
-        preview_btn = ttk.Button(
-            action_bar, text="Preview Payload (Dry Run)", command=self._ui_preview_payload
+        add_toolbar_button(
+            row2,
+            3,
+            "Delete List",
+            self._ui_delete_list,
+            "Remove the chosen list from disk.",
+            style="Danger.TButton",
         )
-        preview_btn.pack(side=tk.LEFT, padx=(10, 0))
+        self.lock_button = add_toolbar_button(
+            row2,
+            4,
+            "Lock This Config",
+            self._ui_toggle_lock,
+            "Prevent accidental edits by locking the current configuration.",
+        )
+        add_toolbar_button(
+            row2,
+            5,
+            "Apply Editor → Pack(s)",
+            self._ui_apply_editor_to_packs,
+            "Push the editor settings into the selected pack(s).",
+        )
+        add_toolbar_button(
+            row2,
+            6,
+            "Preview Payload (Dry Run)",
+            self._preview_payload_dry_run,
+            "Simulate a run and show prompt/variant counts without calling WebUI.",
+        )
 
     def _apply_editor_from_cfg(self, cfg: dict) -> None:
         """Apply config to the editor (config panel)."""
@@ -2651,7 +2571,7 @@ class StableNewGUI:
     def _build_bottom_panel(self, parent):
         """Build bottom panel with logs and action buttons"""
         bottom_frame = ttk.Frame(parent, style="Dark.TFrame")
-        bottom_frame.pack(fill=tk.BOTH, expand=False, pady=(10, 0))
+        bottom_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
 
         # Compact action buttons frame
         actions_frame = ttk.Frame(bottom_frame, style="Dark.TFrame")
@@ -2738,20 +2658,75 @@ class StableNewGUI:
         # Create log panel directly with bottom_frame as parent
         self.log_panel = LogPanel(bottom_frame, coordinator=self, height=18, style="Dark.TFrame")
         self.log_panel.pack(fill=tk.BOTH, expand=True)
+        self.log_panel.pack_propagate(False)
         self.add_log = self.log_panel.append
         self.log_text = getattr(self.log_panel, "log_text", None)
         if self.log_text is not None:
             enable_mousewheel(self.log_text)
+        self._ensure_log_panel_min_height()
 
         # Attach logging handler to redirect standard logging to GUI
         if not hasattr(self, "gui_log_handler"):
             self.gui_log_handler = TkinterLogHandler(self.log_panel)
             logging.getLogger().addHandler(self.gui_log_handler)
 
+        self._build_api_status_frame(bottom_frame)
+        self._build_status_bar(bottom_frame)
+
+    def _ensure_log_panel_min_height(self) -> None:
+        """Ensure the log panel retains a minimum visible height."""
+        if not hasattr(self, "log_panel"):
+            return
+        min_lines = max(1, getattr(self, "_log_min_lines", 7))
+        text_widget = getattr(self.log_panel, "log_text", None)
+        if text_widget is not None:
+            try:
+                current_height = int(text_widget.cget("height"))
+            except Exception:
+                current_height = min_lines
+            if current_height < min_lines:
+                try:
+                    text_widget.configure(height=min_lines)
+                except Exception:
+                    pass
+
+        def _apply_min_height():
+            try:
+                self.log_panel.update_idletasks()
+                line_height = 18
+                try:
+                    if text_widget is not None:
+                        info = text_widget.dlineinfo("1.0")
+                        if info:
+                            line_height = info[3] or line_height
+                except Exception:
+                    pass
+                min_height = int(line_height * min_lines + 60)
+                self.log_panel.configure(height=min_height)
+                self.log_panel.pack_propagate(False)
+                if (
+                    hasattr(self, "_vertical_split")
+                    and hasattr(self, "_bottom_pane")
+                    and getattr(self, "_vertical_split", None) is not None
+                ):
+                    try:
+                        self._vertical_split.paneconfigure(self._bottom_pane, minsize=min_height + 120)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        try:
+            self.root.after(0, _apply_min_height)
+        except Exception:
+            _apply_min_height()
+
     def _build_status_bar(self, parent):
         """Build status bar showing current state"""
         status_frame = ttk.Frame(parent, style="Dark.TFrame", relief=tk.SUNKEN)
-        status_frame.pack(fill=tk.X, pady=(5, 0))
+        status_frame.pack(fill=tk.X, pady=(4, 0))
+        status_frame.configure(height=52)
+        status_frame.pack_propagate(False)
 
         # State indicator
         self.state_label = ttk.Label(
@@ -3363,6 +3338,15 @@ class StableNewGUI:
 
         return config
 
+    def _get_config_snapshot(self) -> dict[str, Any]:
+        """Capture a deep copy of the current form configuration."""
+        try:
+            snapshot = self._get_config_from_forms()
+        except Exception as exc:
+            self.log_message(f"Failed to capture config snapshot: {exc}", "WARNING")
+            snapshot = {}
+        return deepcopy(snapshot or {})
+
     def _attach_summary_traces(self) -> None:
         """Attach change traces to update live summaries."""
         if getattr(self, "_summary_traces_attached", False):
@@ -3656,6 +3640,19 @@ class StableNewGUI:
                             f"🎯 Matrix base_prompt will {verb} pack prompts: {mx_base[:60]}...",
                             "INFO",
                         )
+                pack_variant_estimate, _ = self._estimate_pack_variants(
+                    prompts, deepcopy(rand_cfg)
+                )
+                approx_images = pack_variant_estimate * batch_size_snapshot
+                loop_multiplier = self._safe_int_from_var(self.loop_count_var, 1)
+                if loop_multiplier > 1:
+                    approx_images *= loop_multiplier
+                self.log_message(
+                    f"?? Prediction for {pack_file.name}: {pack_variant_estimate} variant(s) -> "
+                    f"≈ {approx_images} image(s) at {batch_size_snapshot} img/prompt (loops={loop_multiplier})",
+                    "INFO",
+                )
+                self._maybe_warn_large_output(approx_images, f"pack {pack_file.name}")
                 randomizer = PromptRandomizer(rand_cfg)
                 variant_plan = build_variant_plan(config)
                 if variant_plan.active:
@@ -4231,9 +4228,17 @@ class StableNewGUI:
         else:
             messagebox.showinfo("No Output", "Output directory doesn't exist yet")
 
+
+
     def _stop_execution(self):
         """Stop the running pipeline"""
-        if self.controller.stop_pipeline():
+        try:
+            stopping = self.controller.stop_pipeline()
+        except Exception as exc:
+            self.log_message(f"⏹️ Stop failed: {exc}", "ERROR")
+            return
+
+        if stopping:
             self.log_message("⏹️ Stop requested - cancelling pipeline...", "WARNING")
         else:
             self.log_message("⏹️ No pipeline running", "INFO")
@@ -6391,3 +6396,5 @@ class StableNewGUI:
     def _randomize_img2img_seed(self):
         """Generate random seed for img2img"""
         self._randomize_seed("img2img")
+
+

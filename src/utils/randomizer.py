@@ -88,6 +88,21 @@ class PromptRandomizer:
         )
         self._matrix_index = 0
 
+        estimated = self.estimated_matrix_combos()
+        if estimated:
+            logger.info(
+                "Randomizer: matrix slots=%s, limit=%s, precomputed combos=%s",
+                len(self._matrix_slots),
+                self._matrix_limit,
+                estimated,
+            )
+            if self._matrix_limit == 0 and estimated > 1024:
+                logger.warning(
+                    "Randomizer: matrix limit is 0 (unlimited) and %s combos were built; "
+                    "runs may be slow or memory-heavy.",
+                    estimated,
+                )
+
     def generate(self, prompt_text: str) -> list[PromptVariant]:
         """Return one or more prompt variants for the supplied text.
 
@@ -175,6 +190,26 @@ class PromptRandomizer:
             return choices
         return list(replacements)
 
+    def _select_replacements_for_rule(
+        self, rule_index: int, replacements: list[str]
+    ) -> list[str]:
+        """
+        Decide which replacements to use for a given S/R rule.
+
+        - mode == "fanout": use ALL replacements (backward-compatible grid behavior)
+        - mode == "random": use ONE random replacement per rule per prompt
+        - mode == "round_robin": use ONE replacement, cycling through the list over time
+        """
+        choices = self._ordered_sr_choices(rule_index, replacements)
+
+        if self._sr_mode == "fanout":
+            return choices
+
+        if self._sr_mode == "random":
+            return [self._rng.choice(choices)]
+
+        return [choices[0]]
+
     def _expand_prompt_sr(self, text: str) -> list[tuple[str, list[str]]]:
         variants: list[tuple[str, list[str]]] = [(text, [])]
         if not self._sr_rules:
@@ -186,7 +221,7 @@ class PromptRandomizer:
             if not search or not replacements:
                 continue
 
-            choices = self._ordered_sr_choices(idx, replacements)
+            selected_replacements = self._select_replacements_for_rule(idx, replacements)
             applied = False
             new_variants: list[tuple[str, list[str]]] = []
             for current_text, current_labels in variants:
@@ -194,7 +229,7 @@ class PromptRandomizer:
                     new_variants.append((current_text, current_labels))
                     continue
                 applied = True
-                for replacement in choices:
+                for replacement in selected_replacements:
                     replaced_text = current_text.replace(search, replacement)
                     new_labels = current_labels + [f"{search}->{replacement}"]
                     new_variants.append((replaced_text, new_labels))
@@ -214,6 +249,26 @@ class PromptRandomizer:
             return choices
         return list(values)
 
+    def _select_values_for_wildcard(
+        self, token_name: str, values: list[str]
+    ) -> list[str]:
+        """
+        Decide which values to use for a wildcard token.
+
+        - mode == "fanout": use ALL values (backward-compatible grid behavior)
+        - mode == "random": use ONE random value per token per prompt
+        - mode == "sequential": use ONE value, cycling through values over time
+        """
+        choices = self._ordered_wildcard_values(token_name, values)
+
+        if self._wildcard_mode == "fanout":
+            return choices
+
+        if self._wildcard_mode == "random":
+            return [self._rng.choice(choices)]
+
+        return [choices[0]]
+
     def _expand_wildcards(self, text: str, base_labels: list[str]) -> list[tuple[str, list[str]]]:
         variants: list[tuple[str, list[str]]] = [(text, base_labels)]
         if not self._wildcard_tokens:
@@ -225,7 +280,7 @@ class PromptRandomizer:
             if not token_name or not values:
                 continue
 
-            choices = self._ordered_wildcard_values(token_name, values)
+            selected_values = self._select_values_for_wildcard(token_name, values)
             applied = False
             new_variants: list[tuple[str, list[str]]] = []
             for current_text, current_labels in variants:
@@ -233,7 +288,7 @@ class PromptRandomizer:
                     new_variants.append((current_text, current_labels))
                     continue
                 applied = True
-                for value in choices:
+                for value in selected_values:
                     replaced_text = current_text.replace(token_name, value)
                     new_labels = current_labels + [f"{token_name}={value}"]
                     new_variants.append((replaced_text, new_labels))
@@ -372,6 +427,16 @@ class PromptRandomizer:
 
         matrix_total = max(1, matrix_count)
         return max(1, sr_total) * max(1, wildcard_total) * matrix_total
+
+    def estimated_matrix_combos(self) -> int:
+        """Return how many matrix combinations were pre-computed."""
+        if not self._matrix_enabled or not self._matrix_slots:
+            return 0
+        if not self._matrix_combos:
+            return 0
+        if len(self._matrix_combos) == 1 and self._matrix_combos[0] is None:
+            return 0
+        return len(self._matrix_combos)
 
 
 # --- Minimal stubs for missing functions ---

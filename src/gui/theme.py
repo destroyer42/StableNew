@@ -143,6 +143,11 @@ class Theme:
             "TCheckbutton",
             background=[("active", ASWF_BLACK)],
             foreground=[("active", ASWF_GOLD)],
+            indicatorcolor=[
+                ("selected", "#00ff00"),
+                ("alternate", "#00ff00"),
+                ("!selected", "#ffffff"),
+            ],
         )
         style.configure(
             "Vertical.TScrollbar",
@@ -259,6 +264,11 @@ class Theme:
             "Dark.TCheckbutton",
             background=[("active", ASWF_BLACK)],
             foreground=[("active", ASWF_GOLD)],
+            indicatorcolor=[
+                ("selected", "#00ff00"),
+                ("alternate", "#00ff00"),
+                ("!selected", "#ffffff"),
+            ],
         )
 
         # Spinbox styling (increment boxes)
