@@ -41,11 +41,20 @@ Write-Host "Repo:   $RepoPath"
 Write-Host "Output: $ZipOutputFolder"
 Write-Host ""
 
-# ---------- Ensure 7-Zip Exists ----------
+# Try PATH first
 $sevenZip = Get-Command "7z" -ErrorAction SilentlyContinue
+
+# Fallback to default installation path
+if (-not $sevenZip) {
+    $default7z = "C:\Program Files\7-Zip\7z.exe"
+    if (Test-Path $default7z) {
+        $sevenZip = $default7z
+    }
+}
+
 if (-not $sevenZip) {
     Write-Host "ERROR: 7-Zip is not installed or not in PATH." -ForegroundColor Red
-    Write-Host "Download from: https://www.7-zip.org/"
+    Write-Host "Expected at: C:\Program Files\7-Zip\7z.exe"
     exit 1
 }
 
@@ -118,21 +127,20 @@ Write-Host ""
 # ---------- Run 7-Zip with Exclusions ----------
 Write-Host "Running 7-Zip with exclusions..." -ForegroundColor Yellow
 
-# Note: we include everything under $RepoPath except noisy / heavy folders.
-& 7z a `
+& $sevenZip a `
     $ZipOutputPath `
     "$RepoPath\*" `
-    -tzip `
-    -xr!output\ `
-    -xr!archive\ `
-    -xr!venv\ `
-    -xr!__pycache__\ `
-    -xr!.pytest_cache\ `
-    -xr!models\ `
-    -xr!.git\ `
-    -xr!dist\ `
-    -xr!build\ `
-    -xr!*.log
+    "-tzip" `
+    "-xr!output\*" `
+    "-xr!archive\*" `
+    "-xr!venv\*" `
+    "-xr!__pycache__\*" `
+    "-xr!.pytest_cache\*" `
+    "-xr!models\*" `
+    "-xr!.git\*" `
+    "-xr!dist\*" `
+    "-xr!build\*" `
+    "-xr!*.log"
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host ""

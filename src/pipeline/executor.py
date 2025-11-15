@@ -1,5 +1,6 @@
 """Pipeline execution module"""
 
+import base64
 import json
 import logging
 import re
@@ -7,6 +8,7 @@ import time
 from copy import deepcopy
 from datetime import datetime
 from functools import lru_cache
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -954,6 +956,12 @@ class Pipeline:
             logger.error("Failed to load input image")
             return None
 
+        if hasattr(self.client, "ensure_safe_upscale_defaults"):
+            try:
+                self.client.ensure_safe_upscale_defaults()
+            except Exception as exc:  # noqa: BLE001 - best-effort clamp
+                logger.debug("ensure_safe_upscale_defaults failed: %s", exc)
+
         response = self.client.upscale_image(
             init_image,
             upscaler=config.get("upscaler", "R-ESRGAN 4x+"),
@@ -1018,11 +1026,16 @@ class Pipeline:
         logger.info("Starting full pipeline execution")
 
         # Check pipeline stage configuration
-        img2img_enabled = config.get("pipeline", {}).get("img2img_enabled", True)
-        upscale_enabled = config.get("pipeline", {}).get("upscale_enabled", True)
+        pipeline_cfg: dict[str, Any] = config.get("pipeline", {}) or {}
+        img2img_enabled: bool = pipeline_cfg.get("img2img_enabled", True)
+        upscale_enabled: bool = pipeline_cfg.get("upscale_enabled", True)
+        upscale_only_last: bool = pipeline_cfg.get("upscale_only_last", False)
 
         logger.info(
-            f"Pipeline stages: txt2img=ON, img2img={'ON' if img2img_enabled else 'SKIP'}, upscale={'ON' if upscale_enabled else 'SKIP'}"
+            "Pipeline stages: txt2img=ON, img2img=%s, upscale=%s (upscale_only_last=%s)",
+            "ON" if img2img_enabled else "SKIP",
+            "ON" if upscale_enabled else "SKIP",
+            upscale_only_last,
         )
         logger.info("=" * 60)
 
@@ -1086,6 +1099,17 @@ class Pipeline:
             return results
 
         total_images = len(txt2img_results)
+
+        txt2img_cfg = config.get("txt2img", {}) or {}
+        diag_batch_size = txt2img_cfg.get("batch_size", batch_size)
+        diag_n_iter = txt2img_cfg.get("n_iter", 1)
+        logger.info(
+            "PIPELINE DIAG: txt2img produced %d images (batch_size=%s, n_iter=%s)",
+            total_images,
+            diag_batch_size,
+            diag_n_iter,
+        )
+
         per_image_units = int(bool(img2img_enabled)) + int(bool(upscale_enabled))
         if per_image_units and total_images:
             total_units = 1 + total_images * per_image_units
@@ -1124,7 +1148,9 @@ class Pipeline:
 
             self._ensure_not_cancelled(cancel_token, "pipeline pre-upscale")
 
-            if upscale_enabled:
+            do_upscale = upscale_enabled and (not upscale_only_last or index == total_images)
+
+            if do_upscale:
                 emit(f"upscale ({image_label})", completed_units)
                 upscaled_meta = self.run_upscale(
                     Path(last_image_path), config.get("upscale", {}), run_dir, cancel_token
@@ -1141,7 +1167,15 @@ class Pipeline:
                 completed_units += 1
                 emit(f"upscale ({image_label})", completed_units)
             else:
-                logger.info(f"⊘ upscale skipped for {Path(last_image_path).name}")
+                if upscale_enabled and upscale_only_last:
+                    logger.info(
+                        "⊘ upscale skipped for %s (upscale_only_last=True, index=%d/%d)",
+                        Path(last_image_path).name,
+                        index,
+                        total_images,
+                    )
+                else:
+                    logger.info(f"⊘ upscale skipped for {Path(last_image_path).name}")
                 final_image_path = last_image_path
 
             summary_entry = {
@@ -1990,22 +2024,36 @@ class Pipeline:
 
             upscale_mode = config.get("upscale_mode", "single")
 
+            if hasattr(self.client, "ensure_safe_upscale_defaults"):
+                try:
+                    self.client.ensure_safe_upscale_defaults()
+                except Exception as exc:  # noqa: BLE001 - best-effort safety clamp
+                    logger.debug("ensure_safe_upscale_defaults failed: %s", exc)
+
             if upscale_mode == "img2img":
                 # Use img2img for upscaling with denoising
                 # First get original image dimensions to calculate target size
-                import base64
-                from io import BytesIO
-
-                from PIL import Image
-
-                # Decode image to get dimensions
-                image_data = base64.b64decode(input_image_b64)
-                pil_image = Image.open(BytesIO(image_data))
-                orig_width, orig_height = pil_image.size
+                try:
+                    image_bytes = base64.b64decode(input_image_b64)
+                    with Image.open(BytesIO(image_bytes)) as pil_image:
+                        orig_width, orig_height = pil_image.size
+                except Exception as exc:
+                    logger.error("Failed to inspect image dimensions for upscale: %s", exc)
+                    return None
 
                 upscale_factor = config.get("upscaling_resize", 2.0)
                 target_width = int(orig_width * upscale_factor)
                 target_height = int(orig_height * upscale_factor)
+
+                logger.info(
+                    "UPSCALE DIAG: mode=img2img, upscaler=%s, resize=%s, input=%sx%s, target=%sx%s",
+                    config.get("upscaler", "R-ESRGAN 4x+"),
+                    upscale_factor,
+                    orig_width,
+                    orig_height,
+                    target_width,
+                    target_height,
+                )
 
                 payload = {
                     "init_images": [input_image_b64],
@@ -2068,6 +2116,29 @@ class Pipeline:
                 gfpgan_vis = config.get("gfpgan_visibility", 0.0)
                 codeformer_vis = config.get("codeformer_visibility", 0.0)
                 codeformer_weight = config.get("codeformer_weight", 0.5)
+
+                orig_width: int | None = None
+                orig_height: int | None = None
+                try:
+                    image_bytes = base64.b64decode(input_image_b64)
+                    with Image.open(BytesIO(image_bytes)) as pil_image:
+                        orig_width, orig_height = pil_image.size
+                except Exception as exc:
+                    logger.warning(
+                        "UPSCALE DIAG: failed to read input size for %s: %s",
+                        input_image_path.name,
+                        exc,
+                    )
+
+                logger.info(
+                    "UPSCALE DIAG: mode=single, upscaler=%s, resize=%s, input=%sx%s, target=%sx%s",
+                    upscaler,
+                    upscaling_resize,
+                    orig_width if orig_width is not None else "?",
+                    orig_height if orig_height is not None else "?",
+                    int(orig_width * upscaling_resize) if orig_width is not None else "?",
+                    int(orig_height * upscaling_resize) if orig_height is not None else "?",
+                )
 
                 # Prepare payload for metadata regardless of call method
                 payload = {
