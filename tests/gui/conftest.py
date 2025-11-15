@@ -69,6 +69,45 @@ def wait_until_tk(
     raise TimeoutError(f"Condition not met within {timeout} seconds")
 
 
+def pump_events_until(
+    root: tk.Misc,
+    predicate: Callable[[], Any],
+    timeout: float = 3.0,
+    poll_interval: float = 0.01,
+) -> Any:
+    """
+    Pump Tk events until `predicate()` returns truthy or timeout expires.
+
+    Raises TimeoutError if the predicate never succeeds.
+    """
+    end = time.monotonic() + timeout
+
+    while time.monotonic() < end:
+        try:
+            root.update_idletasks()
+            root.update()
+        except tk.TclError:
+            pass
+
+        value = predicate()
+        if value:
+            return value
+
+        time.sleep(poll_interval)
+
+    raise TimeoutError("Timed out waiting for predicate in pump_events_until")
+
+
+def create_tk_root() -> tk.Tk:
+    """
+    Attempt to create a Tk root window, skipping if Tcl/Tk is unavailable.
+    """
+    try:
+        return tk.Tk()
+    except tk.TclError as exc:
+        pytest.skip(f"Tkinter/Tcl not available: {exc}")
+
+
 @pytest.fixture
 def tk_root():
     """Provide a Tk root window or skip if not available."""
@@ -76,11 +115,8 @@ def tk_root():
         # Allow CI setups to inject their own xvfb display
         os.environ.setdefault("DISPLAY", ":99")
 
-    try:
-        root = tk.Tk()
-        root.withdraw()
-    except tk.TclError:
-        pytest.skip("Tk not available in headless environment")
+    root = create_tk_root()
+    root.withdraw()
 
     yield root
 

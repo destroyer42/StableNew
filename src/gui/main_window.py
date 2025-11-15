@@ -21,6 +21,7 @@ from src.gui.advanced_prompt_editor import AdvancedPromptEditor
 from src.gui.api_status_panel import APIStatusPanel
 from src.gui.config_panel import ConfigPanel
 from src.gui.enhanced_slider import EnhancedSlider
+from src.gui.engine_settings_dialog import EngineSettingsDialog
 from src.gui.log_panel import LogPanel, TkinterLogHandler
 from src.gui.pipeline_controls_panel import PipelineControlsPanel
 from src.gui.prompt_pack_panel import PromptPackPanel
@@ -115,6 +116,7 @@ class StableNewGUI:
         self.root.geometry(geometry)
         self.window_min_size = (1024, 720)
         self.root.minsize(*self.window_min_size)
+        self._build_menu_bar()
 
         # Initialize theme
         self.theme = Theme()
@@ -1013,6 +1015,20 @@ class StableNewGUI:
             "Simulate a run and show prompt/variant counts without calling WebUI.",
         )
 
+    def _build_menu_bar(self) -> None:
+        """Construct the top-level menu bar."""
+
+        menubar = tk.Menu(self.root)
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu.add_command(
+            label="Engine settings...",
+            command=self._open_engine_settings_dialog,
+        )
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+        self.root.config(menu=menubar)
+        self._menubar = menubar
+        self._settings_menu = settings_menu
+
     def _apply_editor_from_cfg(self, cfg: dict) -> None:
         """Apply config to the editor (config panel)."""
         if not cfg:
@@ -1043,6 +1059,26 @@ class StableNewGUI:
             self._unlock_config()
         else:
             self._lock_config()
+
+    def _open_engine_settings_dialog(self) -> None:
+        """Open the Engine Settings dialog wired to WebUI options."""
+
+        if self.client is None:
+            messagebox.showerror(
+                "Engine Settings",
+                "Connect to the Stable Diffusion API before editing engine settings.",
+            )
+            return
+
+        try:
+            self._add_log_message("⚙️ Opening Engine Settings dialog…")
+        except Exception:
+            pass
+
+        try:
+            EngineSettingsDialog(self.root, self.client)
+        except Exception as exc:
+            messagebox.showerror("Engine Settings", f"Unable to open dialog: {exc}")
 
     def _lock_config(self) -> None:
         """Lock the current config."""
@@ -6420,9 +6456,16 @@ class StableNewGUI:
                 {s.get("name", "") for s in samplers if s.get("name")},
                 key=str.lower,
             )
+            self.sampler_names = list(sampler_names)
             if hasattr(self, "config_panel"):
-                self.config_panel.set_sampler_options(sampler_names)
-            self.log_message(f"🔄 Loaded {len(samplers)} samplers")
+                self.config_panel.set_sampler_options(self.sampler_names)
+            if hasattr(self, "pipeline_controls_panel"):
+                panel = self.pipeline_controls_panel
+                if hasattr(panel, "set_sampler_options"):
+                    panel.set_sampler_options(self.sampler_names)
+                elif hasattr(panel, "refresh_dynamic_lists_from_api"):
+                    panel.refresh_dynamic_lists_from_api(self.client)
+            self._add_log_message(f"✅ Loaded {len(samplers)} samplers from API")
         except Exception as exc:
             messagebox.showerror("Error", f"Failed to refresh samplers: {exc}")
 
@@ -6447,14 +6490,15 @@ class StableNewGUI:
                 self.sampler_names = list(names)
 
                 def update_widgets():
-                    self._add_log_message(f"🔄 Loaded {len(samplers)} samplers")
+                    self._add_log_message(f"✅ Loaded {len(samplers)} samplers from API")
                     if hasattr(self, "config_panel"):
                         self.config_panel.set_sampler_options(self.sampler_names)
                     if hasattr(self, "pipeline_controls_panel"):
-                        # Let the pipeline controls refresh any sampler-based lists, too
-                        self.pipeline_controls_panel.refresh_dynamic_lists_from_api(
-                            self.client
-                        )
+                        panel = self.pipeline_controls_panel
+                        if hasattr(panel, "set_sampler_options"):
+                            panel.set_sampler_options(self.sampler_names)
+                        elif hasattr(panel, "refresh_dynamic_lists_from_api"):
+                            panel.refresh_dynamic_lists_from_api(self.client)
 
                 self.root.after(0, update_widgets)
             except Exception as exc:
@@ -6475,49 +6519,54 @@ class StableNewGUI:
 
         try:
             upscalers = self.client.get_upscalers()
-            upscaler_names = [
-                upscaler.get("name", "") for upscaler in upscalers if upscaler.get("name")
-            ]
-
+            upscaler_names = sorted(
+                {u.get("name", "") for u in upscalers if u.get("name")},
+                key=str.lower,
+            )
+            self.upscaler_names = list(upscaler_names)
             if hasattr(self, "config_panel"):
-                self.config_panel.set_upscaler_options(upscaler_names)
-
-            self.log_message(f"🔄 Loaded {len(upscalers)} upscalers")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to refresh upscalers: {e}")
+                self.config_panel.set_upscaler_options(self.upscaler_names)
+            if hasattr(self, "pipeline_controls_panel"):
+                panel = self.pipeline_controls_panel
+                if hasattr(panel, "set_upscaler_options"):
+                    panel.set_upscaler_options(self.upscaler_names)
+                elif hasattr(panel, "refresh_dynamic_lists_from_api"):
+                    panel.refresh_dynamic_lists_from_api(self.client)
+            if hasattr(self, "upscaler_combo"):
+                self.upscaler_combo["values"] = tuple(self.upscaler_names)
+            self._add_log_message(f"✅ Loaded {len(upscalers)} upscalers from API")
+        except Exception as exc:
+            messagebox.showerror("Error", f"Failed to refresh upscalers: {exc}")
 
     def _refresh_upscalers_async(self):
         """Refresh the list of available upscalers (thread-safe version)"""
-        from functools import partial
-
         if self.client is None:
             # Schedule error message on main thread
             self.root.after(0, lambda: messagebox.showerror("Error", "API client not connected"))
             return
 
         try:
-            # Perform API call in worker thread
             upscalers = self.client.get_upscalers()
-            upscaler_names_local = [
-                upscaler.get("name", "") for upscaler in upscalers if upscaler.get("name")
-            ]
-
-            # Store in instance attribute
+            upscaler_names_local = sorted(
+                {u.get("name", "") for u in upscalers if u.get("name")},
+                key=str.lower,
+            )
             self.upscaler_names = list(upscaler_names_local)
 
-            # Marshal widget updates back to main thread
             def update_widgets():
                 if hasattr(self, "upscaler_combo"):
                     self.upscaler_combo["values"] = tuple(self.upscaler_names)
-                self._add_log_message(f"🔄 Loaded {len(upscalers)} upscalers")
+                self._add_log_message(f"✅ Loaded {len(upscalers)} upscalers from API")
+                if hasattr(self, "config_panel"):
+                    self.config_panel.set_upscaler_options(self.upscaler_names)
+                if hasattr(self, "pipeline_controls_panel"):
+                    panel = self.pipeline_controls_panel
+                    if hasattr(panel, "set_upscaler_options"):
+                        panel.set_upscaler_options(self.upscaler_names)
+                    elif hasattr(panel, "refresh_dynamic_lists_from_api"):
+                        panel.refresh_dynamic_lists_from_api(self.client)
 
             self.root.after(0, update_widgets)
-
-            # Also update config panel if present using partial to capture value
-            if hasattr(self, "config_panel"):
-                self.root.after(
-                    0, partial(self.config_panel.set_upscaler_options, list(self.upscaler_names))
-                )
 
         except Exception as exc:
             # Marshal error message back to main thread
@@ -6611,7 +6660,6 @@ class StableNewGUI:
     def _randomize_img2img_seed(self):
         """Generate random seed for img2img"""
         self._randomize_seed("img2img")
-
 
 
 

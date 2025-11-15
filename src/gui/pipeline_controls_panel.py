@@ -115,9 +115,51 @@ class PipelineControlsPanel(ttk.Frame):
         finally:
             self._suspend_callbacks = False
 
-    def refresh_dynamic_lists_from_api(self, _client) -> None:
-        """Placeholder for future dynamic dropdowns (no-op for now)."""
-        return
+    def refresh_dynamic_lists_from_api(self, client) -> None:
+        """Update cached sampler/upscaler lists from the API client."""
+
+        if client is None:
+            return
+
+        try:
+            sampler_entries = getattr(client, "samplers", []) or []
+            sampler_names = [entry.get("name", "") for entry in sampler_entries if entry.get("name")]
+            self.set_sampler_options(sampler_names)
+        except Exception:
+            logger.exception("PipelineControlsPanel: Failed to refresh sampler options from API")
+
+        try:
+            upscaler_entries = getattr(client, "upscalers", []) or []
+            upscaler_names = [entry.get("name", "") for entry in upscaler_entries if entry.get("name")]
+            self.set_upscaler_options(upscaler_names)
+        except Exception:
+            logger.exception("PipelineControlsPanel: Failed to refresh upscaler options from API")
+
+    def set_sampler_options(self, sampler_names: list[str]) -> None:
+        """Cache sampler names for future pipeline controls."""
+
+        cleaned: list[str] = []
+        for name in sampler_names or []:
+            if not name:
+                continue
+            text = str(name).strip()
+            if text and text not in cleaned:
+                cleaned.append(text)
+        cleaned.sort(key=str.lower)
+        self._sampler_options = cleaned
+
+    def set_upscaler_options(self, upscaler_names: list[str]) -> None:
+        """Cache upscaler names for future pipeline controls."""
+
+        cleaned: list[str] = []
+        for name in upscaler_names or []:
+            if not name:
+                continue
+            text = str(name).strip()
+            if text and text not in cleaned:
+                cleaned.append(text)
+        cleaned.sort(key=str.lower)
+        self._upscaler_options = cleaned
 
     """
     A UI panel for pipeline execution controls.
@@ -157,6 +199,8 @@ class PipelineControlsPanel(ttk.Frame):
         self._on_change = on_change
         self._suspend_callbacks = False
         self._trace_handles: list[tuple[tk.Variable, str]] = []
+        self._sampler_options: list[str] = []
+        self._upscaler_options: list[str] = []
 
         # Initialize control variables
         self._init_variables()

@@ -62,7 +62,7 @@ def _mock_webui_discovery(monkeypatch):
         import src.api.client as api_client  # type: ignore
 
         current_test = os.environ.get("PYTEST_CURRENT_TEST", "")
-        if "tests/test_api.py" not in current_test:
+        if "tests/test_api.py" not in current_test and "tests/test_api_client.py" not in current_test:
             monkeypatch.setattr(
                 api_client.SDWebUIClient,
                 "check_api_ready",

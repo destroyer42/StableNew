@@ -1,10 +1,10 @@
 {
   "txt2img": {
-    "steps": 34,
-    "cfg_scale": 6.1,
-    "width": 1024,
-    "height": 1024,
-    "sampler_name": "DPM++ 2M SDE",
+    "steps": 28,
+    "cfg_scale": 6.5,
+    "width": 1216,
+    "height": 832,
+    "sampler_name": "DPM++ 2M",
     "scheduler": "Karras",
     "seed": -1,
     "clip_skip": 2,
@@ -43,7 +43,7 @@
     "negative_adjust": ""
   },
   "upscale": {
-    "upscaler": "R-ESRGAN 4x+",
+    "upscaler": "4x-UltraSharpV2",
     "upscaling_resize": 2.0,
     "upscale_mode": "single",
     "steps": 15,
@@ -68,8 +68,8 @@
     "apply_global_negative_img2img": false,
     "apply_global_negative_upscale": false,
     "apply_global_negative_adetailer": false,
-    "loop_type": "single",
-    "loop_count": 1,
+    "loop_type": "pipeline",
+    "loop_count": 3,
     "pack_mode": "selected",
     "images_per_prompt": 1,
     "model_matrix": [],
@@ -91,7 +91,7 @@
   "randomization": {
     "enabled": true,
     "prompt_sr": {
-      "enabled": false,
+      "enabled": true,
       "mode": "random",
       "rules": [
         {
@@ -188,7 +188,7 @@
     },
     "matrix": {
       "enabled": true,
-      "mode": "fanout",
+      "mode": "rotate",
       "prompt_mode": "prepend",
       "limit": 0,
       "slots": [
@@ -269,5 +269,6 @@
     "text": "paradise",
     "text_is_negative": false,
     "fallback_prompt": ""
-  }
+  },
+  "preset_name": "Beast_Boss_Juggernaut_SDXL"
 }

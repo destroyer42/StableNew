@@ -2,7 +2,10 @@
 
 import tkinter as tk
 
+import pytest
+
 from src.gui.main_window import StableNewGUI
+from tests.gui.conftest import pump_events_until
 
 
 class DummyConfigService:
@@ -54,10 +57,35 @@ class TestFunctionalButtons:
         assert gui.config_panel.txt2img_vars["steps"].get() == 42
         assert gui.pipeline_controls_panel.loop_count_var.get() == "3"
 
-    def test_load_list_selects_packs(self, tk_root):
+    @pytest.mark.timeout(5)
+    def test_load_list_selects_packs(self, tk_root, monkeypatch):
         gui = self._prepare_gui(tk_root)
+
+        # Suppress modal dialogs that would otherwise block the test run.
+        monkeypatch.setattr(
+            "src.gui.main_window.messagebox.showinfo",
+            lambda *_, **__: None,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "src.gui.main_window.messagebox.showwarning",
+            lambda *_, **__: None,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "src.gui.main_window.messagebox.showerror",
+            lambda *_, **__: None,
+            raising=False,
+        )
+
         gui.list_combobox.set("Favorites")
         gui._ui_load_list()
+
+        pump_events_until(
+            tk_root,
+            lambda: gui.prompt_pack_panel.get_selected_packs(),
+            timeout=3.0,
+        )
 
         selected = gui.prompt_pack_panel.get_selected_packs()
         assert selected == ["PackA", "PackB"]
