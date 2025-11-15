@@ -66,3 +66,6 @@ Thumbs.db
 
 # Pre-commit
 .pre-commit-cache/
+
+# Snapshot helpers
+tools/last_change.diff
