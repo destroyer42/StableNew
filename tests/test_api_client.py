@@ -1,5 +1,7 @@
 """Test API client functionality"""
 
+from unittest.mock import MagicMock
+
 import requests
 import requests_mock
 
@@ -81,3 +83,35 @@ class TestSDWebUIClient:
             m.get(f"{API_BASE_URL}/sdapi/v1/options", json={"sd_model_checkpoint": "current_model"})
             model = self.client.get_current_model()
             assert model == "current_model"
+
+    def test_get_options_success(self):
+        """Ensure get_options returns parsed dict."""
+        with requests_mock.Mocker() as m:
+            m.get(f"{API_BASE_URL}/sdapi/v1/options", json={"jpeg_quality": 80})
+            opts = self.client.get_options()
+            assert opts["jpeg_quality"] == 80
+
+    def test_update_options_posts_payload(self):
+        """Ensure update_options POSTs with the provided payload."""
+        with requests_mock.Mocker() as m:
+            m.post(f"{API_BASE_URL}/sdapi/v1/options", json={"ok": True})
+            payload = {"jpeg_quality": 90}
+            updated = self.client.update_options(payload)
+            assert updated["ok"] is True
+            assert m.last_request.json() == payload
+
+    def test_apply_upscale_performance_defaults_posts_options(self):
+        """Ensure upscale defaults call POST /options exactly once."""
+        client = SDWebUIClient()
+        client._perform_request = MagicMock(return_value=object())
+
+        client.apply_upscale_performance_defaults()
+
+        client._perform_request.assert_called_once()
+        args, kwargs = client._perform_request.call_args
+        assert args[0] == "post"
+        assert args[1] == "/sdapi/v1/options"
+        payload = kwargs["json"]
+        assert payload["img_max_size_mp"] == 16
+        assert "ESRGAN_tile" in payload
+        assert "DAT_tile" in payload

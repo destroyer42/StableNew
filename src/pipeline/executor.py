@@ -45,6 +45,7 @@ class Pipeline:
         self._current_vae: str | None = None
         self._current_hypernetwork: str | None = None
         self._current_hn_strength: float | None = None
+        self._webui_defaults_applied = False
 
     def _clean_metadata_payload(self, payload: Any) -> Any:
         """Remove large binary blobs (e.g., base64 images) from metadata payloads."""
@@ -71,6 +72,25 @@ class Pipeline:
         """Attach a progress reporting controller."""
 
         self.progress_controller = controller
+
+    def _apply_webui_defaults_once(self) -> None:
+        """
+        Apply StableNew-required WebUI defaults (metadata, upscale safety) once per run.
+        """
+
+        if self._webui_defaults_applied:
+            return
+
+        try:
+            if hasattr(self.client, "apply_metadata_defaults"):
+                self.client.apply_metadata_defaults()
+
+            if hasattr(self.client, "apply_upscale_performance_defaults"):
+                self.client.apply_upscale_performance_defaults()
+
+            self._webui_defaults_applied = True
+        except Exception as exc:
+            logger.warning("Could not apply WebUI defaults: %s", exc)
 
     # ------------------------------------------------------------------
     # Internal helpers for throughput improvements
@@ -522,6 +542,7 @@ class Pipeline:
         if config.get("styles"):
             payload["styles"] = config["styles"]
 
+        self._apply_webui_defaults_once()
         response = self.client.txt2img(payload)
 
         # Check for cancellation after API call
@@ -633,6 +654,7 @@ class Pipeline:
         if config.get("styles"):
             payload["styles"] = config["styles"]
 
+        self._apply_webui_defaults_once()
         response = self.client.txt2img(payload)
 
         # Check for cancellation after API call
@@ -1701,6 +1723,7 @@ class Pipeline:
             logger.debug(f"🚀 Sending txt2img payload: {json.dumps(payload, indent=2)}")
 
             # Generate image
+            self._apply_webui_defaults_once()
             response = self.client.txt2img(payload)
             if not response or "images" not in response or not response["images"]:
                 logger.error("txt2img failed - no images returned")

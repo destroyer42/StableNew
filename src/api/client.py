@@ -164,6 +164,41 @@ class SDWebUIClient:
         self._option_keys = {str(k) for k in data.keys()}
         return self._option_keys
 
+    def apply_upscale_performance_defaults(self) -> None:
+        """
+        Apply conservative tiling and resolution defaults to the WebUI options.
+
+        Best-effort: failures are logged but do not raise.
+        """
+
+        payload = {
+            "img_max_size_mp": 16,
+            "ESRGAN_tile": 1920,
+            "ESRGAN_tile_overlap": 64,
+            "DAT_tile": 1920,
+            "DAT_tile_overlap": 64,
+            "upscaling_max_images_in_cache": 8,
+        }
+
+        try:
+            response = self._perform_request(
+                "post",
+                "/sdapi/v1/options",
+                json=payload,
+                timeout=30,
+            )
+            if response is None:
+                raise RuntimeError("No response from /sdapi/v1/options")
+
+            logger.info(
+                "Applied WebUI upscale defaults: img_max_size_mp=%s, ESRGAN_tile=%s, DAT_tile=%s",
+                payload.get("img_max_size_mp"),
+                payload.get("ESRGAN_tile"),
+                payload.get("DAT_tile"),
+            )
+        except Exception as exc:  # noqa: BLE001 - log and continue
+            logger.warning("Failed to apply WebUI upscale defaults: %s", exc)
+
     def check_api_ready(self, max_retries: int = 5, retry_delay: float = 2.0) -> bool:
         """
         Check if the API is ready to accept requests.
@@ -638,6 +673,44 @@ class SDWebUIClient:
         response = self._perform_request("get", "/sdapi/v1/sd-models", timeout=10)
         if response is None:
             return []
+
+    def get_options(self) -> dict[str, Any]:
+        """
+        Retrieve the current WebUI global options.
+        """
+
+        response = self._perform_request("get", "/sdapi/v1/options", timeout=10)
+        if response is None:
+            raise RuntimeError("Failed to retrieve WebUI options")
+
+        try:
+            return response.json()
+        except ValueError as exc:  # noqa: PERF203 - explicit exception handling
+            logger.error("Failed to parse WebUI options response: %s", exc)
+            raise
+
+    def update_options(self, updates: dict[str, Any]) -> dict[str, Any]:
+        """
+        Partially update WebUI options.
+
+        Args:
+            updates: Mapping of option name -> value.
+        """
+
+        response = self._perform_request(
+            "post",
+            "/sdapi/v1/options",
+            json=updates,
+            timeout=15,
+        )
+        if response is None:
+            raise RuntimeError("Failed to update WebUI options")
+
+        try:
+            return response.json()
+        except ValueError as exc:
+            logger.error("Failed to parse WebUI options update response: %s", exc)
+            raise
 
         try:
             return response.json()

@@ -18,6 +18,7 @@ except tk.TclError:
     pytest.skip("Tk/Tcl unavailable in this environment", allow_module_level=True)
 
 from src.gui.api_status_panel import APIStatusPanel
+from tests.gui.conftest import create_tk_root
 
 
 class TestAPIStatusPanel:
@@ -25,7 +26,7 @@ class TestAPIStatusPanel:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.root = tk.Tk()
+        self.root = create_tk_root()
         self.root.withdraw()
 
     def teardown_method(self):

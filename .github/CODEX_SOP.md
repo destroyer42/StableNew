@@ -79,6 +79,19 @@ This SOP exists so that:
 - **Do not** redesign core parts of the app without a GPT-approved spec.
 
 ---
+## Prompt Packs & Randomization Presets
+
+- All medieval / fantasy work must stay compatible with:
+  - `presets/medieval_heroes_master_realistic_v1.json`
+  - `presets/medieval_heroes_master_fantasy_v1.json`
+  - `presets/Juggernaut_MedievalHeroes_RandomizerAligned_v1b.json`
+- New packs should follow the token patterns used in:
+  - `packs/SDXL_female_heroes_*_v1*.txt`
+  - `packs/SDXL_male_heroes_*_v1*.txt`
+  - `packs/SDXL_myth_beasts_*_v1*.txt`
+  - `packs/SDXL_epic_structures_*_v1*.txt`
+  - `packs/SDXL_angelic_warriors_*_v1*.txt`
+  - `packs/SDXL_beautiful_women_*_v1*.txt`
 
 ## Branch and PR Discipline
 
