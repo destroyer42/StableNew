@@ -2,10 +2,10 @@
 * @destroyer42
 
 # GUI-related files
-src/gui/* @destroyer42
+src/gui/* @StableNew GUI/UX
 
 # Tests
-tests/** @destroyer42
+tests/** @StableNew Tester
 
 # Docs
-docs/** @destroyer42
+docs/** @StableNew Documentor

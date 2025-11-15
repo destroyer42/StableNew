@@ -115,3 +115,50 @@ class TestSDWebUIClient:
         assert payload["img_max_size_mp"] == 16
         assert "ESRGAN_tile" in payload
         assert "DAT_tile" in payload
+
+    def test_ensure_safe_upscale_defaults_clamps_values(self):
+        """ensure_safe_upscale_defaults should clamp oversized values and POST payload."""
+        client = SDWebUIClient()
+
+        with requests_mock.Mocker() as m:
+            m.get(
+                f"{API_BASE_URL}/sdapi/v1/options",
+                json={
+                    "img_max_size_mp": 32,
+                    "ESRGAN_tile": 2048,
+                    "ESRGAN_tile_overlap": 160,
+                    "DAT_tile": 1024,
+                    "DAT_tile_overlap": 64,
+                },
+            )
+            m.post(f"{API_BASE_URL}/sdapi/v1/options", json={"ok": True})
+
+            client.ensure_safe_upscale_defaults(max_img_mp=8.0, max_tile=768, max_overlap=128)
+
+            payload = m.last_request.json()
+            assert payload["img_max_size_mp"] == 8.0
+            assert payload["ESRGAN_tile"] == 768
+            assert payload["ESRGAN_tile_overlap"] == 128
+            assert payload["DAT_tile"] == 768
+            assert "DAT_tile_overlap" not in payload, "values within limits should stay untouched"
+
+    def test_ensure_safe_upscale_defaults_no_changes_skips_post(self):
+        """When values already safe, ensure_safe_upscale_defaults should not POST."""
+        client = SDWebUIClient()
+
+        with requests_mock.Mocker() as m:
+            m.get(
+                f"{API_BASE_URL}/sdapi/v1/options",
+                json={
+                    "img_max_size_mp": 4.0,
+                    "ESRGAN_tile": 512,
+                    "ESRGAN_tile_overlap": 64,
+                    "DAT_tile": 640,
+                    "DAT_tile_overlap": 32,
+                },
+            )
+            post_mock = m.post(f"{API_BASE_URL}/sdapi/v1/options", json={"ok": True})
+
+            client.ensure_safe_upscale_defaults(max_img_mp=8.0, max_tile=768, max_overlap=128)
+
+            assert post_mock.called is False

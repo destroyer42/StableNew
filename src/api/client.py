@@ -164,6 +164,78 @@ class SDWebUIClient:
         self._option_keys = {str(k) for k in data.keys()}
         return self._option_keys
 
+    def ensure_safe_upscale_defaults(
+        self,
+        max_img_mp: float = 8.0,
+        max_tile: int = 768,
+        max_overlap: int = 128,
+    ) -> None:
+        """
+        Clamp WebUI's upscale defaults to safer ceilings.
+
+        The method only moves values downward (toward safer limits) and skips
+        the POST entirely when everything is already within range.
+        """
+
+        response = self._perform_request("get", "/sdapi/v1/options", timeout=10)
+        if response is None:
+            return
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.debug("ensure_safe_upscale_defaults: failed to parse options: %s", exc)
+            return
+
+        payload: dict[str, float | int] = {}
+        changes: dict[str, tuple[float | int, float | int]] = {}
+
+        if "img_max_size_mp" in data:
+            try:
+                current_mp = float(data.get("img_max_size_mp", max_img_mp))
+            except (TypeError, ValueError):
+                current_mp = max_img_mp
+            if current_mp > max_img_mp:
+                payload["img_max_size_mp"] = max_img_mp
+                changes["img_max_size_mp"] = (current_mp, max_img_mp)
+
+        for key in ("ESRGAN_tile", "DAT_tile"):
+            if key not in data:
+                continue
+            try:
+                current_tile = int(data.get(key, max_tile))
+            except (TypeError, ValueError):
+                current_tile = max_tile
+            if current_tile > max_tile:
+                payload[key] = max_tile
+                changes[key] = (current_tile, max_tile)
+
+        for key in ("ESRGAN_tile_overlap", "DAT_tile_overlap"):
+            if key not in data:
+                continue
+            try:
+                current_overlap = int(data.get(key, max_overlap))
+            except (TypeError, ValueError):
+                continue
+            if current_overlap > max_overlap:
+                payload[key] = max_overlap
+                changes[key] = (current_overlap, max_overlap)
+
+        if not payload:
+            return
+
+        response = self._perform_request(
+            "post",
+            "/sdapi/v1/options",
+            json=payload,
+            timeout=15,
+        )
+        if response is None:
+            return
+
+        summary = ", ".join(f"{name}={after}" for name, (_before, after) in changes.items())
+        logger.info("Applied safe WebUI upscale defaults: %s", summary)
+
     def apply_upscale_performance_defaults(self) -> None:
         """
         Apply conservative tiling and resolution defaults to the WebUI options.

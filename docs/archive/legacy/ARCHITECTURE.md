@@ -1,4 +1,42 @@
-# Architecture Documentation
+# ARCHITECTURE (Legacy / Archived)
+
+_Last updated: 2025-11-15_
+
+This document is the **archived, historical version** of the StableNew architecture.
+It originates from earlier iterations of the codebase and **no longer reflects the current structure** of:
+
+- The GUI system  
+- The pipeline executor  
+- The randomization/matrix system  
+- The WebUI API client  
+- Logging and manifests  
+- Threading and lifecycle behavior  
+- Current planned features (job queue, distributed execution, video pipeline)
+
+It has been preserved here because:
+
+1. Many of the ideas and abstractions influenced later designs.
+2. Some naming conventions and concepts still exist in the code.
+3. Older PRs and test cases may reference structures found here.
+
+However, **no implementation work should reference this file as authoritative**.
+
+Use the modern document instead:
+
+➡️ `docs/ARCHITECTURE_v2.md` — **The current target architecture**
+
+And refer to:
+
+- `docs/StableNew_Roadmap_v1.0.md`
+- `docs/Known_Bugs_And_Issues_Summary.md`
+- `docs/AGENTS_AND_AI_WORKFLOW.md`
+
+for ongoing development standards and architectural direction.
+
+This file should not be updated further.
+
+
+
 
 This document describes the architecture of StableNew, including the pipeline flow, GUI state management, and cancellation mechanisms.
 
