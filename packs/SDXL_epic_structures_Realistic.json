@@ -43,7 +43,7 @@
     "negative_adjust": ""
   },
   "upscale": {
-    "upscaler": "4x-UltraSharpV2",
+    "upscaler": "4xUltrasharp_4xUltrasharpV10",
     "upscaling_resize": 2.0,
     "upscale_mode": "single",
     "steps": 15,
@@ -82,6 +82,7 @@
     "adetailer_confidence": 0.6916666666666667,
     "adetailer_mask_feather": 8,
     "adetailer_sampler": "DPM++ 2M",
+    "adetailer_scheduler": "inherit",
     "adetailer_steps": 12,
     "adetailer_denoise": 0.25833333333333336,
     "adetailer_cfg": 6.0,
@@ -107,7 +108,6 @@
       "mode": "rotate",
       "prompt_mode": "prepend",
       "limit": 0,
-      "base_prompt": "an [[age]] [[material]] [[structure_type]] on a [[environment]] under [[lighting]]",
       "slots": [
         {
           "name": "structure_type",
@@ -160,7 +160,8 @@
           ]
         }
       ],
-      "raw_text": ""
+      "raw_text": "# Base: an [[age]] [[material]] [[structure_type]] on a [[environment]] under [[lighting]]\nstructure_type: fortress castle | sunken temple | towering cathedral | labyrinthine dungeon entrance | hanging palace\nmaterial: weathered stone | black obsidian | white marble | ancient brick | runic crystal\nage: ancient | crumbling | pristine | overgrown | partially ruined\nlighting: sunset glow | stormy skies | fog-diffused dawn | moonlit | torchlit windows\nenvironment: mountaintop | cliffside | deep forest clearing | riverside | floating island",
+      "base_prompt": "an [[age]] [[material]] [[structure_type]] on a [[environment]] under [[lighting]]"
     }
   },
   "aesthetic": {

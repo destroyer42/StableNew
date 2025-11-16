@@ -132,57 +132,58 @@
         "limit": 0,
         "slots": [
           {
-            "name": "environment",
+            "name": "structure_type",
             "values": [
-              "volcanic lair",
-              "stormy cliffside",
-              "ancient battlefield",
-              "frozen wasteland",
-              "deep forest chasm"
+              "fortress castle",
+              "sunken temple",
+              "towering cathedral",
+              "labyrinthine dungeon entrance",
+              "hanging palace"
+            ]
+          },
+          {
+            "name": "material",
+            "values": [
+              "weathered stone",
+              "black obsidian",
+              "white marble",
+              "ancient brick",
+              "runic crystal"
+            ]
+          },
+          {
+            "name": "age",
+            "values": [
+              "ancient",
+              "crumbling",
+              "pristine",
+              "overgrown",
+              "partially ruined"
             ]
           },
           {
             "name": "lighting",
             "values": [
-              "hellish backlight",
-              "lightning flashes",
-              "embers and smoke glow",
-              "cold moonlight",
-              "dawn mist"
+              "sunset glow",
+              "stormy skies",
+              "fog-diffused dawn",
+              "moonlit",
+              "torchlit windows"
             ]
           },
           {
-            "name": "style",
+            "name": "environment",
             "values": [
-              "menacing",
-              "colossal",
-              "ancient",
-              "mythic",
-              "feral"
-            ]
-          },
-          {
-            "name": "camera",
-            "values": [
-              "low-angle heroic shot",
-              "wide cinematic scale shot",
-              "close-up roaring head",
-              "silhouette against the sky"
-            ]
-          },
-          {
-            "name": "world_flavor",
-            "values": [
-              "high fantasy realm",
-              "dark gothic kingdom",
-              "ruined empire",
-              "holy war frontier",
-              "primeval wilderness"
+              "mountaintop",
+              "cliffside",
+              "deep forest clearing",
+              "riverside",
+              "floating island"
             ]
           }
         ],
-        "raw_text": "# Base: a [[style]] [[world_flavor]] boss creature towering over a [[environment]] with dramatic [[lighting]], framed from a [[camera]] perspective\nenvironment: volcanic lair | stormy cliffside | ancient battlefield | frozen wasteland | deep forest chasm\nlighting: hellish backlight | lightning flashes | embers and smoke glow | cold moonlight | dawn mist\nstyle: menacing | colossal | ancient | mythic | feral\ncamera: low-angle heroic shot | wide cinematic scale shot | close-up roaring head | silhouette against the sky\nworld_flavor: high fantasy realm | dark gothic kingdom | ruined empire | holy war frontier | primeval wilderness",
-        "base_prompt": "a [[style]] [[world_flavor]] boss creature towering over a [[environment]] with dramatic [[lighting]], framed from a [[camera]] perspective"
+        "raw_text": "# Base: an [[age]] [[material]] [[structure_type]] on a [[environment]] under [[lighting]]\nstructure_type: fortress castle | sunken temple | towering cathedral | labyrinthine dungeon entrance | hanging palace\nmaterial: weathered stone | black obsidian | white marble | ancient brick | runic crystal\nage: ancient | crumbling | pristine | overgrown | partially ruined\nlighting: sunset glow | stormy skies | fog-diffused dawn | moonlit | torchlit windows\nenvironment: mountaintop | cliffside | deep forest clearing | riverside | floating island",
+        "base_prompt": "an [[age]] [[material]] [[structure_type]] on a [[environment]] under [[lighting]]"
       }
     },
     "aesthetic": {
