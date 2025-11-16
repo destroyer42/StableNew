@@ -245,13 +245,15 @@ class ADetailerConfigPanel:
         Returns:
             Dictionary of ADetailer configuration
         """
+        scheduler_value = self.scheduler_var.get() or "inherit"
         return {
             "adetailer_enabled": self.enabled_var.get(),
             "adetailer_model": self.model_var.get(),
             "adetailer_confidence": self.confidence_var.get(),
             "adetailer_mask_feather": self.mask_feather_var.get(),
             "adetailer_sampler": self.sampler_var.get(),
-            "adetailer_scheduler": self.scheduler_var.get() or "inherit",
+            "adetailer_scheduler": scheduler_value,
+            "scheduler": scheduler_value,
             "adetailer_steps": self.steps_var.get(),
             "adetailer_denoise": self.denoise_var.get(),
             "adetailer_cfg": self.cfg_var.get(),
@@ -276,11 +278,14 @@ class ADetailerConfigPanel:
             self.mask_feather_var.set(config["adetailer_mask_feather"])
         if "adetailer_sampler" in config:
             self.sampler_var.set(config["adetailer_sampler"])
-        if "adetailer_scheduler" in config:
-            value = config["adetailer_scheduler"] or "inherit"
+        scheduler_value = config.get("adetailer_scheduler", config.get("scheduler"))
+        if scheduler_value is not None:
+            value = scheduler_value or "inherit"
             if value not in self.SCHEDULER_OPTIONS:
                 value = "inherit"
             self.scheduler_var.set(value)
+        else:
+            self.scheduler_var.set("inherit")
         if "adetailer_steps" in config:
             self.steps_var.set(config["adetailer_steps"])
         if "adetailer_denoise" in config:
@@ -329,9 +334,10 @@ class ADetailerConfigPanel:
                 logger.error(f"Invalid steps: {steps} (must be >= 1)")
                 return False
 
-        if "adetailer_scheduler" in config:
-            scheduler_value = config["adetailer_scheduler"] or "inherit"
-            if scheduler_value not in self.SCHEDULER_OPTIONS:
+        scheduler_value = config.get("adetailer_scheduler", config.get("scheduler"))
+        if scheduler_value is not None:
+            normalized = scheduler_value or "inherit"
+            if normalized not in self.SCHEDULER_OPTIONS:
                 logger.error(f"Invalid scheduler: {scheduler_value}")
                 return False
 
@@ -353,7 +359,7 @@ class ADetailerConfigPanel:
         """
         config = self.get_config()
 
-        scheduler_value = config.get("adetailer_scheduler", "inherit") or "inherit"
+        scheduler_value = config.get("adetailer_scheduler", config.get("scheduler", "inherit")) or "inherit"
 
         payload = {
             "adetailer_model": config["adetailer_model"],

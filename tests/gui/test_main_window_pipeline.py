@@ -12,8 +12,11 @@ from tests.gui.conftest import wait_until
 def minimal_app(tk_root, monkeypatch):
     """Create a StableNewGUI instance with a minimal UI for pipeline tests."""
 
+    monkeypatch.setenv("STABLENEW_GUI_TEST_MODE", "1")
+
     from src.gui import main_window as main_window_module
     from src.gui.state import GUIState
+    main_window_module.enable_gui_test_mode()
 
     # Reuse provided Tk root instead of creating a second instance
     monkeypatch.setattr(main_window_module.tk, "Tk", lambda: tk_root)
@@ -21,7 +24,10 @@ def minimal_app(tk_root, monkeypatch):
     # Disable heavy startup behaviour
     monkeypatch.setattr(main_window_module.StableNewGUI, "_launch_webui", lambda self: None)
     monkeypatch.setattr(main_window_module.StableNewGUI, "_poll_controller_logs", lambda self: None)
-    monkeypatch.setattr(main_window_module.StableNewGUI, "_initialize_ui_state", lambda self: None)
+    if hasattr(main_window_module.StableNewGUI, "_initialize_ui_state"):
+        monkeypatch.setattr(
+            main_window_module.StableNewGUI, "_initialize_ui_state", lambda self: None
+        )
 
     def minimal_build_ui(self):
         self.prompt_text = main_window_module.tk.Text(self.root)
@@ -54,11 +60,15 @@ def minimal_app(tk_root, monkeypatch):
     app.api_connected = True
     app.controller._sync_cleanup = True  # deterministic for tests
 
-    yield app
-
-    # Ensure any background threads are aware of teardown
-    app.controller.cancel_token.cancel()
-    app.controller.lifecycle_event.wait(timeout=0.2)
+    try:
+        yield app
+    finally:
+        # Ensure any background threads are aware of teardown
+        try:
+            app.controller.cancel_token.cancel()
+            app.controller.lifecycle_event.wait(timeout=0.2)
+        finally:
+            main_window_module.reset_gui_test_mode()
 
 
 @pytest.mark.gui

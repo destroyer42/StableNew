@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from src.gui.main_window import StableNewGUI
+from src.gui.main_window import (
+    StableNewGUI,
+    disable_gui_test_mode,
+    reset_gui_test_mode,
+)
 from src.utils.preferences import PreferencesManager
 
 
@@ -39,7 +43,11 @@ class TestUnsavedState:
 
         monkeypatch.setattr("tkinter.messagebox.askyesno", fake_yesno)
 
-        gui._run_full_pipeline()
+        disable_gui_test_mode()
+        try:
+            gui._run_full_pipeline()
+        finally:
+            reset_gui_test_mode()
 
         assert ran["called"] is False
         assert prompts["value"][0] == "Unsaved Changes"
@@ -57,7 +65,11 @@ class TestUnsavedState:
 
         monkeypatch.setattr("tkinter.messagebox.askyesno", lambda *_: True)
 
-        gui._run_full_pipeline()
+        disable_gui_test_mode()
+        try:
+            gui._run_full_pipeline()
+        finally:
+            reset_gui_test_mode()
 
         assert ran["called"] is True
 

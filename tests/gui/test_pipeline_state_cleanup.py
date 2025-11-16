@@ -3,38 +3,41 @@ Test that pipeline state is properly cleaned up between runs.
 
 Regression test for: GUI hangs on second run after completing/canceling first run.
 """
-import tkinter as tk
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
-from src.gui.main_window import StableNewGUI
+from src.gui.main_window import StableNewGUI, enable_gui_test_mode, reset_gui_test_mode
 from src.gui.state import GUIState
+from src.services.config_service import ConfigService
+from src.utils.config import ConfigManager
+from src.utils.preferences import PreferencesManager
 
 
 @pytest.fixture
-def minimal_app(tmp_path, monkeypatch):
+def minimal_app(tmp_path, monkeypatch, tk_root):
     """Create minimal GUI app for testing."""
-    # Mock config paths
-    monkeypatch.setattr("src.utils.config.PRESETS_DIR", tmp_path / "presets")
-    monkeypatch.setattr("src.utils.config.PACKS_DIR", tmp_path / "packs")
-    (tmp_path / "presets").mkdir()
-    (tmp_path / "packs").mkdir()
 
-    # Create minimal preset
-    preset_file = tmp_path / "presets" / "default.json"
-    preset_file.write_text('{"txt2img": {}, "img2img": {}, "upscale": {}, "api": {}}')
+    monkeypatch.setenv("STABLENEW_GUI_TEST_MODE", "1")
+    enable_gui_test_mode()
 
-    # Mock API client
-    with patch("src.gui.main_window.SDWebUIClient"):
-        root = tk.Tk()
-        app = StableNewGUI()
-        app.root = root
+    config_manager = ConfigManager(tmp_path / "presets")
+    preferences = PreferencesManager(tmp_path / "prefs.json")
+
+    try:
+        app = StableNewGUI(
+            root=tk_root,
+            config_manager=config_manager,
+            preferences=preferences,
+            title="TestGUI",
+            geometry="1024x720",
+        )
+        app.config_service = ConfigService(tmp_path / "packs", tmp_path / "presets", tmp_path / "lists")
+        app.structured_logger.output_dir = tmp_path / "output"
+        app.structured_logger.output_dir.mkdir(parents=True, exist_ok=True)
         yield app
-        try:
-            root.destroy()
-        except Exception:
-            pass
+    finally:
+        reset_gui_test_mode()
 
 
 def test_successive_pipeline_runs_without_restart(minimal_app, monkeypatch):

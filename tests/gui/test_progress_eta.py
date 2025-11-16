@@ -118,9 +118,8 @@ def test_progress_eta_display(monkeypatch):
         progress_cb(0.5, "Generating batch 1 of 2")
         win.root.update()
         progress_value = float(progress_bar["value"])
-        # The progress bar expects a normalized value between 0.0 and 1.0 (e.g., 0.5 for 50%).
-        # If the implementation changes to use a percentage (0.0 to 100.0), update this test accordingly.
-        assert math.isclose(progress_value, 0.5, rel_tol=1e-3, abs_tol=1e-3)
+        # Progress bars now consume percentages (0-100). Keep the tolerance for float drift.
+        assert math.isclose(progress_value, 50.0, rel_tol=1e-3, abs_tol=1e-3)
         assert "Generating batch 1 of 2" in status_var.get()
 
         eta_cb("00:30 remaining")

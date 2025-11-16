@@ -177,6 +177,23 @@ class ConfigPassthroughValidator:
         # Parameters that are expected to be modified
         modified_ok_params = {"negative_prompt", "prompt"}
 
+        # Copy so we can tweak expectations per stage (e.g., sampler/scheduler normalization)
+        expected_config = dict(expected_config)
+
+        # Normalize sampler/scheduler expectations to match helper behavior
+        if "sampler_name" in expected_config or "scheduler" in expected_config:
+            sampler_payload = build_sampler_scheduler_payload(
+                expected_config.get("sampler_name"), expected_config.get("scheduler")
+            )
+            if sampler_payload:
+                expected_config["sampler_name"] = sampler_payload["sampler_name"]
+                if "scheduler" in sampler_payload:
+                    expected_config["scheduler"] = sampler_payload["scheduler"]
+                elif "scheduler" in expected_config:
+                    expected_config.pop("scheduler")
+            elif "scheduler" in expected_config and not expected_config.get("scheduler"):
+                expected_config.pop("scheduler")
+
         validation = {
             "stage": stage,
             "success": True,

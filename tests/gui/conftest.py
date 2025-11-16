@@ -14,6 +14,8 @@ from src.services.config_service import ConfigService
 from src.utils.config import ConfigManager
 from src.utils.preferences import PreferencesManager
 
+os.environ.setdefault("STABLENEW_GUI_TEST_MODE", "1")
+
 DEFAULT_TIMEOUT = 5.0
 DEFAULT_INTERVAL = 0.05
 
@@ -22,6 +24,7 @@ def wait_until(
     predicate: Callable[[], Any],
     timeout: float = DEFAULT_TIMEOUT,
     interval: float = DEFAULT_INTERVAL,
+    step: float | None = None,
 ) -> Any:
     """
     Poll `predicate` until it returns a truthy value or `timeout` seconds elapse.
@@ -32,6 +35,9 @@ def wait_until(
 
     end = time.monotonic() + timeout
     last_value: Any = None
+
+    if step is not None:
+        interval = step
 
     while time.monotonic() < end:
         last_value = predicate()
@@ -131,7 +137,15 @@ def minimal_gui_app(monkeypatch, tk_root, tmp_path):
     """
     Provide a StableNewGUI instance with side-effects (WebUI launch, network checks) disabled.
     """
-    from src.gui.main_window import StableNewGUI
+    monkeypatch.setenv("STABLENEW_GUI_TEST_MODE", "1")
+
+    from src.gui.main_window import (
+        StableNewGUI,
+        enable_gui_test_mode,
+        reset_gui_test_mode,
+    )
+
+    enable_gui_test_mode()
 
     monkeypatch.setattr("src.gui.main_window.StableNewGUI._launch_webui", lambda self: None)
     monkeypatch.setattr("src.gui.main_window.launch_webui_safely", lambda *_, **__: False)
@@ -144,17 +158,20 @@ def minimal_gui_app(monkeypatch, tk_root, tmp_path):
     config_manager = ConfigManager(tmp_path / "presets")
     preferences = PreferencesManager(tmp_path / "prefs.json")
 
-    app = StableNewGUI(
-        root=tk_root,
-        config_manager=config_manager,
-        preferences=preferences,
-        title="TestGUI",
-        geometry="1024x720",
-    )
+    try:
+        app = StableNewGUI(
+            root=tk_root,
+            config_manager=config_manager,
+            preferences=preferences,
+            title="TestGUI",
+            geometry="1024x720",
+        )
 
-    # Redirect config service storage to the temporary test directory
-    app.config_service = ConfigService(tmp_path / "packs", tmp_path / "presets", tmp_path / "lists")
-    app.structured_logger.output_dir = tmp_path / "output"
-    app.structured_logger.output_dir.mkdir(parents=True, exist_ok=True)
+        # Redirect config service storage to the temporary test directory
+        app.config_service = ConfigService(tmp_path / "packs", tmp_path / "presets", tmp_path / "lists")
+        app.structured_logger.output_dir = tmp_path / "output"
+        app.structured_logger.output_dir.mkdir(parents=True, exist_ok=True)
 
-    yield app
+        yield app
+    finally:
+        reset_gui_test_mode()

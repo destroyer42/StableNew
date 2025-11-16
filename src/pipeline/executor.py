@@ -15,7 +15,7 @@ from typing import Any
 from PIL import Image
 
 from ..api import SDWebUIClient
-from ..gui.state import CancellationError
+from ..gui.state import CancelToken, CancellationError
 from ..utils import (
     ConfigManager,
     StructuredLogger,
@@ -54,6 +54,11 @@ class Pipeline:
         self._current_hypernetwork: str | None = None
         self._current_hn_strength: float | None = None
         self._webui_defaults_applied = False
+        self._last_txt2img_results: list[dict[str, Any]] = []
+        self._last_img2img_result: dict[str, Any] | None = None
+        self._last_upscale_result: dict[str, Any] | None = None
+        self._last_full_pipeline_results: dict[str, Any] = {}
+        self._current_run_dir: Path | None = None
 
     def _clean_metadata_payload(self, payload: Any) -> Any:
         """Remove large binary blobs (e.g., base64 images) from metadata payloads."""
@@ -175,7 +180,31 @@ class Pipeline:
             logger.info("Cancellation requested, aborting %s", context)
             raise CancellationError(f"Cancelled during {context}")
 
+    def _log_pipeline_cancellation(self, phase: str, exc: Exception) -> None:
+        """Emit a consistent INFO-level log for pipeline cancellations."""
+
+        logger.info("⚠️ Pipeline cancelled during %s; aborting remaining stages. (%s)", phase, exc)
+
     def run_upscale(
+        self,
+        input_image_path: Path,
+        config: dict[str, Any],
+        run_dir: Path,
+        cancel_token=None,
+    ) -> dict[str, Any] | None:
+        """
+        Batch-friendly wrapper for upscaling with cancellation handling.
+        """
+
+        try:
+            return self._run_upscale_impl(input_image_path, config, run_dir, cancel_token=cancel_token)
+        except CancellationError as exc:
+            if isinstance(cancel_token, CancelToken):
+                self._log_pipeline_cancellation("upscale", exc)
+                return getattr(self, "_last_upscale_result", None)
+            raise
+
+    def _run_upscale_impl(
         self,
         input_image_path: Path,
         config: dict[str, Any],
@@ -194,6 +223,8 @@ class Pipeline:
         Returns:
             Metadata for upscaled image or None if failed/cancelled
         """
+        self._last_upscale_result: dict[str, Any] | None = None
+
         upscale_dir = run_dir / "upscaled"
         upscale_dir.mkdir(parents=True, exist_ok=True)
         image_name = Path(input_image_path).stem
@@ -211,6 +242,8 @@ class Pipeline:
         # Post cancel
         self._ensure_not_cancelled(cancel_token, "post-upscale")
 
+        if result:
+            self._last_upscale_result = result
         return result
 
     def _normalize_config_for_pipeline(self, config: dict[str, Any]) -> dict[str, Any]:
@@ -466,6 +499,26 @@ class Pipeline:
         cancel_token=None,
     ) -> list[dict[str, Any]]:
         """
+        Run txt2img generation with cancellation handling.
+        """
+
+        try:
+            return self._run_txt2img_impl(prompt, config, run_dir, batch_size, cancel_token)
+        except CancellationError as exc:
+            if isinstance(cancel_token, CancelToken):
+                self._log_pipeline_cancellation("txt2img", exc)
+                return getattr(self, "_last_txt2img_results", [])
+            raise
+
+    def _run_txt2img_impl(
+        self,
+        prompt: str,
+        config: dict[str, Any],
+        run_dir: Path,
+        batch_size: int = 1,
+        cancel_token=None,
+    ) -> list[dict[str, Any]]:
+        """
         Run txt2img generation.
 
         Args:
@@ -478,6 +531,8 @@ class Pipeline:
         Returns:
             List of generated image metadata
         """
+        self._last_txt2img_results: list[dict[str, Any]] = []
+
         # Check for cancellation before starting
         self._ensure_not_cancelled(cancel_token, "txt2img start")
 
@@ -561,7 +616,7 @@ class Pipeline:
             logger.error("txt2img failed")
             return []
 
-        results = []
+        results = self._last_txt2img_results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         for idx, img_base64 in enumerate(response["images"]):
@@ -711,6 +766,26 @@ class Pipeline:
         cancel_token=None,
     ) -> dict[str, Any] | None:
         """
+        Run img2img cleanup/refinement with cancellation handling.
+        """
+
+        try:
+            return self._run_img2img_impl(input_image_path, prompt, config, run_dir, cancel_token)
+        except CancellationError as exc:
+            if isinstance(cancel_token, CancelToken):
+                self._log_pipeline_cancellation("img2img", exc)
+                return getattr(self, "_last_img2img_result", None)
+            raise
+
+    def _run_img2img_impl(
+        self,
+        input_image_path: Path,
+        prompt: str,
+        config: dict[str, Any],
+        run_dir: Path,
+        cancel_token=None,
+    ) -> dict[str, Any] | None:
+        """
         Run img2img cleanup/refinement.
 
         Args:
@@ -723,6 +798,8 @@ class Pipeline:
         Returns:
             Generated image metadata
         """
+        self._last_img2img_result: dict[str, Any] | None = None
+
         # Check for cancellation before starting
         self._ensure_not_cancelled(cancel_token, "img2img start")
 
@@ -794,6 +871,7 @@ class Pipeline:
             }
 
             self.logger.save_manifest(run_dir, image_name, metadata)
+            self._last_img2img_result = metadata
             logger.info(f"img2img completed: {image_name}")
             return metadata
         return None
@@ -1016,6 +1094,44 @@ class Pipeline:
         cancel_token=None,
     ) -> dict[str, Any]:
         """
+        Run the full pipeline with cancellation handling.
+        """
+
+        try:
+            result = self._run_full_pipeline_impl(
+                prompt, config, run_name=run_name, batch_size=batch_size, cancel_token=cancel_token
+            )
+            if self._current_run_dir:
+                self.logger.record_run_status(self._current_run_dir, "success")
+            return result
+        except CancellationError as exc:
+            if isinstance(cancel_token, CancelToken):
+                self._log_pipeline_cancellation("full pipeline", exc)
+                if self._current_run_dir:
+                    self.logger.record_run_status(self._current_run_dir, "cancelled", str(exc))
+                return getattr(
+                    self,
+                    "_last_full_pipeline_results",
+                    {
+                        "run_dir": "",
+                        "prompt": prompt,
+                        "txt2img": [],
+                        "img2img": [],
+                        "upscaled": [],
+                        "summary": [],
+                    },
+                )
+            raise
+
+    def _run_full_pipeline_impl(
+        self,
+        prompt: str,
+        config: dict[str, Any],
+        run_name: str | None = None,
+        batch_size: int = 1,
+        cancel_token=None,
+    ) -> dict[str, Any]:
+        """
         Run complete pipeline: txt2img → img2img (optional) → upscale (optional).
 
         Args:
@@ -1028,6 +1144,16 @@ class Pipeline:
         Returns:
             Pipeline results summary
         """
+        self._current_run_dir = None
+        self._last_full_pipeline_results = {
+            "run_dir": "",
+            "prompt": prompt,
+            "txt2img": [],
+            "img2img": [],
+            "upscaled": [],
+            "summary": [],
+        }
+
         # Check for cancellation at start
         self._ensure_not_cancelled(cancel_token, "pipeline start")
 
@@ -1050,15 +1176,15 @@ class Pipeline:
 
         # Create run directory
         run_dir = self.logger.create_run_directory(run_name)
+        self._current_run_dir = run_dir
 
-        results = {
-            "run_dir": str(run_dir),
-            "prompt": prompt,
-            "txt2img": [],
-            "img2img": [],
-            "upscaled": [],
-            "summary": [],
-        }
+        results = self._last_full_pipeline_results
+        results["run_dir"] = str(run_dir)
+        results["prompt"] = prompt
+        results["txt2img"] = []
+        results["img2img"] = []
+        results["upscaled"] = []
+        results["summary"] = []
 
         progress_controller = self.progress_controller
         total_units = 1
@@ -2066,8 +2192,6 @@ class Pipeline:
                     target_height,
                 )
 
-                sampler_config = self._parse_sampler_config(config)
-
                 payload = {
                     "init_images": [input_image_b64],
                     "prompt": config.get("prompt", ""),
@@ -2077,13 +2201,13 @@ class Pipeline:
                     "denoising_strength": config.get("denoising_strength", 0.35),
                     "width": target_width,
                     "height": target_height,
+                    "sampler_name": config.get("sampler_name", "Euler a"),
+                    "scheduler": config.get("scheduler", "normal"),
                     "seed": config.get("seed", -1),
                     "clip_skip": config.get("clip_skip", 2),
                     "batch_size": 1,
                     "n_iter": 1,
                 }
-
-                payload.update(sampler_config)
 
                 try:
                     logger.info(

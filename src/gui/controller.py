@@ -118,6 +118,10 @@ class PipelineController:
             except CancellationError:
                 self._log("Pipeline cancelled by user", "WARNING")
                 self.report_progress("Cancelled", self._last_progress["percent"], "Cancelled")
+                try:
+                    self.lifecycle_event.set()
+                except Exception:
+                    logger.debug("Failed to signal lifecycle event on cancellation", exc_info=True)
             except Exception as e:
                 error_occurred = True
                 self._log(f"Pipeline error: {e}", "ERROR")
@@ -125,6 +129,10 @@ class PipelineController:
                 self.report_progress("Error", self._last_progress["percent"], "Error")
                 if on_error:
                     on_error(e)
+                try:
+                    self.lifecycle_event.set()
+                except Exception:
+                    logger.debug("Failed to signal lifecycle event on error", exc_info=True)
 
             def cleanup():
                 self._do_cleanup(eid, error_occurred)
@@ -134,13 +142,8 @@ class PipelineController:
             else:
                 threading.Thread(target=cleanup, daemon=True).start()
 
-        if self._sync_cleanup:
-            # For deterministic cleanup only; still start a worker thread so is_running reflects RUNNING
-            self._worker = threading.Thread(target=worker, daemon=True)
-            self._worker.start()
-        else:
-            self._worker = threading.Thread(target=worker, daemon=True)
-            self._worker.start()
+        self._worker = threading.Thread(target=worker, daemon=True)
+        self._worker.start()
         return True
 
     def stop_pipeline(self) -> bool:

@@ -1,5 +1,7 @@
 """Tests for cancel token integration in pipeline."""
 
+import json
+import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -210,6 +212,27 @@ class TestCancelTokenIntegration:
         # Should have some txt2img results but limited img2img
         assert len(results["txt2img"]) == 3
         assert len(results["img2img"]) <= 2  # Cancelled during loop
+
+    def test_full_pipeline_cancel_logs_status(self, pipeline, temp_dir, caplog):
+        """Ensure cancellation logs standardized message and records run status."""
+        cancel_token = CancelToken()
+        cancel_token.cancel()
+        config = {"txt2img": {}, "img2img": {}, "upscale": {}}
+        run_name = "cancel_log_test"
+
+        with caplog.at_level(logging.INFO):
+            results = pipeline.run_full_pipeline(
+                "test prompt", config, run_name=run_name, batch_size=1, cancel_token=cancel_token
+            )
+
+        assert results["txt2img"] == []
+        assert any("Pipeline cancelled during full pipeline" in msg for msg in caplog.messages)
+
+        status_path = temp_dir / run_name / "run_status.json"
+        assert status_path.exists()
+        with open(status_path, encoding="utf-8") as f:
+            status_data = json.load(f)
+        assert status_data["status"] == "cancelled"
 
 
 class TestPipelineEarlyOut:

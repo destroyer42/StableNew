@@ -299,6 +299,33 @@ class StructuredLogger:
             self.logger.error(f"Failed to create rollup manifest: {e}")
             return False
 
+    def record_run_status(self, run_dir: Path, status: str, reason: str | None = None) -> bool:
+        """
+        Persist the final status of a pipeline run (e.g., success, cancelled).
+
+        Args:
+            run_dir: Run directory for the pipeline.
+            status: Status string such as "success", "cancelled", or "error".
+            reason: Optional human-readable reason to record.
+        """
+        try:
+            run_dir = Path(run_dir)
+            run_dir.mkdir(exist_ok=True, parents=True)
+            payload: dict[str, Any] = {
+                "status": status,
+                "timestamp": datetime.now().isoformat(),
+            }
+            if reason:
+                payload["reason"] = reason
+            status_path = run_dir / "run_status.json"
+            with open(status_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
+            self.logger.info(f"Recorded run status '{status}' at {status_path}")
+            return True
+        except Exception as exc:  # noqa: BLE001 - log and continue
+            self.logger.error(f"Failed to record run status: {exc}")
+            return False
+
 
 def setup_logging(log_level: str = "INFO", log_file: str | None = None):
     """

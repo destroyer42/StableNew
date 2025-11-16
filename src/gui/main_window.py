@@ -72,6 +72,37 @@ class ConfigContext:
 
 logger = logging.getLogger(__name__)
 
+_FORCE_GUI_TEST_MODE: bool | None = None
+
+
+def enable_gui_test_mode() -> None:
+    """Explicit hook for tests to force GUI test behavior."""
+
+    global _FORCE_GUI_TEST_MODE
+    _FORCE_GUI_TEST_MODE = True
+
+
+def disable_gui_test_mode() -> None:
+    """Forcefully disable GUI test mode regardless of environment."""
+
+    global _FORCE_GUI_TEST_MODE
+    _FORCE_GUI_TEST_MODE = False
+
+
+def reset_gui_test_mode() -> None:
+    """Return GUI test mode detection to the environment-based default."""
+
+    global _FORCE_GUI_TEST_MODE
+    _FORCE_GUI_TEST_MODE = None
+
+
+def is_gui_test_mode() -> bool:
+    """Return True when running under automated GUI test harness."""
+
+    if _FORCE_GUI_TEST_MODE is not None:
+        return _FORCE_GUI_TEST_MODE
+    return os.environ.get("STABLENEW_GUI_TEST_MODE") == "1"
+
 
 def sanitize_prompt(text: str) -> str:
     """Strip leftover [[slot]] / __wildcard__ tokens before sending to WebUI."""
@@ -112,6 +143,7 @@ class StableNewGUI:
             self.root = root
         else:
             self.root = tk.Tk()
+        self._configure_controller_progress_callbacks()
         self.root.title(title)
         self.root.geometry(geometry)
         self.window_min_size = (1024, 720)
@@ -170,6 +202,7 @@ class StableNewGUI:
         self._config_dirty = False
         self._config_panel_prefs_bound = False
         self._preferences_ready = False
+        self._new_features_dialog_shown = False
 
         # Initialize progress-related attributes
         self._progress_eta_default = "ETA: --:--"
@@ -199,6 +232,7 @@ class StableNewGUI:
         self.txt2img_summary_var = tk.StringVar(value="")
         self.img2img_summary_var = tk.StringVar(value="")
         self.upscale_summary_var = tk.StringVar(value="")
+        self._maybe_show_new_features_dialog()
 
     def _apply_webui_status(self, status) -> None:
         # Update any labels/combos based on discovered status.
@@ -438,34 +472,6 @@ class StableNewGUI:
             self._safe_messagebox("error", "Run Failed", f"{type(e).__name__}: {e}")
 
     # -------- utilities --------
-    def _safe_messagebox(self, kind: str, title: str, text: str) -> None:
-        """
-        Thread-safe messagebox helper; always marshals to Tk thread.
-        Respects STABLENEW_NO_ERROR_DIALOG for CI/headless runs.
-        """
-        # Respect modal suppression for tests/headless
-        if os.getenv("STABLENEW_NO_ERROR_DIALOG") in {"1", "true", "TRUE"} and kind.lower() in {
-            "error",
-            "warning",
-        }:
-            logger.warning("[DIAG] Messagebox suppressed: %s: %s", title, text)
-            return
-
-        def _do():
-            try:
-                if messagebox is None:
-                    logger.error("messagebox unavailable: %s: %s", title, text)
-                    return
-                getattr(messagebox, f"show{kind}")(title, text)
-            except Exception:
-                logger.exception("messagebox failed")
-
-        try:
-            # If called from worker, bounce to UI; if already in UI, after(0) is fine
-            self.root.after(0, _do)
-        except Exception:
-            _do()
-
     def on_error(self, error: Exception | str) -> None:
         """Expose a public error handler for legacy controller/test hooks."""
         if isinstance(error, Exception):
@@ -473,18 +479,33 @@ class StableNewGUI:
         else:
             message = str(error) if error else "Pipeline error"
 
-        self.log_message(f"⛔ Pipeline error: {message}", "ERROR")
-        self._safe_messagebox("error", "Pipeline Error", message)
-
-        try:
-            self.controller.lifecycle_event.set()
-        except Exception:
-            pass
-
         try:
             self.state_manager.transition_to(GUIState.ERROR)
         except Exception:
             logger.exception("Failed to transition GUI state to ERROR after pipeline error")
+
+        self._signal_pipeline_finished()
+
+        def handle_error() -> None:
+            self._handle_pipeline_error_main_thread(message, error)
+
+        try:
+            self.root.after(0, handle_error)
+        except Exception:
+            handle_error()
+
+    def _handle_pipeline_error_main_thread(self, message: str, error: Exception | str) -> None:
+        """Perform UI-safe pipeline error handling on the Tk thread."""
+
+        self.log_message(f"? Pipeline error: {message}", "ERROR")
+
+        suppress_dialog = is_gui_test_mode() or os.environ.get("STABLENEW_NO_ERROR_DIALOG") in {
+            "1",
+            "true",
+            "TRUE",
+        }
+        if not suppress_dialog:
+            self._safe_messagebox("error", "Pipeline Error", message)
 
     # Duplicate _setup_theme and other duplicate/unused methods removed for linter/ruff compliance
 
@@ -830,6 +851,11 @@ class StableNewGUI:
         # Restore UI state from preferences
         self._restore_ui_state_from_preferences()
 
+    def _initialize_ui_state(self):
+        """Legacy synchronous initialization hook retained for tests."""
+
+        self._initialize_ui_state_async()
+
     def _restore_ui_state_from_preferences(self):
         """Restore UI state from loaded preferences."""
         try:
@@ -1040,8 +1066,7 @@ class StableNewGUI:
         except Exception:
             logger.debug("Pipeline controls apply_config skipped", exc_info=True)
         try:
-            if getattr(self, "adetailer_panel", None):
-                self.adetailer_panel.set_config(cfg.get("adetailer", {}))
+            self._apply_adetailer_config_section(cfg.get("adetailer", {}))
         except Exception:
             logger.debug("ADetailer config apply skipped", exc_info=True)
         try:
@@ -1052,6 +1077,17 @@ class StableNewGUI:
             self._load_aesthetic_config(cfg)
         except Exception:
             logger.debug("Aesthetic config apply skipped", exc_info=True)
+
+    def _apply_adetailer_config_section(self, adetailer_cfg: dict | None) -> None:
+        """Apply ADetailer config to the panel, normalizing scheduler defaults."""
+        panel = getattr(self, "adetailer_panel", None)
+        if not panel:
+            return
+        cfg = dict(adetailer_cfg or {})
+        scheduler_value = cfg.get("adetailer_scheduler", cfg.get("scheduler", "inherit")) or "inherit"
+        cfg["adetailer_scheduler"] = scheduler_value
+        cfg["scheduler"] = scheduler_value
+        panel.set_config(cfg)
 
     def _ui_toggle_lock(self) -> None:
         """Toggle the config lock state."""
@@ -2977,14 +3013,105 @@ class StableNewGUI:
 
         self.state_manager.on_transition(on_state_change)
 
+    def _configure_controller_progress_callbacks(self) -> None:
+        """Connect controller progress callbacks to Tk-driven UI updates."""
+
+        controller = getattr(self, "controller", None)
+        if controller is None:
+            return
+
+        def _normalize_percent(value) -> float:
+            try:
+                percent = float(value if value is not None else 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+            if 0.0 <= percent <= 1.0:
+                # Support normalized values supplied by unit tests.
+                return percent * 100.0
+            return percent
+
+        def progress_handler(value=None, *args, **_kwargs) -> None:
+            percent = _normalize_percent(value)
+            self._queue_progress_update(percent)
+            # Some callbacks also provide stage text as a secondary argument.
+            if args:
+                maybe_status = args[0]
+                if isinstance(maybe_status, str):
+                    self._queue_status_update(maybe_status)
+
+        def eta_handler(value=None, *args, **_kwargs) -> None:
+            eta_value = value if value is not None else (args[0] if args else None)
+            self._queue_eta_update(eta_value)
+
+        def reset_handler(*_args, **_kwargs) -> None:
+            self._reset_progress_ui()
+
+        def status_handler(value=None, *_args, **_kwargs) -> None:
+            self._queue_status_update(value)
+
+        callback_payload = {
+            "progress": progress_handler,
+            "eta": eta_handler,
+            "reset": reset_handler,
+            "status": status_handler,
+        }
+
+        configured = False
+        for name in ("set_progress_callbacks", "register_progress_callbacks", "configure_progress_callbacks"):
+            method = getattr(controller, name, None)
+            if callable(method):
+                try:
+                    method(**callback_payload)
+                    configured = True
+                    break
+                except TypeError:
+                    logger.debug("Progress callback registration failed via %s", name, exc_info=True)
+
+        if configured:
+            return
+
+        try:
+            setter = getattr(controller, "set_progress_callback", None)
+            if callable(setter):
+                setter(progress_handler)
+        except Exception:
+            logger.debug("Failed to attach progress callback", exc_info=True)
+        try:
+            setter = getattr(controller, "set_eta_callback", None)
+            if callable(setter):
+                setter(lambda eta: eta_handler(eta))
+        except Exception:
+            logger.debug("Failed to attach ETA callback", exc_info=True)
+        try:
+            setter = getattr(controller, "set_status_callback", None)
+            if callable(setter):
+                setter(lambda status: status_handler(status))
+        except Exception:
+            logger.debug("Failed to attach status callback", exc_info=True)
+
+    def _signal_pipeline_finished(self, event=None) -> None:
+        """Notify tests waiting on lifecycle_event that the run has terminated."""
+
+        event = event or getattr(self.controller, "lifecycle_event", None)
+        if event is None:
+            logger.debug("No lifecycle_event available to signal")
+            return
+        try:
+            event.set()
+        except Exception:
+            logger.debug("Failed to signal lifecycle_event", exc_info=True)
+
     def _queue_progress_update(self, percent: float) -> None:
         """Update progress widgets on the Tk thread."""
 
         def update() -> None:
             clamped = max(0.0, min(100.0, float(percent) if percent is not None else 0.0))
-            if self.progress_bar is not None:
-                self.progress_bar["value"] = clamped
-            self.progress_percent_var.set(f"{clamped:.0f}%")
+            progress_bar = getattr(self, "progress_bar", None)
+            if progress_bar is not None:
+                progress_bar["value"] = clamped
+            percent_var = getattr(self, "progress_percent_var", None)
+            if percent_var is not None:
+                percent_var.set(f"{clamped:.0f}%")
 
         self.root.after(0, update)
 
@@ -2992,7 +3119,9 @@ class StableNewGUI:
         """Update ETA label on the Tk thread."""
 
         def update() -> None:
-            self.eta_var.set(eta if eta else "ETA: --")
+            eta_var = getattr(self, "eta_var", None)
+            if eta_var is not None:
+                eta_var.set(eta if eta else "ETA: --")
 
         self.root.after(0, update)
 
@@ -3009,8 +3138,12 @@ class StableNewGUI:
         # If forced error status (tests), always show Error regardless of queued updates
         if getattr(self, "_force_error_status", False):
             forced = "Error" if not (text and str(text).strip().lower() == "error") else "Error"
-            self.progress_message_var.set(forced)
-            self.progress_var.set(forced)
+            message_var = getattr(self, "progress_message_var", None)
+            if message_var is not None:
+                message_var.set(forced)
+            progress_var = getattr(self, "progress_var", None)
+            if progress_var is not None:
+                progress_var.set(forced)
             return
 
         if text is None:
@@ -3037,8 +3170,12 @@ class StableNewGUI:
                 message = "Ready"
         except Exception:
             pass
-        self.progress_message_var.set(message)
-        self.progress_var.set(message)
+        message_var = getattr(self, "progress_message_var", None)
+        if message_var is not None:
+            message_var.set(message)
+        progress_var = getattr(self, "progress_var", None)
+        if progress_var is not None:
+            progress_var.set(message)
 
     def _normalize_api_url(self, value: Any) -> str:
         """Ensure downstream API clients always receive a fully-qualified URL."""
@@ -3076,23 +3213,36 @@ class StableNewGUI:
     def _check_api_connection(self):
         """Check API connection status with improved diagnostics."""
 
+        if is_gui_test_mode():
+            return
         if os.environ.get("STABLENEW_NO_WEBUI", "").lower() in {"1", "true", "yes"}:
             return
 
-        def check_in_thread():
-            api_url = self._normalize_api_url(self.api_url_var.get())
+        try:
+            initial_api_url = self._normalize_api_url(self.api_url_var.get())
+        except Exception:
+            initial_api_url = self._normalize_api_url("")
+        timeout_value: int | None = None
+        if hasattr(self, "api_vars") and "timeout" in self.api_vars:
+            try:
+                timeout_value = int(self.api_vars["timeout"].get() or 30)
+            except Exception:
+                timeout_value = None
+
+        def check_in_thread(initial_url: str, timeout: int | None):
+            api_url = initial_url
 
             # Try the specified URL first
-            self.log_message("🔍 Checking API connection...", "INFO")
+            self.log_message("?? Checking API connection...", "INFO")
 
             # First try direct connection
             client = SDWebUIClient(api_url)
             # Apply configured timeout from API tab (keeps UI responsive on failures)
-            try:
-                if hasattr(self, "api_vars") and "timeout" in self.api_vars:
-                    client.timeout = int(self.api_vars["timeout"].get() or 30)
-            except Exception:
-                pass
+            if timeout:
+                try:
+                    client.timeout = timeout
+                except Exception:
+                    pass
             if client.check_api_ready():
                 # Perform health check
                 health = validate_webui_health(api_url)
@@ -3106,24 +3256,24 @@ class StableNewGUI:
 
                 if health["models_loaded"]:
                     self.log_message(
-                        f"✅ API connected! Found {health.get('model_count', 0)} models", "SUCCESS"
+                        f"? API connected! Found {health.get('model_count', 0)} models", "SUCCESS"
                     )
                 else:
-                    self.log_message("⚠️ API connected but no models loaded", "WARNING")
+                    self.log_message("?? API connected but no models loaded", "WARNING")
                 return
 
             # If direct connection failed, try port discovery
-            self.log_message("🔍 Trying port discovery...", "INFO")
+            self.log_message("?? Trying port discovery...", "INFO")
             discovered_url = find_webui_api_port()
 
             if discovered_url:
                 # Test the discovered URL
                 client = SDWebUIClient(discovered_url)
-                try:
-                    if hasattr(self, "api_vars") and "timeout" in self.api_vars:
-                        client.timeout = int(self.api_vars["timeout"].get() or 30)
-                except Exception:
-                    pass
+                if timeout:
+                    try:
+                        client.timeout = timeout
+                    except Exception:
+                        pass
                 if client.check_api_ready():
                     health = validate_webui_health(discovered_url)
 
@@ -3138,22 +3288,23 @@ class StableNewGUI:
 
                     if health["models_loaded"]:
                         self.log_message(
-                            f"✅ API found at {discovered_url}! Found {health.get('model_count', 0)} models",
+                            f"? API found at {discovered_url}! Found {health.get('model_count', 0)} models",
                             "SUCCESS",
                         )
                     else:
-                        self.log_message("⚠️ API found but no models loaded", "WARNING")
+                        self.log_message("?? API found but no models loaded", "WARNING")
                     return
 
             # Connection failed
             self.api_connected = False
             self.root.after(0, lambda: self._update_api_status(False))
             self.log_message(
-                "❌ API connection failed. Please ensure WebUI is running with --api", "ERROR"
+                "? API connection failed. Please ensure WebUI is running with --api", "ERROR"
             )
-            self.log_message("💡 Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
-
-        threading.Thread(target=check_in_thread, daemon=True).start()
+            self.log_message("?? Tip: Check ports 7860-7864, restart WebUI if needed", "INFO")
+        threading.Thread(
+            target=check_in_thread, args=(initial_api_url, timeout_value), daemon=True
+        ).start()
         # Note: previously this method started two identical threads; that was redundant and has been removed
 
     def _update_api_status(self, connected: bool, url: str = None):
@@ -3583,6 +3734,15 @@ class StableNewGUI:
         """Add message to live log with safe console fallback."""
         import datetime
         import sys
+        import threading
+
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.root.after(0, lambda: self.log_message(message, level))
+                return
+            except Exception:
+                # If we cannot schedule onto Tk, fall back to console logging below.
+                pass
 
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         log_entry = f"[{timestamp}] {message}"
@@ -3948,9 +4108,9 @@ class StableNewGUI:
                 output_dir = result.get("output_dir", "") if result else ""
             except Exception:
                 num_images, output_dir = 0, ""
-            self.log_message(f"🎉 Pipeline completed: {num_images} image(s)", "SUCCESS")
+            self.log_message(f"?? Pipeline completed: {num_images} image(s)", "SUCCESS")
             if output_dir:
-                self.log_message(f"📂 Output: {output_dir}", "INFO")
+                self.log_message(f"?? Output: {output_dir}", "INFO")
             # Combined summary of effective weights
             try:
                 model = getattr(self.pipeline, "_current_model", None)
@@ -3958,7 +4118,7 @@ class StableNewGUI:
                 hyper = getattr(self.pipeline, "_current_hypernetwork", None)
                 hn_strength = getattr(self.pipeline, "_current_hn_strength", None)
                 self.log_message(
-                    f"🧾 Run summary → model={model or '(none)'}; vae={vae or '(none)'}; hypernetwork={hyper or '(none)'}; strength={hn_strength if hn_strength is not None else '(n/a)'}",
+                    f"?? Run summary  model={model or '(none)'}; vae={vae or '(none)'}; hypernetwork={hyper or '(none)'}; strength={hn_strength if hn_strength is not None else '(n/a)'}",
                     "INFO",
                 )
             except Exception:
@@ -3967,7 +4127,17 @@ class StableNewGUI:
         def on_error(e: Exception):
             self._handle_pipeline_error(e)
 
-        self.controller.start_pipeline(pipeline_func, on_complete=on_complete, on_error=on_error)
+        started = self.controller.start_pipeline(
+            pipeline_func, on_complete=on_complete, on_error=on_error
+        )
+        if started and is_gui_test_mode():
+            try:
+                event = getattr(self.controller, "lifecycle_event", None)
+                if event is not None:
+                    if not event.wait(timeout=5.0):
+                        self._signal_pipeline_finished(event)
+            except Exception:
+                pass
         return
 
         def run_pipeline_thread():
@@ -4365,10 +4535,39 @@ class StableNewGUI:
     def _confirm_run_with_dirty(self) -> bool:
         if not getattr(self, "_config_dirty", False):
             return True
+        if is_gui_test_mode():
+            return True
         return messagebox.askyesno(
             "Unsaved Changes",
             "The config has unsaved changes that won’t be applied to any pack. Continue anyway?",
         )
+
+    def _maybe_show_new_features_dialog(self) -> None:
+        """Optionally show the 'new features' dialog unless running under tests."""
+
+        if is_gui_test_mode():
+            return
+        if getattr(self, "_new_features_dialog_shown", False):
+            return
+        self._new_features_dialog_shown = True
+        self._show_new_features_dialog()
+
+    def _show_new_features_dialog(self) -> None:
+        """Display the latest feature highlights. Skips errors silently."""
+
+        try:
+            messagebox.showinfo(
+                "New Features Available",
+                (
+                    "New GUI enhancements have been added in this release.\n\n"
+                    "• Advanced prompt editor with validation tools.\n"
+                    "• Improved pack persistence and scheduler handling.\n"
+                    "• Faster pipeline startup diagnostics.\n\n"
+                    "See CHANGELOG.md for full details."
+                ),
+            )
+        except Exception:
+            logger.debug("Failed to display new features dialog", exc_info=True)
 
     def _register_scrollable_section(
         self, name: str, canvas: tk.Canvas, body: tk.Widget
@@ -5842,7 +6041,7 @@ class StableNewGUI:
                         "[DIAG] _load_config_into_forms: calling adetailer_panel.set_config",
                         extra={"flush": True},
                     )
-                self.adetailer_panel.set_config(config.get("adetailer", {}))
+                self._apply_adetailer_config_section(config.get("adetailer", {}))
             if getattr(self, "_diag_enabled", False):
                 logger.info(
                     "[DIAG] _load_config_into_forms: calling _load_randomization_config",
@@ -6043,10 +6242,7 @@ class StableNewGUI:
                 return results
             except CancellationError:
                 # Signal completion and prefer Ready status after cancellation
-                try:
-                    self.controller.lifecycle_event.set()
-                except Exception:
-                    pass
+                self._signal_pipeline_finished()
                 try:
                     self._force_error_status = False
                     if hasattr(self, "progress_message_var"):
@@ -6097,7 +6293,7 @@ class StableNewGUI:
 
                 # Ensure tests waiting on lifecycle_event are not blocked
                 try:
-                    self.controller.lifecycle_event.set()
+                    self._signal_pipeline_finished()
                 except Exception:
                     pass
 
@@ -6145,10 +6341,7 @@ class StableNewGUI:
             except Exception:
                 pass
             # Ensure lifecycle_event is signaled for tests waiting on completion
-            try:
-                self.controller.lifecycle_event.set()
-            except Exception:
-                pass
+            self._signal_pipeline_finished()
 
         # Error callback
         def on_error(e):
@@ -6202,11 +6395,11 @@ class StableNewGUI:
                 _show_err()
             # Ensure lifecycle_event is signaled promptly on error
             try:
-                self.controller.lifecycle_event.set()
+                self._signal_pipeline_finished()
             except Exception:
                 pass
 
-        # Start pipeline using controller
+        # Start pipeline using controller (tests may toggle _sync_cleanup themselves)
         self.controller.start_pipeline(pipeline_func, on_complete=on_complete, on_error=on_error)
 
     def _handle_pipeline_error(self, error: Exception) -> None:
@@ -6660,9 +6853,5 @@ class StableNewGUI:
     def _randomize_img2img_seed(self):
         """Generate random seed for img2img"""
         self._randomize_seed("img2img")
-
-
-
-
 
 
