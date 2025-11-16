@@ -39,6 +39,16 @@ class TestADetailerConfigPanel:
         assert "adetailer_steps" in config
         assert "adetailer_denoise" in config
         assert "adetailer_cfg" in config
+        assert config["adetailer_scheduler"] == "inherit"
+
+    def test_scheduler_dropdown_defaults_to_inherit(self, root):
+        """Scheduler dropdown should exist and default to inherit."""
+        panel = ADetailerConfigPanel(root)
+        assert hasattr(panel, "scheduler_var")
+        assert hasattr(panel, "scheduler_combo")
+        assert panel.scheduler_var.get() == "inherit"
+        values = set(panel.scheduler_combo["values"])
+        assert "inherit" in values
 
     def test_enable_toggle(self, root):
         """Test enabling/disabling ADetailer."""
@@ -71,6 +81,7 @@ class TestADetailerConfigPanel:
             "adetailer_cfg": 7.5,
             "adetailer_prompt": "detailed face",
             "adetailer_negative_prompt": "blurry",
+            "adetailer_scheduler": "Karras",
         }
 
         panel.set_config(test_config)
@@ -81,6 +92,14 @@ class TestADetailerConfigPanel:
         assert retrieved_config["adetailer_model"] == "face_yolov8n.pt"
         assert retrieved_config["adetailer_confidence"] == 0.35
         assert retrieved_config["adetailer_steps"] == 25
+        assert retrieved_config["adetailer_scheduler"] == "Karras"
+
+    def test_scheduler_persisted_in_config(self, root):
+        """Changing scheduler dropdown updates config."""
+        panel = ADetailerConfigPanel(root)
+        panel.scheduler_var.set("Automatic")
+        config = panel.get_config()
+        assert config["adetailer_scheduler"] == "Automatic"
 
     def test_validate_config(self, root):
         """Test configuration validation."""
@@ -150,6 +169,7 @@ class TestADetailerIntegration:
             "adetailer_cfg": 7.0,
             "adetailer_prompt": "high quality face",
             "adetailer_negative_prompt": "blurry, distorted",
+            "adetailer_scheduler": "Karras",
         }
         panel.set_config(config)
 
@@ -160,6 +180,7 @@ class TestADetailerIntegration:
         assert payload["adetailer_conf"] == 0.3
         assert payload["adetailer_steps"] == 28
         assert payload["adetailer_denoise"] == 0.4
+        assert payload["adetailer_scheduler"] == "Karras"
 
     def test_cancel_during_processing(self, root):
         """Test cancellation token integration."""

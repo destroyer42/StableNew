@@ -4,14 +4,20 @@ C:.
 ¦   .editorconfig
 ¦   .gitignore
 ¦   .pre-commit-config.yaml
+¦   .stableNew_version.txt
+¦   CHANGELOG.md
+¦   CONTRIBUTING.md
 ¦   custom_pack_lists.json
 ¦   pyproject.toml
 ¦   README.md
-¦   READMEV2.md
 ¦   README_agent_block.md
 ¦   requirements.txt
 ¦   snapshot_tree.md
+¦   snapshot_tree.txt
 ¦   StableNew.code-workspace
+¦   temp_prefs.json
+¦   temp_prefs2.json
+¦   temp_prefs3.json
 ¦   
 +---.github
 ¦   ¦   co-pilot documentation and best practices.md
@@ -5149,8 +5155,6 @@ C:.
 ¦   ¦   journey_test_heroes_OLD.py
 ¦   ¦   journey_test_OLD.py
 ¦   ¦   RESOLUTION_SUMMARY_OLD.md
-¦   ¦   snapshot_tree.md
-¦   ¦   snapshot_tree.txt
 ¦   ¦   
 ¦   +---old_packs_old
 ¦   ¦       Abethkara.json
@@ -5346,87 +5350,59 @@ C:.
 ¦           _tmp_check.py
 ¦           
 +---docs
-¦   ¦   CHANGELOG.md
+¦   ¦   BUG_FIX_GUI_HANG_SECOND_RUN.md
 ¦   ¦   CODEX_AUTOFIX.md
-¦   ¦   CONTRIBUTING.md
+¦   ¦   CONFIGURATION_TESTING_GUIDE.md
+¦   ¦   DEFAULT_PRESET_IMPLEMENTATION.md
+¦   ¦   engineering_standards.md
+¦   ¦   gui_overview.md
+¦   ¦   GUI_REVAMP_SUMMARY.md
+¦   ¦   gui_theming.md
+¦   ¦   journey_test_coverage_checklist.md
+¦   ¦   LAUNCHERS.md
+¦   ¦   MATRIX_PROMPT_MODE.md
+¦   ¦   packs_and_presets.md
+¦   ¦   PR10_SINGLE_INSTANCE_AND_EXIT.md
+¦   ¦   PR1_CONFIG_BANNER_IMPLEMENTATION.md
+¦   ¦   PR2_CONFIG_SERVICE_IMPLEMENTATION.md
+¦   ¦   PR3_LOAD_CONTROLS_IMPLEMENTATION.md
+¦   ¦   PR4_CONFIG_LOCK_IMPLEMENTATION.md
+¦   ¦   PR5_APPLY_TO_PACKS_IMPLEMENTATION.md
+¦   ¦   PR6_PRESET_CRUD_IMPLEMENTATION.md
+¦   ¦   PR7_LIST_MANAGEMENT_IMPLEMENTATION.md
+¦   ¦   PR8_PREVIEW_PAYLOAD_IMPLEMENTATION.md
+¦   ¦   PR9_RANDOMIZATION_REFINEMENT.md
+¦   ¦   PROJECT_REORGANIZATION_SUMMARY.md
+¦   ¦   RANDOMIZATION_AND_MATRIX_UI_SUMMARY.md
+¦   ¦   RECENT_BUGS_AND_LESSONS.md
+¦   ¦   repo_cleanup_plan.md
+¦   ¦   SPRINT_SUMMARY.md
+¦   ¦   SPRINT_SUMMARY_PR_F-H.md
 ¦   ¦   testing_strategy.md
+¦   ¦   THREADING_FIX.md
 ¦   ¦   _toc.md
 ¦   ¦   
-¦   +---agents
-¦   ¦   ¦   AGENTS_AND_AI_WORKFLOW.md
-¦   ¦   ¦   CODEX_PR_Usage_SOP.md
-¦   ¦   ¦   engineering_standards.md
-¦   ¦   ¦   
-¦   ¦   +---PRs
-¦   +---architecture
-¦   ¦       ARCHITECTURE_v2.md
-¦   ¦       ARCHITECTURE_v2_Translation_Plan.md
-¦   ¦       
 ¦   +---archive
-¦   ¦   ¦   refactor_plan_main_window_gui_20251102_postAgent_OLD.md
+¦   ¦       refactor_plan_main_window_gui_20251102_postAgent_OLD.md
+¦   ¦       
+¦   +---assets
+¦   ¦   ¦   README.md
 ¦   ¦   ¦   
-¦   ¦   +---dev
-¦   ¦   ¦       snapshots.md
-¦   ¦   ¦       
-¦   ¦   +---legacy
-¦   ¦           ARCHITECTURE.md
-¦   ¦           AUDIT_REPORT_S3_S4_READINESS.md
-¦   ¦           GUI_ENHANCEMENTS.md
-¦   ¦           ISSUE_ANALYSIS.md
-¦   ¦           OPEN_ISSUES_RECOMMENDATIONS.md
+¦   ¦   +---core_flows
+¦   ¦           README.md
 ¦   ¦           
-¦   +---guides
-¦   ¦       LAUNCHERS.md
-¦   ¦       MATRIX_PROMPT_MODE.md
-¦   ¦       packs_and_presets.md
-¦   ¦       RANDOMIZATION_AND_MATRIX_UI_SUMMARY.md
+¦   +---dev
+¦   ¦       snapshots.md
 ¦   ¦       
-¦   +---history
-¦   ¦       BUG_FIX_GUI_HANG_SECOND_RUN.md
-¦   ¦       Known_Bugs_And_Issues_Summary.md
-¦   ¦       PROJECT_REORGANIZATION_SUMMARY.md
-¦   ¦       RECENT_BUGS_AND_LESSONS.md
-¦   ¦       SPRINT_SUMMARY.md
-¦   ¦       SPRINT_SUMMARY_PR_F-H.md
-¦   ¦       StableNew_History_Summary.md
-¦   ¦       THREADING_FIX.md
+¦   +---legacy
+¦   ¦       ARCHITECTURE.md
+¦   ¦       AUDIT_REPORT_S3_S4_READINESS.md
+¦   ¦       GUI_ENHANCEMENTS.md
+¦   ¦       ISSUE_ANALYSIS.md
+¦   ¦       OPEN_ISSUES_RECOMMENDATIONS.md
 ¦   ¦       
-¦   +---pr_templates
-¦   ¦   ¦   index.yaml
-¦   ¦   ¦   repo_cleanup_plan.md
-¦   ¦   ¦   
-¦   ¦   +---batch_B1_E1
-¦   ¦   +---batch_F1_H1
-¦   ¦   +---PriorWork_complete
-¦   ¦       ¦   DEFAULT_PRESET_IMPLEMENTATION.md
-¦   ¦       ¦   GUI_REVAMP_SUMMARY.md
-¦   ¦       ¦   
-¦   ¦       +---batch_1_10_Complete
-¦   ¦       ¦       PR10_SINGLE_INSTANCE_AND_EXIT.md
-¦   ¦       ¦       PR1_CONFIG_BANNER_IMPLEMENTATION.md
-¦   ¦       ¦       PR2_CONFIG_SERVICE_IMPLEMENTATION.md
-¦   ¦       ¦       PR3_LOAD_CONTROLS_IMPLEMENTATION.md
-¦   ¦       ¦       PR4_CONFIG_LOCK_IMPLEMENTATION.md
-¦   ¦       ¦       PR5_APPLY_TO_PACKS_IMPLEMENTATION.md
-¦   ¦       ¦       PR6_PRESET_CRUD_IMPLEMENTATION.md
-¦   ¦       ¦       PR7_LIST_MANAGEMENT_IMPLEMENTATION.md
-¦   ¦       ¦       PR8_PREVIEW_PAYLOAD_IMPLEMENTATION.md
-¦   ¦       ¦       PR9_RANDOMIZATION_REFINEMENT.md
-¦   ¦       ¦       
-¦   ¦       +---PR14_complete
-¦   ¦               PR-PIPE-014_upscale_tiling.md
-¦   ¦               
-¦   +---roadmap
-¦   ¦       StableNew_Roadmap_v1.0.md
-¦   ¦       
-¦   +---schemas
-¦           CONFIGURATION_TESTING_GUIDE.md
-¦           gui_overview.md
-¦           gui_theming.md
-¦           journey_test_coverage_checklist.md
-¦           temp_prefs.json
-¦           temp_prefs2.json
-¦           temp_prefs3.json
+¦   +---manualTesting
+¦           SDXL_Fantasy_TestMatrix.xlsx
 ¦           
 +---lists
 ¦       RandomizerList.json
@@ -19829,188 +19805,6 @@ C:.
 ¦   ¦       ¦       
 ¦   ¦       +---upscaled
 ¦   ¦       +---video
-¦   +---run_20251115_133435
-¦   ¦   +---SDXL_beautiful_women_Realistic_pack
-¦   ¦       ¦   config.json
-¦   ¦       ¦   
-¦   ¦       +---adetailer
-¦   ¦       ¦       adetailer_20251115_133544.png
-¦   ¦       ¦       
-¦   ¦       +---img2img
-¦   ¦       +---manifests
-¦   ¦       ¦       001_20251115_133436_txt2img.json
-¦   ¦       ¦       adetailer_20251115_133544.json
-¦   ¦       ¦       
-¦   ¦       +---txt2img
-¦   ¦       ¦       001_20251115_133436.png
-¦   ¦       ¦       
-¦   ¦       +---upscaled
-¦   ¦       +---video
-¦   +---run_20251115_141117
-¦   ¦   +---SDXL_beautiful_women_Realistic_pack
-¦   ¦       ¦   config.json
-¦   ¦       ¦   summary.csv
-¦   ¦       ¦   
-¦   ¦       +---adetailer
-¦   ¦       ¦       adetailer_20251115_141229.png
-¦   ¦       ¦       adetailer_20251115_141359.png
-¦   ¦       ¦       adetailer_20251115_141532.png
-¦   ¦       ¦       adetailer_20251115_141702.png
-¦   ¦       ¦       adetailer_20251115_141834.png
-¦   ¦       ¦       adetailer_20251115_142003.png
-¦   ¦       ¦       adetailer_20251115_142129.png
-¦   ¦       ¦       adetailer_20251115_142251.png
-¦   ¦       ¦       adetailer_20251115_142420.png
-¦   ¦       ¦       adetailer_20251115_142546.png
-¦   ¦       ¦       
-¦   ¦       +---img2img
-¦   ¦       +---manifests
-¦   ¦       ¦       001_20251115_141117_txt2img.json
-¦   ¦       ¦       001_20251115_141117_upscale.json
-¦   ¦       ¦       002_20251115_141253_txt2img.json
-¦   ¦       ¦       002_20251115_141253_upscale.json
-¦   ¦       ¦       003_20251115_141424_txt2img.json
-¦   ¦       ¦       003_20251115_141424_upscale.json
-¦   ¦       ¦       004_20251115_141558_txt2img.json
-¦   ¦       ¦       004_20251115_141558_upscale.json
-¦   ¦       ¦       005_20251115_141726_txt2img.json
-¦   ¦       ¦       005_20251115_141726_upscale.json
-¦   ¦       ¦       006_20251115_141859_txt2img.json
-¦   ¦       ¦       006_20251115_141859_upscale.json
-¦   ¦       ¦       007_20251115_142027_txt2img.json
-¦   ¦       ¦       007_20251115_142027_upscale.json
-¦   ¦       ¦       008_20251115_142152_txt2img.json
-¦   ¦       ¦       008_20251115_142152_upscale.json
-¦   ¦       ¦       009_20251115_142315_txt2img.json
-¦   ¦       ¦       009_20251115_142315_upscale.json
-¦   ¦       ¦       010_20251115_142444_txt2img.json
-¦   ¦       ¦       010_20251115_142444_upscale.json
-¦   ¦       ¦       adetailer_20251115_141229.json
-¦   ¦       ¦       adetailer_20251115_141359.json
-¦   ¦       ¦       adetailer_20251115_141532.json
-¦   ¦       ¦       adetailer_20251115_141702.json
-¦   ¦       ¦       adetailer_20251115_141834.json
-¦   ¦       ¦       adetailer_20251115_142003.json
-¦   ¦       ¦       adetailer_20251115_142129.json
-¦   ¦       ¦       adetailer_20251115_142251.json
-¦   ¦       ¦       adetailer_20251115_142420.json
-¦   ¦       ¦       adetailer_20251115_142546.json
-¦   ¦       ¦       
-¦   ¦       +---txt2img
-¦   ¦       ¦       001_20251115_141117.png
-¦   ¦       ¦       002_20251115_141253.png
-¦   ¦       ¦       003_20251115_141424.png
-¦   ¦       ¦       004_20251115_141558.png
-¦   ¦       ¦       005_20251115_141726.png
-¦   ¦       ¦       006_20251115_141859.png
-¦   ¦       ¦       007_20251115_142027.png
-¦   ¦       ¦       008_20251115_142152.png
-¦   ¦       ¦       009_20251115_142315.png
-¦   ¦       ¦       010_20251115_142444.png
-¦   ¦       ¦       
-¦   ¦       +---upscaled
-¦   ¦       ¦       001_20251115_141117.png
-¦   ¦       ¦       002_20251115_141253.png
-¦   ¦       ¦       003_20251115_141424.png
-¦   ¦       ¦       004_20251115_141558.png
-¦   ¦       ¦       005_20251115_141726.png
-¦   ¦       ¦       006_20251115_141859.png
-¦   ¦       ¦       007_20251115_142027.png
-¦   ¦       ¦       008_20251115_142152.png
-¦   ¦       ¦       009_20251115_142315.png
-¦   ¦       ¦       010_20251115_142444.png
-¦   ¦       ¦       
-¦   ¦       +---video
-¦   +---run_20251115_142907
-¦   ¦   +---SDXL_angelic_warriors_Fantasy_pack
-¦   ¦   ¦   ¦   config.json
-¦   ¦   ¦   ¦   summary.csv
-¦   ¦   ¦   ¦   
-¦   ¦   ¦   +---adetailer
-¦   ¦   ¦   ¦       adetailer_20251115_143013.png
-¦   ¦   ¦   ¦       adetailer_20251115_145611.png
-¦   ¦   ¦   ¦       
-¦   ¦   ¦   +---img2img
-¦   ¦   ¦   +---manifests
-¦   ¦   ¦   ¦       001_20251115_142907_txt2img.json
-¦   ¦   ¦   ¦       002_20251115_144517_txt2img.json
-¦   ¦   ¦   ¦       adetailer_20251115_143013.json
-¦   ¦   ¦   ¦       adetailer_20251115_145611.json
-¦   ¦   ¦   ¦       
-¦   ¦   ¦   +---txt2img
-¦   ¦   ¦   ¦       001_20251115_142907.png
-¦   ¦   ¦   ¦       002_20251115_144517.png
-¦   ¦   ¦   ¦       
-¦   ¦   ¦   +---upscaled
-¦   ¦   ¦   +---video
-¦   ¦   +---SDXL_angelic_warriors_Realistic_pack
-¦   ¦   ¦   ¦   config.json
-¦   ¦   ¦   ¦   
-¦   ¦   ¦   +---adetailer
-¦   ¦   ¦   +---img2img
-¦   ¦   ¦   +---manifests
-¦   ¦   ¦   +---txt2img
-¦   ¦   ¦   +---upscaled
-¦   ¦   ¦   +---video
-¦   ¦   +---SDXL_beautiful_women_Fantasy_pack
-¦   ¦   ¦   ¦   config.json
-¦   ¦   ¦   ¦   
-¦   ¦   ¦   +---adetailer
-¦   ¦   ¦   +---img2img
-¦   ¦   ¦   +---manifests
-¦   ¦   ¦   +---txt2img
-¦   ¦   ¦   +---upscaled
-¦   ¦   ¦   +---video
-¦   ¦   +---SDXL_beautiful_women_Realistic_pack
-¦   ¦   ¦   ¦   config.json
-¦   ¦   ¦   ¦   
-¦   ¦   ¦   +---adetailer
-¦   ¦   ¦   +---img2img
-¦   ¦   ¦   +---manifests
-¦   ¦   ¦   +---txt2img
-¦   ¦   ¦   +---upscaled
-¦   ¦   ¦   +---video
-¦   ¦   +---SDXL_epic_structures_Fantasy_pack
-¦   ¦   ¦   ¦   config.json
-¦   ¦   ¦   ¦   
-¦   ¦   ¦   +---adetailer
-¦   ¦   ¦   +---img2img
-¦   ¦   ¦   +---manifests
-¦   ¦   ¦   +---txt2img
-¦   ¦   ¦   +---upscaled
-¦   ¦   ¦   +---video
-¦   ¦   +---SDXL_epic_structures_Realistic_pack
-¦   ¦   ¦   ¦   config.json
-¦   ¦   ¦   ¦   
-¦   ¦   ¦   +---adetailer
-¦   ¦   ¦   +---img2img
-¦   ¦   ¦   +---manifests
-¦   ¦   ¦   +---txt2img
-¦   ¦   ¦   +---upscaled
-¦   ¦   ¦   +---video
-¦   ¦   +---SDXL_female_fantasy_heroes_Fantasy_pack
-¦   ¦       ¦   config.json
-¦   ¦       ¦   
-¦   ¦       +---adetailer
-¦   ¦       +---img2img
-¦   ¦       +---manifests
-¦   ¦       +---txt2img
-¦   ¦       +---upscaled
-¦   ¦       +---video
-¦   +---run_20251115_175405
-¦   ¦   +---SDXL_angelic_warriors_Fantasy_pack
-¦   ¦       ¦   config.json
-¦   ¦       ¦   
-¦   ¦       +---adetailer
-¦   ¦       +---img2img
-¦   ¦       +---manifests
-¦   ¦       ¦       001_20251115_175405_txt2img.json
-¦   ¦       ¦       
-¦   ¦       +---txt2img
-¦   ¦       ¦       001_20251115_175405.png
-¦   ¦       ¦       
-¦   ¦       +---upscaled
-¦   ¦       +---video
 ¦   +---txt2img_only
 ¦   ¦   +---manifests
 ¦   ¦           txt2img_20251102_214031_000.json
@@ -20200,7 +19994,6 @@ C:.
 ¦   ¦           __init__.cpython-311.pyc
 ¦   ¦           
 ¦   +---controller
-¦   ¦   ¦   app_controller.py
 ¦   ¦   ¦   pipeline_controller.py
 ¦   ¦   ¦   __init__.py
 ¦   ¦   ¦   
@@ -20492,7 +20285,6 @@ C:.
 ¦   ¦           __init__.cpython-310.pyc
 ¦   ¦           __init__.cpython-311.pyc
 ¦   ¦           
-¦   +---journey
 ¦   +---legacy
 ¦   ¦   ¦   test_advanced_features.py
 ¦   ¦   ¦   test_gui_enhancements.py
@@ -20534,7 +20326,6 @@ C:.
 ¦   ¦           __init__.cpython-310.pyc
 ¦   ¦           __init__.cpython-311.pyc
 ¦   ¦           
-¦   +---unit
 ¦   +---utils
 ¦   ¦   ¦   test_aesthetic_detection.py
 ¦   ¦   ¦   test_config_manager_defaults.py
@@ -20638,6 +20429,7 @@ C:.
 +---tools
     ¦   archive_unused.py
     ¦   codex_autofix_runner.py
+    ¦   last_change.diff
     ¦   make_patch.cmd
     ¦   make_snapshot.ps1
     ¦   __init__.py

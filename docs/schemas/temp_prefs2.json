@@ -7,6 +7,7 @@
     "img2img_enabled": true,
     "adetailer_enabled": false,
     "upscale_enabled": true,
+    "upscale_only_last": true,
     "video_enabled": false,
     "apply_global_negative_txt2img": true,
     "apply_global_negative_img2img": true,

@@ -1,6 +1,6 @@
 """Utilities module"""
 
-from .config import ConfigManager
+from .config import ConfigManager, build_sampler_scheduler_payload
 from .file_io import (
     get_prompt_packs,
     get_safe_filename,
@@ -16,6 +16,7 @@ from .webui_discovery import find_webui_api_port, wait_for_webui_ready
 
 __all__ = [
     "ConfigManager",
+    "build_sampler_scheduler_payload",
     "StructuredLogger",
     "setup_logging",
     "PreferencesManager",

@@ -7,6 +7,7 @@
     "img2img_enabled": true,
     "adetailer_enabled": false,
     "upscale_enabled": true,
+    "upscale_only_last": true,
     "video_enabled": false,
     "loop_type": "single",
     "loop_count": 1,

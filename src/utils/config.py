@@ -4,7 +4,7 @@ import json
 import logging
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Optional
 
 DEFAULT_GLOBAL_NEGATIVE_PROMPT = (
     "blurry, bad quality, distorted, ugly, malformed, nsfw, nude, naked, explicit, "
@@ -12,6 +12,56 @@ DEFAULT_GLOBAL_NEGATIVE_PROMPT = (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_scheduler_name(scheduler: Optional[str]) -> Optional[str]:
+    """
+    Normalize scheduler names into values WebUI understands.
+
+    Treats None, empty strings, "None", and "Automatic" (case-insensitive) as no scheduler.
+    """
+
+    if scheduler is None:
+        return None
+
+    value = str(scheduler).strip()
+    if not value:
+        return None
+
+    lowered = value.lower()
+    if lowered in {"none", "automatic"}:
+        return None
+
+    return value
+
+
+def build_sampler_scheduler_payload(
+    sampler_name: Optional[str],
+    scheduler_name: Optional[str],
+) -> Dict[str, str]:
+    """
+    Build sampler / scheduler payload segment following WebUI expectations.
+
+    When a scheduler is selected, we send both the combined sampler name
+    (e.g., "DPM++ 2M Karras") and the explicit scheduler field. Otherwise
+    we omit the scheduler key entirely and send only the sampler name.
+    """
+
+    payload: Dict[str, str] = {}
+
+    sampler = (sampler_name or "").strip()
+    if not sampler:
+        return payload
+
+    normalized_scheduler = _normalize_scheduler_name(scheduler_name)
+
+    if normalized_scheduler:
+        payload["sampler_name"] = f"{sampler} {normalized_scheduler}"
+        payload["scheduler"] = normalized_scheduler
+    else:
+        payload["sampler_name"] = sampler
+
+    return payload
 
 
 class ConfigManager:
@@ -192,17 +242,18 @@ class ConfigManager:
                 "codeformer_visibility": 0.0,  # Face restoration alternative
                 "codeformer_weight": 0.5,  # CodeFormer fidelity
             },
-            "adetailer": {
-                "adetailer_enabled": False,
-                "adetailer_model": "face_yolov8n.pt",
-                "adetailer_confidence": 0.3,
-                "adetailer_mask_feather": 4,
-                "adetailer_sampler": "DPM++ 2M",
-                "adetailer_steps": 28,
-                "adetailer_denoise": 0.4,
-                "adetailer_cfg": 7.0,
-                "adetailer_prompt": "",
-                "adetailer_negative_prompt": "",
+        "adetailer": {
+            "adetailer_enabled": False,
+            "adetailer_model": "face_yolov8n.pt",
+            "adetailer_confidence": 0.3,
+            "adetailer_mask_feather": 4,
+            "adetailer_sampler": "DPM++ 2M",
+            "adetailer_scheduler": "inherit",
+            "adetailer_steps": 28,
+            "adetailer_denoise": 0.4,
+            "adetailer_cfg": 7.0,
+            "adetailer_prompt": "",
+            "adetailer_negative_prompt": "",
             },
             "video": {"fps": 24, "codec": "libx264", "quality": "medium"},
             "api": {"base_url": "http://127.0.0.1:7860", "timeout": 300},

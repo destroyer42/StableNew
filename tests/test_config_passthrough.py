@@ -38,7 +38,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from src.api.client import SDWebUIClient
 from src.pipeline.executor import Pipeline
-from src.utils.config import ConfigManager
+from src.utils.config import ConfigManager, build_sampler_scheduler_payload
 from src.utils.logger import StructuredLogger
 
 
@@ -312,6 +312,21 @@ def run_configuration_validation_tests():
             "issues": all_issues,
         },
     }
+
+
+def test_sampler_scheduler_payload_with_explicit_scheduler():
+    """Sampler payload should append explicit scheduler when provided."""
+    payload = build_sampler_scheduler_payload("DPM++ 2M", "Karras")
+    assert payload["sampler_name"] == "DPM++ 2M Karras"
+    assert payload["scheduler"] == "Karras"
+
+
+def test_sampler_scheduler_payload_without_scheduler():
+    """Sampler payload should omit scheduler when input is empty/automatic."""
+    for raw in (None, "", "None", "none", "Automatic", "automatic"):
+        payload = build_sampler_scheduler_payload("DPM++ 2M", raw)
+        assert payload["sampler_name"] == "DPM++ 2M"
+        assert "scheduler" not in payload
 
 
 if __name__ == "__main__":

@@ -27,6 +27,15 @@ class ADetailerConfigPanel:
         "mediapipe_face_mesh",
     ]
 
+    SCHEDULER_OPTIONS = [
+        "inherit",
+        "Automatic",
+        "Karras",
+        "Exponential",
+        "Polyexponential",
+        "SGM Uniform",
+    ]
+
     # Default configuration
     DEFAULT_CONFIG = {
         "adetailer_enabled": False,
@@ -34,6 +43,7 @@ class ADetailerConfigPanel:
         "adetailer_confidence": 0.3,
         "adetailer_mask_feather": 4,
         "adetailer_sampler": "DPM++ 2M",
+        "adetailer_scheduler": "inherit",
         "adetailer_steps": 28,
         "adetailer_denoise": 0.4,
         "adetailer_cfg": 7.0,
@@ -58,6 +68,7 @@ class ADetailerConfigPanel:
         self.confidence_var = tk.DoubleVar(value=self.DEFAULT_CONFIG["adetailer_confidence"])
         self.mask_feather_var = tk.IntVar(value=self.DEFAULT_CONFIG["adetailer_mask_feather"])
         self.sampler_var = tk.StringVar(value=self.DEFAULT_CONFIG["adetailer_sampler"])
+        self.scheduler_var = tk.StringVar(value=self.DEFAULT_CONFIG["adetailer_scheduler"])
         self.steps_var = tk.IntVar(value=self.DEFAULT_CONFIG["adetailer_steps"])
         self.denoise_var = tk.DoubleVar(value=self.DEFAULT_CONFIG["adetailer_denoise"])
         self.cfg_var = tk.DoubleVar(value=self.DEFAULT_CONFIG["adetailer_cfg"])
@@ -137,21 +148,34 @@ class ADetailerConfigPanel:
         )
         self.sampler_combo.grid(row=4, column=1, sticky=tk.W, pady=2, padx=(5, 0))
 
+        # Scheduler
+        scheduler_label = ttk.Label(self.frame, text="Scheduler:")
+        scheduler_label.grid(row=5, column=0, sticky=tk.W, pady=2)
+
+        self.scheduler_combo = ttk.Combobox(
+            self.frame,
+            textvariable=self.scheduler_var,
+            values=self.SCHEDULER_OPTIONS,
+            width=20,
+            state="readonly",
+        )
+        self.scheduler_combo.grid(row=5, column=1, sticky=tk.W, pady=2, padx=(5, 0))
+
         # Steps
         steps_label = ttk.Label(self.frame, text="Steps:")
-        steps_label.grid(row=5, column=0, sticky=tk.W, pady=2)
+        steps_label.grid(row=6, column=0, sticky=tk.W, pady=2)
 
         self.steps_spin = ttk.Spinbox(
             self.frame, from_=1, to=150, textvariable=self.steps_var, width=10
         )
-        self.steps_spin.grid(row=5, column=1, sticky=tk.W, pady=2, padx=(5, 0))
+        self.steps_spin.grid(row=6, column=1, sticky=tk.W, pady=2, padx=(5, 0))
 
         # Denoise strength
         denoise_label = ttk.Label(self.frame, text="Denoise Strength:")
-        denoise_label.grid(row=6, column=0, sticky=tk.W, pady=2)
+        denoise_label.grid(row=7, column=0, sticky=tk.W, pady=2)
 
         denoise_frame = ttk.Frame(self.frame)
-        denoise_frame.grid(row=6, column=1, sticky=tk.W, pady=2, padx=(5, 0))
+        denoise_frame.grid(row=7, column=1, sticky=tk.W, pady=2, padx=(5, 0))
 
         self.denoise_scale = ttk.Scale(
             denoise_frame,
@@ -169,26 +193,26 @@ class ADetailerConfigPanel:
 
         # CFG Scale
         cfg_label = ttk.Label(self.frame, text="CFG Scale:")
-        cfg_label.grid(row=7, column=0, sticky=tk.W, pady=2)
+        cfg_label.grid(row=8, column=0, sticky=tk.W, pady=2)
 
         self.cfg_spin = ttk.Spinbox(
             self.frame, from_=1.0, to=30.0, textvariable=self.cfg_var, width=10, increment=0.5
         )
-        self.cfg_spin.grid(row=7, column=1, sticky=tk.W, pady=2, padx=(5, 0))
+        self.cfg_spin.grid(row=8, column=1, sticky=tk.W, pady=2, padx=(5, 0))
 
         # Prompt
         prompt_label = ttk.Label(self.frame, text="Positive Prompt:")
-        prompt_label.grid(row=8, column=0, sticky=tk.NW, pady=2)
+        prompt_label.grid(row=9, column=0, sticky=tk.NW, pady=2)
 
         self.prompt_text = tk.Text(self.frame, height=3, width=40)
-        self.prompt_text.grid(row=8, column=1, sticky=tk.W, pady=2, padx=(5, 0))
+        self.prompt_text.grid(row=9, column=1, sticky=tk.W, pady=2, padx=(5, 0))
 
         # Negative prompt
         neg_prompt_label = ttk.Label(self.frame, text="Negative Prompt:")
-        neg_prompt_label.grid(row=9, column=0, sticky=tk.NW, pady=2)
+        neg_prompt_label.grid(row=10, column=0, sticky=tk.NW, pady=2)
 
         self.neg_prompt_text = tk.Text(self.frame, height=3, width=40)
-        self.neg_prompt_text.grid(row=9, column=1, sticky=tk.W, pady=2, padx=(5, 0))
+        self.neg_prompt_text.grid(row=10, column=1, sticky=tk.W, pady=2, padx=(5, 0))
 
     def _update_confidence_label(self, value):
         """Update confidence label with current value."""
@@ -208,6 +232,7 @@ class ADetailerConfigPanel:
         self.confidence_scale.configure(state=state)
         self.feather_spin.configure(state=state)
         self.sampler_combo.configure(state="readonly" if enabled else "disabled")
+        self.scheduler_combo.configure(state="readonly" if enabled else "disabled")
         self.steps_spin.configure(state=state)
         self.denoise_scale.configure(state=state)
         self.cfg_spin.configure(state=state)
@@ -226,6 +251,7 @@ class ADetailerConfigPanel:
             "adetailer_confidence": self.confidence_var.get(),
             "adetailer_mask_feather": self.mask_feather_var.get(),
             "adetailer_sampler": self.sampler_var.get(),
+            "adetailer_scheduler": self.scheduler_var.get() or "inherit",
             "adetailer_steps": self.steps_var.get(),
             "adetailer_denoise": self.denoise_var.get(),
             "adetailer_cfg": self.cfg_var.get(),
@@ -250,6 +276,11 @@ class ADetailerConfigPanel:
             self.mask_feather_var.set(config["adetailer_mask_feather"])
         if "adetailer_sampler" in config:
             self.sampler_var.set(config["adetailer_sampler"])
+        if "adetailer_scheduler" in config:
+            value = config["adetailer_scheduler"] or "inherit"
+            if value not in self.SCHEDULER_OPTIONS:
+                value = "inherit"
+            self.scheduler_var.set(value)
         if "adetailer_steps" in config:
             self.steps_var.set(config["adetailer_steps"])
         if "adetailer_denoise" in config:
@@ -298,6 +329,12 @@ class ADetailerConfigPanel:
                 logger.error(f"Invalid steps: {steps} (must be >= 1)")
                 return False
 
+        if "adetailer_scheduler" in config:
+            scheduler_value = config["adetailer_scheduler"] or "inherit"
+            if scheduler_value not in self.SCHEDULER_OPTIONS:
+                logger.error(f"Invalid scheduler: {scheduler_value}")
+                return False
+
         return True
 
     def get_available_models(self) -> list[str]:
@@ -316,8 +353,9 @@ class ADetailerConfigPanel:
         """
         config = self.get_config()
 
-        # Map to API parameter names
-        return {
+        scheduler_value = config.get("adetailer_scheduler", "inherit") or "inherit"
+
+        payload = {
             "adetailer_model": config["adetailer_model"],
             "adetailer_conf": config["adetailer_confidence"],
             "adetailer_mask_blur": config["adetailer_mask_feather"],
@@ -328,6 +366,11 @@ class ADetailerConfigPanel:
             "adetailer_prompt": config["adetailer_prompt"],
             "adetailer_negative_prompt": config["adetailer_negative_prompt"],
         }
+
+        if scheduler_value != "inherit":
+            payload["adetailer_scheduler"] = scheduler_value
+
+        return payload
 
     def set_sampler_options(self, samplers: Iterable[str] | None) -> None:
         """Update the sampler dropdown with the provided options."""

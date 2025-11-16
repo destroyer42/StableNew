@@ -16,7 +16,13 @@ from PIL import Image
 
 from ..api import SDWebUIClient
 from ..gui.state import CancellationError
-from ..utils import ConfigManager, StructuredLogger, load_image_to_base64, save_image_from_base64
+from ..utils import (
+    ConfigManager,
+    StructuredLogger,
+    build_sampler_scheduler_payload,
+    load_image_to_base64,
+    save_image_from_base64,
+)
 
 
 @lru_cache(maxsize=128)
@@ -390,13 +396,10 @@ class Pipeline:
         Returns:
             Dict with 'sampler_name' and optional 'scheduler'
         """
-        sampler_name = config.get("sampler_name", "Euler a")
+        raw_sampler = config.get("sampler_name", "Euler a")
+        sampler_name = (raw_sampler or "Euler a").strip() or "Euler a"
+        scheduler_value = config.get("scheduler")
 
-        # If scheduler is already specified separately, use it
-        if "scheduler" in config:
-            return {"sampler_name": sampler_name, "scheduler": config["scheduler"]}
-
-        # Common scheduler mappings for legacy format
         scheduler_mappings = {
             "Karras": "Karras",
             "Exponential": "Exponential",
@@ -404,15 +407,19 @@ class Pipeline:
             "SGM Uniform": "SGM Uniform",
         }
 
-        # Check if sampler name contains a scheduler
-        for scheduler_keyword, scheduler_value in scheduler_mappings.items():
-            if scheduler_keyword in sampler_name:
-                # Split and clean the sampler name
-                clean_sampler = sampler_name.replace(scheduler_keyword, "").strip()
-                return {"sampler_name": clean_sampler, "scheduler": scheduler_value}
+        if not scheduler_value:
+            for scheduler_keyword, mapped in scheduler_mappings.items():
+                if scheduler_keyword in sampler_name:
+                    sampler_name = sampler_name.replace(scheduler_keyword, "").strip()
+                    scheduler_value = mapped
+                    break
 
-        # No scheduler found, return sampler with automatic scheduler
-        return {"sampler_name": sampler_name, "scheduler": "Automatic"}
+        sampler_payload = build_sampler_scheduler_payload(sampler_name, scheduler_value)
+        if sampler_payload:
+            return sampler_payload
+
+        # Fallback to default sampler
+        return {"sampler_name": "Euler a"}
 
     @staticmethod
     def _format_eta(seconds: float) -> str:
@@ -503,8 +510,6 @@ class Pipeline:
             "prompt": prompt,
             "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 20),
-            "sampler_name": sampler_config["sampler_name"],
-            "scheduler": sampler_config.get("scheduler", "Automatic"),
             "cfg_scale": config.get("cfg_scale", 7.0),
             "width": config.get("width", 512),
             "height": config.get("height", 512),
@@ -539,6 +544,8 @@ class Pipeline:
                 payload["hr_sampler_name"] = hr_sampler_name
         except Exception:
             pass
+
+        payload.update(sampler_config)
 
         # Add styles if specified
         if config.get("styles"):
@@ -622,8 +629,6 @@ class Pipeline:
             "prompt": prompt,
             "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 20),
-            "sampler_name": config.get("sampler_name", "Euler a"),
-            "scheduler": config.get("scheduler", "Normal"),
             "cfg_scale": config.get("cfg_scale", 7.0),
             "width": config.get("width", 512),
             "height": config.get("height", 512),
@@ -651,6 +656,8 @@ class Pipeline:
                 "denoising_strength": config.get("denoising_strength", 0.7),
             }
         )
+
+        payload.update(sampler_config)
 
         # Add styles if specified
         if config.get("styles"):
@@ -744,13 +751,13 @@ class Pipeline:
         prompt_adjust = (config.get("prompt_adjust") or "").strip()
         combined_prompt = prompt if not prompt_adjust else f"{prompt} {prompt_adjust}".strip()
 
+        sampler_config = self._parse_sampler_config(config)
+
         payload = {
             "init_images": [input_base64],
             "prompt": combined_prompt,
             "negative_prompt": enhanced_negative,
             "steps": config.get("steps", 15),
-            "sampler_name": config.get("sampler_name", "Euler a"),
-            "scheduler": config.get("scheduler", "normal"),
             "cfg_scale": config.get("cfg_scale", 7.0),
             "denoising_strength": config.get("denoising_strength", 0.3),
             "width": config.get("width", 512),
@@ -758,6 +765,8 @@ class Pipeline:
             "seed": config.get("seed", -1),
             "clip_skip": config.get("clip_skip", 2),
         }
+
+        payload.update(sampler_config)
 
         response = self.client.img2img(payload)
 
@@ -1683,8 +1692,6 @@ class Pipeline:
                 "prompt": prompt,
                 "negative_prompt": enhanced_negative,
                 "steps": txt2img_config.get("steps", 20),
-                "sampler_name": sampler_config["sampler_name"],
-                "scheduler": sampler_config.get("scheduler", "Automatic"),
                 "cfg_scale": txt2img_config.get("cfg_scale", 7.0),
                 "width": txt2img_config.get("width", 512),
                 "height": txt2img_config.get("height", 512),
@@ -1719,6 +1726,8 @@ class Pipeline:
                     payload["hr_sampler_name"] = hr_sampler_name
             except Exception:
                 pass
+
+            payload.update(sampler_config)
 
             prompt_after, negative_after = self._apply_aesthetic_to_payload(payload, config)
             payload["prompt"] = prompt_after
@@ -1891,6 +1900,8 @@ class Pipeline:
             else:
                 enhanced_negative = original_negative_prompt
 
+            sampler_config = self._parse_sampler_config(config)
+
             payload = {
                 "init_images": [input_image_b64],
                 "prompt": prompt,
@@ -1900,13 +1911,13 @@ class Pipeline:
                 "denoising_strength": config.get("denoising_strength", 0.3),
                 "width": config.get("width", 512),
                 "height": config.get("height", 512),
-                "sampler_name": config.get("sampler_name", "Euler a"),
-                "scheduler": config.get("scheduler", "normal"),
                 "seed": config.get("seed", -1),
                 "clip_skip": config.get("clip_skip", 2),
                 "batch_size": 1,
                 "n_iter": 1,
             }
+
+            payload.update(sampler_config)
 
             # Apply aesthetic adjustments AFTER global negative safety terms so they layer on top
             prompt_after, negative_after = self._apply_aesthetic_to_payload(
@@ -2055,6 +2066,8 @@ class Pipeline:
                     target_height,
                 )
 
+                sampler_config = self._parse_sampler_config(config)
+
                 payload = {
                     "init_images": [input_image_b64],
                     "prompt": config.get("prompt", ""),
@@ -2064,13 +2077,13 @@ class Pipeline:
                     "denoising_strength": config.get("denoising_strength", 0.35),
                     "width": target_width,
                     "height": target_height,
-                    "sampler_name": config.get("sampler_name", "Euler a"),
-                    "scheduler": config.get("scheduler", "normal"),
                     "seed": config.get("seed", -1),
                     "clip_skip": config.get("clip_skip", 2),
                     "batch_size": 1,
                     "n_iter": 1,
                 }
+
+                payload.update(sampler_config)
 
                 try:
                     logger.info(

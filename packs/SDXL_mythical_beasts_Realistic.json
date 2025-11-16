@@ -43,7 +43,7 @@
     "negative_adjust": ""
   },
   "upscale": {
-    "upscaler": "4x-UltraSharpV2",
+    "upscaler": "4xUltrasharp_4xUltrasharpV10",
     "upscaling_resize": 2.0,
     "upscale_mode": "single",
     "steps": 15,
@@ -107,7 +107,6 @@
       "mode": "rotate",
       "prompt_mode": "prepend",
       "limit": 0,
-      "base_prompt": "a [[style]] [[world_flavor]] boss creature towering over a [[environment]] with dramatic [[lighting]], framed from a [[camera]] perspective",
       "slots": [
         {
           "name": "environment",
@@ -159,7 +158,8 @@
           ]
         }
       ],
-      "raw_text": ""
+      "raw_text": "# Base: a [[style]] [[world_flavor]] boss creature towering over a [[environment]] with dramatic [[lighting]], framed from a [[camera]] perspective\nenvironment: volcanic lair | stormy cliffside | ancient battlefield | frozen wasteland | deep forest chasm\nlighting: hellish backlight | lightning flashes | embers and smoke glow | cold moonlight | dawn mist\nstyle: menacing | colossal | ancient | mythic | feral\ncamera: low-angle heroic shot | wide cinematic scale shot | close-up roaring head | silhouette against the sky\nworld_flavor: high fantasy realm | dark gothic kingdom | ruined empire | holy war frontier | primeval wilderness",
+      "base_prompt": "a [[style]] [[world_flavor]] boss creature towering over a [[environment]] with dramatic [[lighting]], framed from a [[camera]] perspective"
     }
   },
   "aesthetic": {
