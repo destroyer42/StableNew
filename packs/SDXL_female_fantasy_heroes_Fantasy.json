@@ -82,7 +82,7 @@
     "adetailer_confidence": 0.6916666666666667,
     "adetailer_mask_feather": 8,
     "adetailer_sampler": "DPM++ 2M",
-    "adetailer_scheduler": "inherit",
+    "adetailer_scheduler": "Karras",
     "adetailer_steps": 12,
     "adetailer_denoise": 0.25833333333333336,
     "adetailer_cfg": 6.0,
