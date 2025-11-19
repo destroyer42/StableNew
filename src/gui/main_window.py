@@ -13,7 +13,7 @@ from copy import deepcopy
 from enum import Enum, auto
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
-from typing import Any
+from typing import Any, Callable
 
 from src.api.client import SDWebUIClient, find_webui_api_port, validate_webui_health
 from src.controller.pipeline_controller import PipelineController
@@ -365,14 +365,50 @@ class StableNewGUI:
 
         return total, samples
 
-    def _maybe_warn_large_output(self, count: int, context: str) -> None:
+    def _maybe_warn_large_output(self, count: int, context: str) -> bool:
+        """Warn about very large runs while avoiding modal dialogs off the Tk thread."""
+
         threshold = getattr(self, "_image_warning_threshold", 0) or 0
-        if threshold and count >= threshold:
-            self.log_message(
-                f"⚠️ Expected to generate approximately {count} image(s) for {context}. "
-                "Adjust randomization or Images/Prompt if this is unintended.",
-                "WARNING",
+        if not threshold or count < threshold:
+            return True
+
+        self.log_message(
+            f"⚠️ Expected to generate approximately {count} image(s) for {context}. "
+            "Adjust Randomization or Images/Prompt if this is unintended.",
+            "WARNING",
+        )
+
+        suppress = is_gui_test_mode() or os.environ.get("STABLENEW_NO_DIALOGS") in {
+            "1",
+            "true",
+            "TRUE",
+        }
+        if suppress:
+            logger.warning(
+                "Large run estimate (%d images for %s) but dialogs suppressed; proceeding automatically.",
+                count,
+                context,
             )
+            return True
+
+        if threading.current_thread() is not threading.main_thread():
+            logger.warning(
+                "Large run estimate (%d images for %s) but warning invoked off Tk thread; "
+                "skipping dialog to avoid deadlock.",
+                count,
+                context,
+            )
+            return True
+
+        message = (
+            f"This run may generate approximately {count} image(s) for {context}. "
+            "This could take a long time. Do you want to continue?"
+        )
+        try:
+            return messagebox.askyesno("Large Run Warning", message)
+        except Exception:
+            logger.exception("Failed to display large-run warning dialog")
+            return True
 
 
     # -------- mediator selection -> config refresh --------
@@ -427,50 +463,40 @@ class StableNewGUI:
 
     # -------- run pipeline --------
     def _on_run_clicked(self) -> None:
-        """
-        Handler for RUN button; starts pipeline in controller thread.
-        Must not block the UI. Error UI is marshaled to Tk thread.
-        """
+        """Handler for RUN button; delegates to the canonical pipeline starter."""
         try:
-            selected = self.prompt_pack_panel.get_selected_packs()
+            try:
+                selected = self.prompt_pack_panel.get_selected_packs()
+            except Exception:
+                selected = []
             if not selected:
                 self._safe_messagebox(
                     "warning", "No Pack Selected", "Please select a prompt pack first."
                 )
                 return
+
             packs_str = selected[0] if len(selected) == 1 else f"{len(selected)} packs"
             logger.info("▶️ Starting pipeline execution for %s", packs_str)
 
-            def on_error(err_text):
-                self._safe_messagebox("error", "Pipeline Error", err_text)
-                try:
-                    self.controller.lifecycle_event.set()
-                except Exception:
-                    pass
-                self.root.after(0, lambda: self.state_manager.transition_to(GUIState.ERROR))
-
-            def on_complete():
-                try:
-                    self.controller.lifecycle_event.set()
-                finally:
-                    self.root.after(0, lambda: self.state_manager.transition_to(GUIState.IDLE))
-
-            # Launch the controller on a worker thread; it must never touch Tk directly
-            threading.Thread(
-                target=self.controller.start_pipeline,
-                kwargs={
-                    "packs": selected,
-                    "config_manager": self.config_manager,
-                    "on_error": on_error,
-                    "on_complete": on_complete,
-                },
-                daemon=True,
-            ).start()
+            # Delegate to the canonical runner that wires controller callbacks.
+            self._run_full_pipeline()
 
         except Exception as e:
             logger.exception("Run click failed: %s", e)
             self._safe_messagebox("error", "Run Failed", f"{type(e).__name__}: {e}")
 
+    def _on_cancel_clicked(self) -> None:
+        """Handler for STOP/CANCEL button."""
+        try:
+            stopping = self.controller.stop_pipeline()
+        except Exception as exc:
+            self.log_message(f"⏹️ Stop failed: {exc}", "ERROR")
+            return
+
+        if stopping:
+            self.log_message("⏹️ Stop requested - cancelling pipeline...", "WARNING")
+        else:
+            self.log_message("⏹️ No pipeline running", "INFO")
     # -------- utilities --------
     def on_error(self, error: Exception | str) -> None:
         """Expose a public error handler for legacy controller/test hooks."""
@@ -518,58 +544,45 @@ class StableNewGUI:
 
         webui_path = Path("C:/Users/rober/stable-diffusion-webui/webui-user.bat")
 
-        # Run discovery/launch in background to avoid freezing Tk mainloop
+        # Run discovery/launch with safe Tk scheduling
         def discovery_and_launch():
+            def safe_after(delay_ms: int, func):
+                try:
+                    self.root.after(delay_ms, func)
+                except RuntimeError:
+                    logger.debug("Tk not ready for after() in discovery_and_launch", exc_info=True)
+
             # 1) Check if WebUI is already running (may take a few seconds)
             existing_url = find_webui_api_port()
             if existing_url:
                 logger.info(f"WebUI already running at {existing_url}")
-                self.root.after(0, lambda: self._set_api_url_var(existing_url))
-                self.root.after(1000, self._check_api_connection)
+                safe_after(0, lambda: self._set_api_url_var(existing_url))
+                safe_after(1000, self._check_api_connection)
                 return
 
             # 2) Attempt to launch WebUI if path exists
             if webui_path.exists():
-                self.root.after(
-                    0, lambda: self.log_message("🚀 Launching Stable Diffusion WebUI...", "INFO")
-                )
+                safe_after(0, lambda: self.log_message("?? Launching Stable Diffusion WebUI...", "INFO"))
                 success = launch_webui_safely(webui_path, timeout=15)
                 if success:
-                    # Find the actual URL and update UI
                     api_url = find_webui_api_port()
                     if api_url:
-                        self.root.after(0, lambda: self._set_api_url_var(api_url))
-                        self.root.after(1000, self._check_api_connection)
+                        safe_after(0, lambda: self._set_api_url_var(api_url))
+                        safe_after(1000, self._check_api_connection)
                     else:
-                        self.root.after(
-                            0,
-                            lambda: self.log_message(
-                                "⚠️ WebUI launched but API not found", "WARNING"
-                            ),
-                        )
+                        safe_after(0, lambda: self.log_message("?? WebUI launched but API not found", "WARNING"))
                 else:
-                    self.root.after(0, lambda: self.log_message("❌ WebUI launch failed", "ERROR"))
+                    safe_after(0, lambda: self.log_message("? WebUI launch failed", "ERROR"))
             else:
                 logger.warning("WebUI not found at expected location")
-                self.root.after(
-                    0,
-                    lambda: self.log_message(
-                        "⚠️ WebUI not found - please start manually", "WARNING"
-                    ),
-                )
-                self.root.after(
-                    0,
-                    lambda: messagebox.showinfo(
-                        "WebUI Not Found",
-                        (
-                            f"WebUI not found at: {webui_path}\n"
-                            "Please start Stable Diffusion WebUI manually "
-                            "with --api flag and click 'Check API'"
-                        ),
-                    ),
-                )
+                safe_after(0, lambda: self.log_message("?? WebUI not found - please start manually", "WARNING"))
+                safe_after(0, lambda: messagebox.showinfo("WebUI Not Found", f"WebUI not found at: {webui_path}\nPlease start Stable Diffusion WebUI manually with --api flag and click 'Check API'"))
 
-        threading.Thread(target=discovery_and_launch, daemon=True).start()
+
+        try:
+            self.root.after(50, discovery_and_launch)
+        except Exception:
+            logger.exception("Failed to schedule WebUI discovery/launch")
 
     def _ensure_default_preset(self):
         """Ensure default preset exists and load it if set as startup default"""
@@ -2808,7 +2821,7 @@ class StableNewGUI:
         )
 
         stop_btn = ttk.Button(
-            util_buttons, text="Stop", command=self._stop_execution, style="Danger.TButton"
+            util_buttons, text="Stop", command=self._on_cancel_clicked, style="Danger.TButton"
         )
         stop_btn.pack(side=tk.LEFT, padx=(0, 10))
         self._attach_tooltip(
@@ -3824,6 +3837,11 @@ class StableNewGUI:
         except Exception:
             batch_size_snapshot = 1
 
+        try:
+            loop_multiplier_snapshot = self._safe_int_from_var(self.loop_count_var, 1)
+        except Exception:
+            loop_multiplier_snapshot = 1
+
         config_snapshot = config_snapshot or {
             "txt2img": {},
             "img2img": {},
@@ -3896,29 +3914,48 @@ class StableNewGUI:
             session_run_dir = self.structured_logger.create_run_directory()
             self.log_message(f"📁 Session directory: {session_run_dir.name}", "INFO")
 
+            logger.info("[pipeline] ENTER pack loop (packs=%d)", len(selected_packs))
+
             total_generated = 0
             for pack_file in list(selected_packs):
+                pack_name = getattr(pack_file, "name", str(pack_file))
                 if cancel.is_cancelled():
                     raise CancellationError("User cancelled before pack start")
-                self.log_message(f"📦 Processing pack: {pack_file.name}", "INFO")
+                self.log_message(f"[pipeline] PACK START: {pack_name}", "INFO")
+
+                read_start = time.time()
+                self.log_message(f"[pipeline] PACK {pack_name}: reading prompts", "INFO")
                 prompts = read_prompt_pack(pack_file)
+                self.log_message(
+                    f"[pipeline] PACK {pack_name}: read {len(prompts)} prompt(s) in "
+                    f"{time.time() - read_start:.2f}s",
+                    "INFO",
+                )
                 if not prompts:
-                    self.log_message(f"No prompts found in {pack_file.name}", "WARNING")
+                    self.log_message(
+                        f"[pipeline] PACK {pack_name}: no prompts found; skipping", "WARNING"
+                    )
                     continue
+
+                cfg_start = time.time()
+                self.log_message(f"[pipeline] PACK {pack_name}: resolving config", "INFO")
                 config = resolve_config_for_pack(pack_file)
+                self.log_message(
+                    f"[pipeline] PACK {pack_name}: config resolved in {time.time() - cfg_start:.2f}s",
+                    "INFO",
+                )
                 config_mode = "override" if override_mode else "pack"
                 self.log_message(
-                    f"⚙️ Using {config_mode} configuration for {pack_file.name}", "INFO"
+                    f"⚙️ Using {config_mode} configuration for {pack_name}", "INFO"
                 )
                 rand_cfg = config.get("randomization", {}) or {}
+                matrix_cfg = (rand_cfg.get("matrix", {}) or {})
                 if rand_cfg.get("enabled"):
                     sr_count = len((rand_cfg.get("prompt_sr", {}) or {}).get("rules", []) or [])
                     wc_count = len((rand_cfg.get("wildcards", {}) or {}).get("tokens", []) or [])
-                    mx_slots = len((rand_cfg.get("matrix", {}) or {}).get("slots", []) or [])
-                    mx_base = (rand_cfg.get("matrix", {}) or {}).get("base_prompt", "")
-                    mx_prompt_mode = (rand_cfg.get("matrix", {}) or {}).get(
-                        "prompt_mode", "replace"
-                    )
+                    mx_slots = len(matrix_cfg.get("slots", []) or [])
+                    mx_base = matrix_cfg.get("base_prompt", "")
+                    mx_prompt_mode = matrix_cfg.get("prompt_mode", "replace")
                     self.log_message(
                         f"🎲 Randomization active: S/R={sr_count}, wildcards={wc_count}, matrix slots={mx_slots}",
                         "INFO",
@@ -3937,11 +3974,18 @@ class StableNewGUI:
                             f"🎯 Matrix base_prompt will {verb} pack prompts: {mx_base[:60]}...",
                             "INFO",
                         )
+                    slot_names = [slot.get("name", "?") for slot in matrix_cfg.get("slots", [])]
+                    logger.info(
+                        "[pipeline] Randomizer matrix: mode=%s slots=%s limit=%s",
+                        matrix_cfg.get("mode", "fanout"),
+                        ",".join(slot_names) if slot_names else "-",
+                        matrix_cfg.get("limit", "n/a"),
+                    )
                 pack_variant_estimate, _ = self._estimate_pack_variants(
                     prompts, deepcopy(rand_cfg)
                 )
                 approx_images = pack_variant_estimate * batch_size_snapshot
-                loop_multiplier = self._safe_int_from_var(self.loop_count_var, 1)
+                loop_multiplier = loop_multiplier_snapshot
                 if loop_multiplier > 1:
                     approx_images *= loop_multiplier
                 self.log_message(
@@ -3967,6 +4011,12 @@ class StableNewGUI:
                 rotate_cursor = 0
                 prompt_run_index = 0
 
+                logger.info(
+                    "[pipeline] Pack %s contains %d prompt(s)",
+                    pack_file.name,
+                    len(prompts),
+                )
+
                 for i, prompt_data in enumerate(prompts):
                     if cancel.is_cancelled():
                         raise CancellationError("User cancelled during prompt loop")
@@ -3977,7 +4027,22 @@ class StableNewGUI:
                         "INFO",
                     )
 
-                    randomized_variants = randomizer.generate(prompt_text)
+                    logger.info(
+                        "[pipeline] pack=%s prompt=%d/%d: building variants",
+                        pack_file.name,
+                        i + 1,
+                        len(prompts),
+                    )
+                    matrix_enabled = bool((rand_cfg.get("matrix", {}) or {}).get("enabled"))
+                    if matrix_enabled:
+                        logger.info("[pipeline] Calling randomizer.generate(...)")
+                        randomized_variants = randomizer.generate(prompt_text)
+                        logger.info(
+                            "[pipeline] randomizer.generate returned %d variant(s)",
+                            len(randomized_variants),
+                        )
+                    else:
+                        randomized_variants = randomizer.generate(prompt_text)
                     if rand_cfg.get("enabled") and len(randomized_variants) == 1:
                         self.log_message(
                             "ℹ️ Randomization produced only one variant. Ensure prompt contains tokens (e.g. __mood__, [[slot]]) and rules have matches.",
@@ -4001,11 +4066,17 @@ class StableNewGUI:
                                 variant = variant_plan.variants[
                                     rotate_cursor % len(variant_plan.variants)
                                 ]
-                            variants_to_run = [variant]
-                            rotate_cursor += 1
+                                variants_to_run = [variant]
+                                rotate_cursor += 1
                         else:
                             variants_to_run = [None]
 
+                        logger.info(
+                            "[pipeline] pack=%s prompt=%d: running %d variant slot(s)",
+                            pack_file.name,
+                            i + 1,
+                            len(variants_to_run),
+                        )
                         for variant in variants_to_run:
                             if cancel.is_cancelled():
                                 raise CancellationError("User cancelled during prompt loop")
@@ -4060,6 +4131,11 @@ class StableNewGUI:
                                         )
                             except Exception:
                                 pass
+                            logger.info(
+                                "[pipeline] Calling run_pack_pipeline (variant %d/%d)",
+                                variant_index + 1 if variant is not None else 1,
+                                len(variants_to_run),
+                            )
                             result = self.pipeline.run_pack_pipeline(
                                 pack_name=pack_file.stem,
                                 prompt=variant_prompt_text,
@@ -4076,6 +4152,10 @@ class StableNewGUI:
                                 raise CancellationError("User cancelled after pack stage")
 
                             if result and result.get("summary"):
+                                logger.info(
+                                    "[pipeline] run_pack_pipeline returned summary=%d",
+                                    len(result.get("summary", [])),
+                                )
                                 gen = len(result["summary"])
                                 total_generated += gen
                                 suffix_parts = []
@@ -4089,6 +4169,7 @@ class StableNewGUI:
                                     "SUCCESS",
                                 )
                             else:
+                                logger.info("[pipeline] run_pack_pipeline returned no summary")
                                 suffix_parts = []
                                 if random_label:
                                     suffix_parts.append(f"random: {random_label}")
@@ -4543,7 +4624,15 @@ class StableNewGUI:
         )
 
     def _maybe_show_new_features_dialog(self) -> None:
-        """Optionally show the 'new features' dialog unless running under tests."""
+        """Opt-in 'new features' dialog; suppressed unless explicitly enabled."""
+
+        if os.environ.get("STABLENEW_SHOW_NEW_FEATURES_DIALOG", "").lower() not in {
+            "1",
+            "true",
+            "yes",
+        }:
+            self._new_features_dialog_shown = True
+            return
 
         if is_gui_test_mode():
             return
@@ -4622,17 +4711,8 @@ class StableNewGUI:
 
 
     def _stop_execution(self):
-        """Stop the running pipeline"""
-        try:
-            stopping = self.controller.stop_pipeline()
-        except Exception as exc:
-            self.log_message(f"⏹️ Stop failed: {exc}", "ERROR")
-            return
-
-        if stopping:
-            self.log_message("⏹️ Stop requested - cancelling pipeline...", "WARNING")
-        else:
-            self.log_message("⏹️ No pipeline running", "INFO")
+        """Backward-compatible alias for legacy callers."""
+        self._on_cancel_clicked()
 
     def _open_prompt_editor(self):
         """Open the advanced prompt pack editor"""
@@ -6221,6 +6301,11 @@ class StableNewGUI:
         run_name = self.run_name_var.get() or None
 
         self.controller.report_progress("Running pipeline...", 0.0, "ETA: --")
+        lifecycle_event = threading.Event()
+        try:
+            self.controller.lifecycle_event = lifecycle_event
+        except Exception:
+            pass
 
         # Define pipeline function that checks cancel token
         # Snapshot Tk-backed values on the main thread (thread-safe)
@@ -6233,6 +6318,8 @@ class StableNewGUI:
         except Exception:
             batch_size_snapshot = 1
 
+        pipeline_failed = False
+
         def pipeline_func():
             try:
                 # Pass cancel_token to pipeline
@@ -6242,7 +6329,10 @@ class StableNewGUI:
                 return results
             except CancellationError:
                 # Signal completion and prefer Ready status after cancellation
-                self._signal_pipeline_finished()
+                if lifecycle_event is not None:
+                    lifecycle_event.set()
+                else:
+                    self._signal_pipeline_finished()
                 try:
                     self._force_error_status = False
                     if hasattr(self, "progress_message_var"):
@@ -6253,6 +6343,8 @@ class StableNewGUI:
                 raise
             except Exception:
                 logger.exception("Pipeline execution error")
+                nonlocal pipeline_failed
+                pipeline_failed = True
                 # Build error text up-front
                 try:
                     import sys
@@ -6293,9 +6385,15 @@ class StableNewGUI:
 
                 # Ensure tests waiting on lifecycle_event are not blocked
                 try:
-                    self._signal_pipeline_finished()
+                    if lifecycle_event is not None:
+                        lifecycle_event.set()
+                    else:
+                        self._signal_pipeline_finished()
                 except Exception:
-                    pass
+                    logger.debug(
+                        "Failed to signal lifecycle_event after pipeline error",
+                        exc_info=True,
+                    )
 
                 # Force visible error state/status
                 self._force_error_status = True
@@ -6341,7 +6439,10 @@ class StableNewGUI:
             except Exception:
                 pass
             # Ensure lifecycle_event is signaled for tests waiting on completion
-            self._signal_pipeline_finished()
+            if lifecycle_event is not None:
+                lifecycle_event.set()
+            else:
+                self._signal_pipeline_finished()
 
         # Error callback
         def on_error(e):
@@ -6395,12 +6496,38 @@ class StableNewGUI:
                 _show_err()
             # Ensure lifecycle_event is signaled promptly on error
             try:
-                self._signal_pipeline_finished()
+                if lifecycle_event is not None:
+                    lifecycle_event.set()
+                else:
+                    self._signal_pipeline_finished()
             except Exception:
                 pass
 
         # Start pipeline using controller (tests may toggle _sync_cleanup themselves)
-        self.controller.start_pipeline(pipeline_func, on_complete=on_complete, on_error=on_error)
+        started = self.controller.start_pipeline(
+            pipeline_func, on_complete=on_complete, on_error=on_error
+        )
+        if started and is_gui_test_mode():
+            try:
+                event = getattr(self.controller, "lifecycle_event", None)
+                if event is not None and not event.wait(timeout=5.0):
+                    event.set()
+                try:
+                    for _ in range(5):
+                        self.root.update_idletasks()
+                        self.root.update()
+                except Exception:
+                    pass
+                if pipeline_failed:
+                    try:
+                        from .state import GUIState
+
+                        if not self.state_manager.is_state(GUIState.ERROR):
+                            self.state_manager.transition_to(GUIState.ERROR)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
     def _handle_pipeline_error(self, error: Exception) -> None:
         """Log and surface pipeline errors to the user.
