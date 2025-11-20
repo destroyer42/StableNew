@@ -69,7 +69,7 @@
     "apply_global_negative_upscale": false,
     "apply_global_negative_adetailer": false,
     "loop_type": "single",
-    "loop_count": 1,
+    "loop_count": 3,
     "pack_mode": "selected",
     "images_per_prompt": 1,
     "model_matrix": [],
@@ -171,10 +171,46 @@
             "wide-angle cinematic shot",
             "overhead looking down angle"
           ]
+        },
+        {
+          "name": "number",
+          "values": [
+            "one",
+            "two",
+            "three"
+          ]
+        },
+        {
+          "name": "muscle",
+          "values": [
+            "athletic",
+            "muscled",
+            "curvaceous",
+            "toned"
+          ]
+        },
+        {
+          "name": "skin",
+          "values": [
+            "tanned",
+            "olive-skinned",
+            "fair skinned",
+            "sunkissed tan"
+          ]
+        },
+        {
+          "name": "size",
+          "values": [
+            "medium",
+            "fine",
+            "teardrop shaped",
+            "large",
+            "perfectly"
+          ]
         }
       ],
-      "raw_text": "# Base: a [[hair]]-haired fine-breasted athletic fit beautiful woman wearing [[clothes]], in a [[pose]] in a [[environment]] under [[lighting]] from a [[camera]] perspective\nhair: blonde | black | brown | red | auburn | silver\nclothes: only a top | only a bottom | bikini armor | tightly stretched thin t-shirt with generous underboob | ornate plate thong armor | T-string thong and micro-kini | nothing\npose: sitting down legs spread eagled | spread eagled pose | pulling knees up to chest with knees wide | bending over at waist spreading butt cheeks | normal stance with arched lower back and hands clasped behind head\nenvironment: castle hall | misty forest | ancient ruins | mountain pass | stormy battlements\nlighting: soft glowing light | golden hour backlight | dramatic rim light | moonlit ambience | torchlit shadows\ncamera: low-angle 3/4 portrait | full-body stance | wide-angle cinematic shot | overhead looking down angle",
-      "base_prompt": "a [[hair]]-haired fine-breasted athletic fit beautiful woman wearing [[clothes]], in a [[pose]] in a [[environment]] under [[lighting]] from a [[camera]] perspective"
+      "raw_text": "# Base: [[number]] [[hair]]-haired, [[skin]], [[size]]-breasted [[muscle]] fit beautiful woman wearing [[clothes]], in a [[pose]] in a [[environment]] under [[lighting]] from a [[camera]] perspective\nhair: blonde | black | brown | red | auburn | silver\nclothes: only a top | only a bottom | bikini armor | tightly stretched thin t-shirt with generous underboob | ornate plate thong armor | T-string thong and micro-kini | nothing\npose: sitting down legs spread eagled | spread eagled pose | pulling knees up to chest with knees wide | bending over at waist spreading butt cheeks | normal stance with arched lower back and hands clasped behind head\nenvironment: castle hall | misty forest | ancient ruins | mountain pass | stormy battlements\nlighting: soft glowing light | golden hour backlight | dramatic rim light | moonlit ambience | torchlit shadows\ncamera: low-angle 3/4 portrait | full-body stance | wide-angle cinematic shot | overhead looking down angle\nnumber: one | two | three\nmuscle: athletic | muscled | curvaceous | toned\nskin: tanned | olive-skinned | fair skinned | sunkissed tan\nsize: medium | fine | teardrop shaped | large | perfectly",
+      "base_prompt": "[[number]] [[hair]]-haired, [[skin]], [[size]]-breasted [[muscle]] fit beautiful woman wearing [[clothes]], in a [[pose]] in a [[environment]] under [[lighting]] from a [[camera]] perspective"
     }
   },
   "aesthetic": {

@@ -14,11 +14,14 @@ if os.getenv("STABLENEW_LOGGING_BYPASS") == "1":
     logging.raiseExceptions = False
 
 try:
+    import tkinter as tk
     from tkinter import messagebox
 except Exception:  # pragma: no cover - Tk not ready
+    tk = None
     messagebox = None
 
-from .gui.main_window import StableNewGUI
+from .controller.app_controller import AppController
+from .gui.main_window_v2 import MainWindow
 from .utils import setup_logging
 
 _INSTANCE_PORT = 47631
@@ -58,8 +61,14 @@ def main():
             print(msg, file=sys.stderr)
         return
 
-    app = StableNewGUI()
-    app.run()
+    if tk is None:
+        print("Tkinter is not available; cannot start StableNew GUI.", file=sys.stderr)
+        return
+
+    root = tk.Tk()
+    window = MainWindow(root)
+    AppController(window, threaded=True)
+    root.mainloop()
 
 
 if __name__ == "__main__":

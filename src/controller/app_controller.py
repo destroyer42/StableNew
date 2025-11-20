@@ -18,11 +18,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Callable, Optional, Protocol
+from pathlib import Path
+from typing import Callable, Optional
 import threading
-import time
 
+from src.api.client import SDWebUIClient
 from src.gui.main_window_v2 import MainWindow
+from src.pipeline.pipeline_runner import PipelineConfig, PipelineRunner
+from src.utils import StructuredLogger
+from src.utils.file_io import read_prompt_pack
+from src.utils.prompt_packs import PromptPackInfo, discover_packs
 
 
 class LifecycleState(Enum):
@@ -49,6 +54,8 @@ class RunConfig:
     scheduler_name: str = ""
     width: int = 1024
     height: int = 1024
+    steps: int = 30
+    cfg_scale: float = 7.5
     randomization_enabled: bool = False
     # Future fields:
     # matrix_config, adetailer_config, video_config, etc.
@@ -71,6 +78,7 @@ class CancelToken:
     def __init__(self) -> None:
         self._cancelled = False
         self._lock = threading.Lock()
+        self._needs_stop_to_finish = False
 
     def cancel(self) -> None:
         with self._lock:
@@ -80,46 +88,18 @@ class CancelToken:
         with self._lock:
             return self._cancelled
 
+    def require_stop_to_finish(self) -> None:
+        """Signal that caller expects an explicit stop before finishing."""
+        with self._lock:
+            self._needs_stop_to_finish = True
 
-class PipelineRunner(Protocol):
-    """
-    Protocol for something that can run the pipeline.
+    def clear_stop_requirement(self) -> None:
+        with self._lock:
+            self._needs_stop_to_finish = False
 
-    Implementations should:
-    - Honor CancelToken for cooperative cancellation.
-    - Use log_fn to append log messages.
-    """
-
-    def run(
-        self,
-        config: RunConfig,
-        cancel_token: CancelToken,
-        log_fn: Callable[[str], None],
-    ) -> None:
-        ...
-
-
-class DummyPipelineRunner:
-    """
-    Default stub runner used when no real pipeline_runner is supplied.
-
-    It just logs a couple of messages and respects CancelToken.
-    """
-
-    def run(
-        self,
-        config: RunConfig,
-        cancel_token: CancelToken,
-        log_fn: Callable[[str], None],
-    ) -> None:
-        log_fn("[pipeline] DummyPipelineRunner starting (stub).")
-        for i in range(3):
-            if cancel_token.is_cancelled():
-                log_fn("[pipeline] Cancel detected, aborting (stub).")
-                return
-            log_fn(f"[pipeline] Working... step {i + 1}/3 (stub).")
-            time.sleep(0.05)
-        log_fn("[pipeline] DummyPipelineRunner finished (stub).")
+    def needs_stop_to_finish(self) -> bool:
+        with self._lock:
+            return self._needs_stop_to_finish
 
 
 class AppController:
@@ -140,20 +120,34 @@ class AppController:
         main_window: MainWindow,
         pipeline_runner: Optional[PipelineRunner] = None,
         threaded: bool = True,
+        packs_dir: Path | str | None = None,
+        api_client: SDWebUIClient | None = None,
+        structured_logger: StructuredLogger | None = None,
     ) -> None:
         self.main_window = main_window
         self.state = AppState()
         self.threaded = threaded
 
-        self.pipeline_runner: PipelineRunner = pipeline_runner or DummyPipelineRunner()
+        if pipeline_runner is not None:
+            self.pipeline_runner = pipeline_runner
+        else:
+            self._api_client = api_client or SDWebUIClient()
+            self._structured_logger = structured_logger or StructuredLogger()
+            self.pipeline_runner = PipelineRunner(self._api_client, self._structured_logger)
         self._cancel_token: Optional[CancelToken] = None
         self._worker_thread: Optional[threading.Thread] = None
+        self._packs_dir = Path(packs_dir) if packs_dir is not None else Path("packs")
+        self.packs: list[PromptPackInfo] = []
+        self._selected_pack_index: Optional[int] = None
 
         # Let the GUI wire its callbacks to us
         self._attach_to_gui()
+        if hasattr(self.main_window, "connect_controller"):
+            self.main_window.connect_controller(self)
 
         # Initial status
         self._update_status("Idle")
+        self.load_packs()
 
     # ------------------------------------------------------------------
     # GUI Wiring
@@ -252,35 +246,44 @@ class AppController:
             self._append_log("[controller] Previous worker still running; refusing new run.")
             return
 
-        self._append_log("[controller] Run clicked – gathering config (stub).")
+        self._append_log("[controller] Run clicked - gathering config.")
         self._cancel_token = CancelToken()
         self._set_lifecycle(LifecycleState.RUNNING)
 
-        config = self.state.current_config
-
         if self.threaded:
             self._worker_thread = threading.Thread(
-                target=self._run_pipeline_thread, args=(config, self._cancel_token), daemon=True
+                target=self._run_pipeline_thread,
+                args=(self._cancel_token,),
+                daemon=True,
             )
             self._worker_thread.start()
         else:
             # Synchronous run (for tests)
-            self._run_pipeline_thread(config, self._cancel_token)
+            self._run_pipeline_thread(self._cancel_token)
 
-    def _run_pipeline_thread(self, config: RunConfig, cancel_token: CancelToken) -> None:
+    def _run_pipeline_thread(self, cancel_token: CancelToken) -> None:
         try:
-            self._append_log_threadsafe("[controller] Starting pipeline (stub runner).")
-            self.pipeline_runner.run(config, cancel_token, self._append_log_threadsafe)
+            pipeline_config = self._build_pipeline_config()
+            self._append_log_threadsafe("[controller] Starting pipeline execution.")
+            self.pipeline_runner.run(pipeline_config, cancel_token, self._append_log_threadsafe)
 
             if cancel_token.is_cancelled():
                 self._append_log_threadsafe("[controller] Pipeline ended due to cancel (stub).")
             else:
-                self._append_log_threadsafe("[controller] Pipeline completed successfully (stub).")
+                self._append_log_threadsafe("[controller] Pipeline completed successfully.")
 
+            if cancel_token.needs_stop_to_finish() and not cancel_token.is_cancelled():
+                self._append_log_threadsafe(
+                    "[controller] Pipeline awaiting explicit stop to finish (stub)."
+                )
+                return
+
+            cancel_token.clear_stop_requirement()
             self._set_lifecycle_threadsafe(LifecycleState.IDLE)
         except Exception as exc:  # noqa: BLE001
             self._append_log_threadsafe(f"[controller] Pipeline error: {exc!r}")
             self._set_lifecycle_threadsafe(LifecycleState.ERROR, error=str(exc))
+            cancel_token.clear_stop_requirement()
 
     def on_stop_clicked(self) -> None:
         """
@@ -299,10 +302,10 @@ class AppController:
 
         if self._cancel_token is not None:
             self._cancel_token.cancel()
+            self._cancel_token.clear_stop_requirement()
 
-        if not self.threaded:
-            # In synchronous mode, worker has already finished or is in-process;
-            # for the stub we just go to IDLE here.
+        worker_alive = self._worker_thread is not None and self._worker_thread.is_alive()
+        if not worker_alive:
             self._set_lifecycle(LifecycleState.IDLE)
         # In threaded mode, lifecycle will transition to IDLE in _run_pipeline_thread
         # once the worker exits.
@@ -348,20 +351,129 @@ class AppController:
         if not lb.curselection():
             return
         index = lb.curselection()[0]
-        pack_name = lb.get(index)
-        self.on_pack_selected(pack_name)
+        self.on_pack_selected(int(index))
 
-    def on_pack_selected(self, pack_name: str) -> None:
-        self._append_log(f"[controller] Pack selected: {pack_name}")
-        # TODO: map pack name to file path and load metadata.
+    def load_packs(self) -> None:
+        """Discover packs and push them to the GUI."""
+        self.packs = discover_packs(self._packs_dir)
+        pack_names = [pack.name for pack in self.packs]
+        self.main_window.update_pack_list(pack_names)
+        self._selected_pack_index = None
+        self._append_log(f"[controller] Loaded {len(pack_names)} pack(s).")
+
+    def on_pack_selected(self, index: int) -> None:
+        if index < 0 or index >= len(self.packs):
+            self._append_log("[controller] Pack selection out of range.")
+            return
+        self._selected_pack_index = index
+        pack = self.packs[index]
+        self._append_log(f"[controller] Pack selected: {pack.name}")
+
+    def _get_selected_pack(self) -> Optional[PromptPackInfo]:
+        if self._selected_pack_index is None:
+            return None
+        if self._selected_pack_index < 0 or self._selected_pack_index >= len(self.packs):
+            return None
+        return self.packs[self._selected_pack_index]
 
     def on_load_pack(self) -> None:
-        self._append_log("[controller] Load Pack clicked (stub).")
-        # TODO: open file dialog or load selected pack.
+        pack = self._get_selected_pack()
+        if pack is None:
+            self._append_log("[controller] Load Pack requested, but no pack is selected.")
+            return
+        self._append_log(f"[controller] Load Pack -> {pack.name} ({pack.path})")
 
     def on_edit_pack(self) -> None:
-        self._append_log("[controller] Edit Pack clicked (stub).")
-        # TODO: open Advanced Prompt Editor pre-populated with pack contents.
+        pack = self._get_selected_pack()
+        if pack is None:
+            self._append_log("[controller] Edit Pack requested, but no pack is selected.")
+            return
+        self._append_log(f"[controller] Edit Pack -> {pack.path}")
+
+    # ------------------------------------------------------------------
+    # Config state helpers
+    # ------------------------------------------------------------------
+
+    def get_available_models(self) -> list[str]:
+        return ["StableNew-XL", "SDXL-Lightning", "SD15-Legacy"]
+
+    def get_available_samplers(self) -> list[str]:
+        return ["Euler", "Euler a", "DPM++ 2M", "DPM++ SDE Karras"]
+
+    def get_current_config(self) -> dict[str, float | int | str]:
+        cfg = self.state.current_config
+        return {
+            "model": cfg.model_name or self.get_available_models()[0],
+            "sampler": cfg.sampler_name or self.get_available_samplers()[0],
+            "width": cfg.width,
+            "height": cfg.height,
+            "steps": cfg.steps,
+            "cfg_scale": cfg.cfg_scale,
+        }
+
+    def update_config(self, **kwargs: float | int | str) -> None:
+        mapping = {
+            "model": "model_name",
+            "sampler": "sampler_name",
+            "width": "width",
+            "height": "height",
+            "steps": "steps",
+            "cfg_scale": "cfg_scale",
+        }
+        cfg = self.state.current_config
+
+        for field, value in kwargs.items():
+            attr = mapping.get(field)
+            if not attr:
+                continue
+
+            if attr in {"width", "height", "steps"}:
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    continue
+            elif attr == "cfg_scale":
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    continue
+            else:
+                value = str(value)
+
+            setattr(cfg, attr, value)
+            self._append_log(f"[controller] Config updated: {field}={value}")
+
+    def _build_pipeline_config(self) -> PipelineConfig:
+        current = self.get_current_config()
+        pack = self._get_selected_pack()
+        prompt = self._resolve_prompt_from_pack(pack) or current.get("prompt", "")
+        if not prompt:
+            prompt = (pack.name if pack else current.get("preset_name")) or "StableNew GUI Run"
+
+        return PipelineConfig(
+            prompt=prompt,
+            model=str(current["model"]),
+            sampler=str(current["sampler"]),
+            width=int(current["width"]),
+            height=int(current["height"]),
+            steps=int(current["steps"]),
+            cfg_scale=float(current["cfg_scale"]),
+            pack_name=pack.name if pack else None,
+            preset_name=self.state.current_config.preset_name or None,
+        )
+
+    def _resolve_prompt_from_pack(self, pack: PromptPackInfo | None) -> str:
+        if not pack:
+            return ""
+        try:
+            prompts = read_prompt_pack(pack.path)
+        except Exception as exc:  # noqa: BLE001
+            self._append_log(f"[controller] Failed to read pack {pack.name}: {exc}")
+            return ""
+        if not prompts:
+            return ""
+        first = prompts[0]
+        return str(first.get("positive") or "")
 
     # ------------------------------------------------------------------
     # Config Changes (model, sampler, resolution, randomization, matrix)
