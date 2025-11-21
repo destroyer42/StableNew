@@ -8,30 +8,42 @@ from types import SimpleNamespace
 def test_pipeline_panel_loads_initial_config(gui_app_with_dummies):
     app, _controller, config_manager = gui_app_with_dummies
     panel = app.pipeline_panel_v2
-    base_cfg = config_manager.get_default_config()["txt2img"]
+    base_cfg = config_manager.get_default_config()
 
-    assert panel.model_var.get() == base_cfg["model"]
-    assert panel.vae_var.get() == base_cfg["vae"]
-    assert panel.sampler_var.get() == base_cfg["sampler_name"]
-    assert panel.scheduler_var.get() == base_cfg["scheduler"]
-    assert panel.steps_var.get() == str(base_cfg["steps"])
-    assert panel.cfg_scale_var.get() == str(base_cfg["cfg_scale"])
-    assert panel.width_var.get() == str(base_cfg["width"])
-    assert panel.height_var.get() == str(base_cfg["height"])
+    txt_card = panel.txt2img_card
+    txt_cfg = base_cfg["txt2img"]
+    assert txt_card._vars["model"].get() == txt_cfg["model"]
+    assert txt_card._vars["vae"].get() == txt_cfg["vae"]
+    assert txt_card._vars["sampler_name"].get() == txt_cfg["sampler_name"]
+    assert txt_card._vars["scheduler"].get() == txt_cfg["scheduler"]
+    assert txt_card._vars["steps"].get() == str(txt_cfg["steps"])
+    assert txt_card._vars["cfg_scale"].get() == str(txt_cfg["cfg_scale"])
+    assert txt_card._vars["width"].get() == str(txt_cfg["width"])
+    assert txt_card._vars["height"].get() == str(txt_cfg["height"])
+
+    img_cfg = base_cfg["img2img"]
+    img_card = panel.img2img_card
+    assert img_card._vars["model"].get() == img_cfg["model"]
+    assert img_card._vars["sampler_name"].get() == img_cfg["sampler_name"]
+
+    up_card = panel.upscale_card
+    up_cfg = base_cfg["upscale"]
+    assert up_card._vars["upscaler"].get() == up_cfg["upscaler"]
 
 
 def test_pipeline_panel_run_roundtrip(gui_app_with_dummies):
     app, controller, _config_manager = gui_app_with_dummies
     panel = app.pipeline_panel_v2
 
-    panel.model_var.set("new_model")
-    panel.vae_var.set("new_vae")
-    panel.sampler_var.set("DPM++")
-    panel.scheduler_var.set("Karras")
-    panel.steps_var.set("42")
-    panel.cfg_scale_var.set("9.5")
-    panel.width_var.set("960")
-    panel.height_var.set("640")
+    txt_card = panel.txt2img_card
+    txt_card._vars["model"].set("new_model")
+    txt_card._vars["vae"].set("new_vae")
+    txt_card._vars["sampler_name"].set("DPM++")
+    txt_card._vars["scheduler"].set("Karras")
+    txt_card._vars["steps"].set("42")
+    txt_card._vars["cfg_scale"].set("9.5")
+    txt_card._vars["width"].set("960")
+    txt_card._vars["height"].set("640")
 
     app._get_selected_packs = lambda: [SimpleNamespace(name="pack1", stem="pack1")]
 

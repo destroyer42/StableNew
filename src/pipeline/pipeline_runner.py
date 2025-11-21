@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
-from typing import Any, Callable, Optional, TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import Any, Callable, List, Optional, TYPE_CHECKING
 
 from src.api.client import SDWebUIClient
+from src.learning.learning_record import LearningRecord, LearningRecordWriter
 from src.pipeline.executor import Pipeline
 from src.utils import StructuredLogger
 from src.utils.config import ConfigManager
@@ -28,6 +29,10 @@ class PipelineConfig:
     cfg_scale: float
     pack_name: Optional[str] = None
     preset_name: Optional[str] = None
+    variant_configs: Optional[List[dict[str, Any]]] = None
+    randomizer_mode: Optional[str] = None
+    randomizer_plan_size: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class PipelineRunner:
@@ -39,11 +44,15 @@ class PipelineRunner:
         structured_logger: StructuredLogger,
         *,
         config_manager: Optional[ConfigManager] = None,
+        learning_record_writer: Optional[LearningRecordWriter] = None,
+        on_learning_record: Optional[Callable[[LearningRecord], None]] = None,
     ) -> None:
         self._api_client = api_client
         self._structured_logger = structured_logger
         self._config_manager = config_manager or ConfigManager()
         self._pipeline = Pipeline(api_client, structured_logger)
+        self._learning_record_writer = learning_record_writer
+        self._learning_record_callback = on_learning_record
 
     def run(
         self,
@@ -59,14 +68,20 @@ class PipelineRunner:
         executor_config = self._build_executor_config(config)
         prompt = config.prompt.strip() or config.pack_name or config.preset_name or "StableNew GUI Run"
         run_name = config.pack_name or config.preset_name or "stable_new_session"
+        success = False
 
-        self._pipeline.run_full_pipeline(
-            prompt,
-            executor_config,
-            run_name=run_name,
-            batch_size=1,
-            cancel_token=cancel_token,
-        )
+        try:
+            self._pipeline.run_full_pipeline(
+                prompt,
+                executor_config,
+                run_name=run_name,
+                batch_size=1,
+                cancel_token=cancel_token,
+            )
+            success = True
+        finally:
+            if success:
+                self._emit_learning_record(config, executor_config)
 
         if log_fn:
             log_fn("[pipeline] PipelineRunner completed execution.")
@@ -96,6 +111,60 @@ class PipelineRunner:
             metadata["preset_name"] = config.preset_name
 
         return base
+
+    def _emit_learning_record(self, config: PipelineConfig, executor_config: dict[str, Any]) -> None:
+        if not (self._learning_record_writer or self._learning_record_callback):
+            return
+        try:
+            variants = config.variant_configs or []
+            if not variants:
+                variants = [executor_config]
+            variant_payload = [deepcopy(variant) for variant in variants]
+            pipeline_section = executor_config.get("pipeline", {}) or {}
+            randomizer_mode = (
+                config.randomizer_mode
+                or pipeline_section.get("variant_mode")
+                or ""
+            )
+            plan_size = config.randomizer_plan_size or len(variant_payload)
+            metadata = dict(config.metadata or {})
+            if config.pack_name:
+                metadata["pack_name"] = config.pack_name
+            if config.preset_name:
+                metadata["preset_name"] = config.preset_name
+
+            record = LearningRecord.from_pipeline_context(
+                base_config=deepcopy(executor_config),
+                variant_configs=variant_payload,
+                randomizer_mode=randomizer_mode,
+                randomizer_plan_size=plan_size,
+                extract_primary=_extract_primary_knobs,
+                metadata=metadata,
+            )
+        except Exception:
+            return
+
+        if self._learning_record_writer:
+            try:
+                self._learning_record_writer.write(record)
+            except Exception:
+                pass
+        if self._learning_record_callback:
+            try:
+                self._learning_record_callback(record)
+            except Exception:
+                pass
+
+
+def _extract_primary_knobs(config: dict[str, Any]) -> dict[str, Any]:
+    txt2img = (config or {}).get("txt2img", {}) or {}
+    return {
+        "model": txt2img.get("model", ""),
+        "sampler": txt2img.get("sampler_name", ""),
+        "scheduler": txt2img.get("scheduler", ""),
+        "steps": txt2img.get("steps", 0),
+        "cfg_scale": txt2img.get("cfg_scale", 0.0),
+    }
 
 
 __all__ = ["PipelineConfig", "PipelineRunner"]

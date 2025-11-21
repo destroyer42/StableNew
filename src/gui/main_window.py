@@ -28,6 +28,7 @@ from src.gui.prompt_pack_panel import PromptPackPanel
 from src.gui.pipeline_panel_v2 import PipelinePanelV2
 from src.gui.preview_panel_v2 import PreviewPanelV2
 from src.gui.randomizer_panel_v2 import RandomizerPanelV2
+from src.gui_v2.randomizer_adapter import compute_variant_count
 from src.gui.sidebar_panel_v2 import SidebarPanelV2
 from src.gui.status_bar_v2 import StatusBarV2
 from src.gui.scrolling import enable_mousewheel, make_scrollable
@@ -133,6 +134,9 @@ class StableNewGUI:
         self.config_manager = config_manager or ConfigManager()
         self.preferences_manager = preferences or PreferencesManager()
         self.state_manager = state_manager or StateManager(initial_state=GUIState.IDLE)
+        self._run_button_validation_locked = False
+        self._last_txt2img_validation_result = None
+        self.api_connected = False
 
         # Single StructuredLogger instance owned by the GUI and shared with the controller.
         self.structured_logger = StructuredLogger()
@@ -148,7 +152,6 @@ class StableNewGUI:
             self.root = root
         else:
             self.root = tk.Tk()
-        self._configure_controller_progress_callbacks()
         self.root.title(title)
         self.root.geometry(geometry)
         self.window_min_size = (1024, 720)
@@ -212,6 +215,8 @@ class StableNewGUI:
         # Initialize progress-related attributes
         self._progress_eta_default = "ETA: --:--"
         self._progress_idle_message = "Ready"
+        self._last_randomizer_plan_result = None
+        self._randomizer_variant_update_job: int | None = None
 
         # Load preferences before building UI
         default_config = self.config_manager.get_default_config()
@@ -226,6 +231,7 @@ class StableNewGUI:
 
         # Build the user interface
         self._build_ui()
+        self._wire_progress_callbacks()
         try:
             self.root.bind("<Configure>", self._on_root_resize, add="+")
         except Exception:
@@ -656,12 +662,14 @@ class StableNewGUI:
             config_manager=self.config_manager,
         )
         self.pipeline_panel_v2.pack(fill=tk.BOTH, expand=True)
+        self.pipeline_panel_v2.set_txt2img_change_callback(self._on_pipeline_txt2img_updated)
         self._build_config_pipeline_panel(self.pipeline_panel_v2.body)
 
         self.randomizer_panel_v2 = RandomizerPanelV2(
             center_stack, controller=self.controller, theme=self.theme
         )
         self.randomizer_panel_v2.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        self.randomizer_panel_v2.set_change_callback(self._on_randomizer_panel_changed)
 
         # Right panel - Preview/inspector scaffold
         self.preview_panel_v2 = PreviewPanelV2(
@@ -669,6 +677,7 @@ class StableNewGUI:
         )
         self.preview_panel_v2.grid(row=0, column=2, sticky=tk.NSEW, padx=(5, 0))
         self._initialize_pipeline_panel_config()
+        self._initialize_randomizer_panel_config()
 
         # Bottom frame - Compact log and action buttons (resizable split)
         bottom_shell = ttk.Frame(vertical_split, style="Dark.TFrame")
@@ -880,8 +889,23 @@ class StableNewGUI:
                 initial_config = self.config_manager.get_default_config()
             if initial_config:
                 panel.load_from_config(initial_config)
+                self._refresh_txt2img_validation(broadcast_status=False)
         except Exception:
             logger.debug("Unable to initialize PipelinePanelV2 config", exc_info=True)
+
+    def _initialize_randomizer_panel_config(self) -> None:
+        panel = getattr(self, "randomizer_panel_v2", None)
+        if panel is None:
+            return
+        try:
+            initial_config = getattr(self, "current_config", None)
+            if not initial_config and getattr(self, "config_manager", None):
+                initial_config = self.config_manager.get_default_config()
+            if initial_config:
+                panel.load_from_config(initial_config)
+            self._refresh_randomizer_variant_count()
+        except Exception:
+            logger.debug("Unable to initialize RandomizerPanelV2 config", exc_info=True)
 
     def _apply_pipeline_panel_overrides(self, config_snapshot: dict) -> dict:
         panel = getattr(self, "pipeline_panel_v2", None)
@@ -892,15 +916,122 @@ class StableNewGUI:
         except Exception:
             logger.debug("PipelinePanelV2 delta failed", exc_info=True)
             delta = {}
-        txt2img_delta = (delta or {}).get("txt2img")
-        if not txt2img_delta:
+        if not delta:
             return config_snapshot
-        txt2img_section = config_snapshot.setdefault("txt2img", {})
-        if isinstance(txt2img_section, dict):
-            txt2img_section.update(txt2img_delta)
-        else:
-            config_snapshot["txt2img"] = dict(txt2img_delta)
+
+        for section, values in delta.items():
+            if not isinstance(values, dict) or not values:
+                continue
+            target = config_snapshot.setdefault(section, {})
+            if isinstance(target, dict):
+                target.update(values)
+            else:
+                config_snapshot[section] = dict(values)
         return config_snapshot
+
+    def _build_randomizer_plan_result(self, config_snapshot: dict):
+        panel = getattr(self, "randomizer_panel_v2", None)
+        if panel is None or config_snapshot is None:
+            return None
+        try:
+            plan_result = panel.build_variant_plan(config_snapshot)
+            self._last_randomizer_plan_result = plan_result
+            return plan_result
+        except Exception:
+            logger.debug("Randomizer plan evaluation failed", exc_info=True)
+            return None
+
+    def _on_randomizer_panel_changed(self) -> None:
+        if getattr(self, "root", None) is None:
+            return
+        if self._randomizer_variant_update_job:
+            try:
+                self.root.after_cancel(self._randomizer_variant_update_job)
+            except Exception:
+                pass
+        try:
+            self._randomizer_variant_update_job = self.root.after(
+                0, self._refresh_randomizer_variant_count
+            )
+        except Exception:
+            self._refresh_randomizer_variant_count()
+
+    def _refresh_randomizer_variant_count(self) -> None:
+        self._randomizer_variant_update_job = None
+        panel = getattr(self, "randomizer_panel_v2", None)
+        if panel is None:
+            return
+        base_config = self._current_randomizer_base_config()
+        options = panel.get_randomizer_options()
+        try:
+            count = compute_variant_count(base_config, options)
+        except Exception:
+            count = 1
+        panel.update_variant_count(count)
+
+    def _current_randomizer_base_config(self) -> dict:
+        try:
+            snapshot = self._get_config_from_forms()
+            if snapshot:
+                return snapshot
+        except Exception:
+            pass
+        try:
+            if getattr(self, "current_config", None):
+                return deepcopy(self.current_config)
+        except Exception:
+            pass
+        if getattr(self, "config_manager", None):
+            try:
+                return self.config_manager.get_default_config()
+            except Exception:
+                pass
+        return {}
+
+    def _on_pipeline_txt2img_updated(self) -> None:
+        self._refresh_txt2img_validation()
+
+    def _refresh_txt2img_validation(self, *, broadcast_status: bool = True) -> bool:
+        panel = getattr(self, "pipeline_panel_v2", None)
+        if panel is None:
+            return True
+        try:
+            result = panel.validate_txt2img()
+        except Exception:
+            logger.debug("txt2img validation failed", exc_info=True)
+            return True
+
+        self._last_txt2img_validation_result = result
+        is_valid = bool(getattr(result, "is_valid", True))
+        self._run_button_validation_locked = not is_valid
+        self._apply_run_button_state()
+
+        status_bar = getattr(self, "status_bar_v2", None)
+        if status_bar is not None:
+            if is_valid:
+                status_bar.clear_validation_error()
+            elif broadcast_status:
+                status_bar.set_validation_error(self._describe_validation_error(result))
+        return is_valid
+
+    @staticmethod
+    def _describe_validation_error(result) -> str:
+        errors = getattr(result, "errors", None) or {}
+        try:
+            return next(iter(errors.values()))
+        except StopIteration:
+            return "Invalid configuration."
+
+    def _apply_run_button_state(self) -> None:
+        button = getattr(self, "run_pipeline_btn", None)
+        if button is None:
+            return
+        allowed_states = {GUIState.IDLE, GUIState.ERROR}
+        current_state = getattr(self.state_manager, "current_state", GUIState.IDLE)
+        state_allows = current_state in allowed_states
+        connected = getattr(self, "api_connected", False)
+        enabled = state_allows and connected and not self._run_button_validation_locked
+        button.config(state=tk.NORMAL if enabled else tk.DISABLED)
 
     def _handle_preferences_load_failure(self, exc: Exception) -> None:
         """Notify the user that preferences failed to load and backup the corrupt file."""
@@ -2917,6 +3048,7 @@ class StableNewGUI:
 
         self._build_api_status_frame(bottom_frame)
         self._build_status_bar(bottom_frame)
+        self._refresh_txt2img_validation()
 
     def _ensure_log_panel_min_height(self) -> None:
         """Ensure the log panel retains a minimum visible height."""
@@ -2973,102 +3105,26 @@ class StableNewGUI:
         status_frame = self.status_bar_v2.body
         status_frame.configure(height=52)
         status_frame.pack_propagate(False)
+        self.status_bar_v2.set_idle()
 
-        # State indicator
-        self.state_label = self.status_bar_v2.status_label
-        self.state_label.configure(text="● Idle", style="Dark.TLabel", foreground="#4CAF50")
-        self.state_label.pack_configure(side=tk.LEFT, padx=5)
-
-        # Progress bar
-        self.progress_bar = self.status_bar_v2.progress_widget
-        self.progress_bar.config(maximum=100, value=0, mode="determinate")
-        self.progress_bar.pack_configure(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
-
-        # ETA indicator
-        self.eta_var = tk.StringVar(value=self._progress_eta_default)
-        # Keep alias in sync for tests
-        self.progress_eta_var = self.eta_var
-        ttk.Label(status_frame, textvariable=self.eta_var, style="Dark.TLabel").pack(
-            side=tk.LEFT, padx=5
-        )
-
-        # Progress message
         self.progress_message_var = tk.StringVar(value=self._progress_idle_message)
-        # Keep alias in sync for tests
         self.progress_status_var = self.progress_message_var
         ttk.Label(status_frame, textvariable=self.progress_message_var, style="Dark.TLabel").pack(
             side=tk.LEFT, padx=10
         )
-
-        # Spacer
-        ttk.Label(status_frame, text="", style="Dark.TLabel").pack(
-            side=tk.LEFT, fill=tk.X, expand=True
-        )
-
-        self._apply_progress_reset()
-
-    def _apply_progress_reset(self, message: str | None = None) -> None:
-        """Reset progress UI elements synchronously."""
-        if hasattr(self, "progress_bar"):
-            self.progress_bar.config(value=0)
-        if hasattr(self, "eta_var"):
-            self.eta_var.set(self._progress_eta_default)
-        if hasattr(self, "progress_message_var"):
-            self.progress_message_var.set(message or self._progress_idle_message)
-
-    def _reset_progress_ui(self, message: str | None = None) -> None:
-        """Reset the progress UI immediately when possible, else schedule on Tk loop."""
-        try:
-            self._apply_progress_reset(message)
-        except Exception:
-            pass
-        try:
-            self.root.after(0, lambda: self._apply_progress_reset(message))
-        except Exception:
-            pass
-
-    def _apply_progress_update(self, stage: str, percent: float, eta: str | None) -> None:
-        """Apply progress updates to the UI synchronously."""
-        clamped_percent = max(0.0, min(100.0, float(percent) if percent is not None else 0.0))
-        if hasattr(self, "progress_bar"):
-            self.progress_bar.config(value=clamped_percent)
-
-        if hasattr(self, "progress_message_var"):
-            stage_text = stage.strip() if stage else "Progress"
-            self.progress_message_var.set(f"{stage_text} ({clamped_percent:.0f}%)")
-
-        if hasattr(self, "eta_var"):
-            self.eta_var.set(f"ETA: {eta}" if eta else self._progress_eta_default)
-
-    def _update_progress(self, stage: str, percent: float, eta: str | None = None) -> None:
-        """Update progress UI, immediately if on Tk thread, else via event loop."""
-        try:
-            # Attempt immediate update (helps tests that call from main thread)
-            self._apply_progress_update(stage, percent, eta)
-        except Exception:
-            # Fallback to Tk event loop scheduling only
-            pass
-        # Always ensure an event-loop scheduled update as well
-        try:
-            self.root.after(0, lambda: self._apply_progress_update(stage, percent, eta))
-        except Exception:
-            pass
 
     def _setup_state_callbacks(self):
         """Setup callbacks for state transitions"""
 
         def on_state_change(old_state, new_state):
             """Called when state changes"""
-            state_colors = {
-                GUIState.IDLE: ("#4CAF50", "● Idle"),
-                GUIState.RUNNING: ("#2196F3", "● Running"),
-                GUIState.STOPPING: ("#FF9800", "● Stopping"),
-                GUIState.ERROR: ("#f44336", "● Error"),
+            mapped = {
+                GUIState.IDLE: "idle",
+                GUIState.RUNNING: "running",
+                GUIState.STOPPING: "running",
+                GUIState.ERROR: "error",
             }
-
-            color, text = state_colors.get(new_state, ("#888888", "● Unknown"))
-            self.state_label.config(text=text, foreground=color)
-
+            self._on_pipeline_state_change(mapped.get(new_state, "idle"))
             if new_state == GUIState.RUNNING:
                 self.progress_message_var.set("Running pipeline...")
             elif new_state == GUIState.STOPPING:
@@ -3077,93 +3133,108 @@ class StableNewGUI:
                 self.progress_message_var.set("Error")
             elif new_state == GUIState.IDLE and old_state == GUIState.STOPPING:
                 self.progress_message_var.set("Ready")
+            elif new_state == GUIState.IDLE:
+                self.progress_message_var.set("Ready")
 
             # Update button states
             if new_state == GUIState.RUNNING:
-                self.run_pipeline_btn.config(state=tk.DISABLED)
+                self._apply_run_button_state()
+            elif new_state == GUIState.STOPPING:
+                self._apply_run_button_state()
             elif new_state == GUIState.IDLE:
-                self._reset_progress_ui()
-                self.run_pipeline_btn.config(state=tk.NORMAL if self.api_connected else tk.DISABLED)
+                self._apply_run_button_state()
             elif new_state == GUIState.ERROR:
-                self.run_pipeline_btn.config(state=tk.NORMAL if self.api_connected else tk.DISABLED)
+                self._apply_run_button_state()
 
         self.state_manager.on_transition(on_state_change)
 
-    def _configure_controller_progress_callbacks(self) -> None:
-        """Connect controller progress callbacks to Tk-driven UI updates."""
-
+    def _wire_progress_callbacks(self) -> None:
         controller = getattr(self, "controller", None)
         if controller is None:
             return
 
-        def _normalize_percent(value) -> float:
-            try:
-                percent = float(value if value is not None else 0.0)
-            except (TypeError, ValueError):
-                return 0.0
-            if 0.0 <= percent <= 1.0:
-                # Support normalized values supplied by unit tests.
-                return percent * 100.0
-            return percent
-
-        def progress_handler(value=None, *args, **_kwargs) -> None:
-            percent = _normalize_percent(value)
-            self._queue_progress_update(percent)
-            # Some callbacks also provide stage text as a secondary argument.
-            if args:
-                maybe_status = args[0]
-                if isinstance(maybe_status, str):
-                    self._queue_status_update(maybe_status)
-
-        def eta_handler(value=None, *args, **_kwargs) -> None:
-            eta_value = value if value is not None else (args[0] if args else None)
-            self._queue_eta_update(eta_value)
-
-        def reset_handler(*_args, **_kwargs) -> None:
-            self._reset_progress_ui()
-
-        def status_handler(value=None, *_args, **_kwargs) -> None:
-            self._queue_status_update(value)
-
-        callback_payload = {
-            "progress": progress_handler,
-            "eta": eta_handler,
-            "reset": reset_handler,
-            "status": status_handler,
+        callbacks = {
+            "on_progress": self._on_pipeline_progress,
+            "on_state_change": self._on_pipeline_state_change,
         }
 
-        configured = False
-        for name in ("set_progress_callbacks", "register_progress_callbacks", "configure_progress_callbacks"):
+        for name in (
+            "configure_progress_callbacks",
+            "register_progress_callbacks",
+            "set_progress_callbacks",
+        ):
             method = getattr(controller, name, None)
-            if callable(method):
+            if not callable(method):
+                continue
+            try:
+                method(**callbacks)
+                return
+            except TypeError:
                 try:
-                    method(**callback_payload)
-                    configured = True
-                    break
-                except TypeError:
-                    logger.debug("Progress callback registration failed via %s", name, exc_info=True)
+                    code = method.__code__
+                    param_names = code.co_varnames[: code.co_argcount]
+                    filtered = {k: v for k, v in callbacks.items() if k in param_names}
+                    if filtered:
+                        method(**filtered)
+                        return
+                except Exception:
+                    continue
 
-        if configured:
-            return
+    def _on_pipeline_progress(
+        self,
+        progress: float | None = None,
+        total: float | None = None,
+        eta_seconds: float | None = None,
+    ) -> None:
+        try:
+            progress_val = float(progress) if progress is not None else None
+        except (TypeError, ValueError):
+            progress_val = None
+        try:
+            total_val = float(total) if total is not None else None
+        except (TypeError, ValueError):
+            total_val = None
+
+        fraction = None
+        if progress_val is not None and total_val and total_val > 0:
+            fraction = progress_val / total_val
 
         try:
-            setter = getattr(controller, "set_progress_callback", None)
-            if callable(setter):
-                setter(progress_handler)
-        except Exception:
-            logger.debug("Failed to attach progress callback", exc_info=True)
+            eta_val = float(eta_seconds) if eta_seconds is not None else None
+        except (TypeError, ValueError):
+            eta_val = None
+
+        def apply():
+            if hasattr(self, "status_bar_v2"):
+                self.status_bar_v2.update_progress(fraction)
+                self.status_bar_v2.update_eta(eta_val)
+
+        apply()
         try:
-            setter = getattr(controller, "set_eta_callback", None)
-            if callable(setter):
-                setter(lambda eta: eta_handler(eta))
+            self.root.after(0, apply)
         except Exception:
-            logger.debug("Failed to attach ETA callback", exc_info=True)
+            pass
+
+    def _on_pipeline_state_change(self, state: str | None) -> None:
+        normalized = (state or "").lower()
+
+        def apply():
+            if not hasattr(self, "status_bar_v2"):
+                return
+            if normalized in ("idle",):
+                self.status_bar_v2.set_idle()
+            elif normalized in ("running", "started", "busy"):
+                self.status_bar_v2.set_running()
+            elif normalized in ("completed", "done", "success"):
+                self.status_bar_v2.set_completed()
+            elif normalized in ("error", "failed"):
+                self.status_bar_v2.set_error()
+
+        apply()
         try:
-            setter = getattr(controller, "set_status_callback", None)
-            if callable(setter):
-                setter(lambda status: status_handler(status))
+            self.root.after(0, apply)
         except Exception:
-            logger.debug("Failed to attach status callback", exc_info=True)
+            pass
 
     def _signal_pipeline_finished(self, event=None) -> None:
         """Notify tests waiting on lifecycle_event that the run has terminated."""
@@ -3176,82 +3247,6 @@ class StableNewGUI:
             event.set()
         except Exception:
             logger.debug("Failed to signal lifecycle_event", exc_info=True)
-
-    def _queue_progress_update(self, percent: float) -> None:
-        """Update progress widgets on the Tk thread."""
-
-        def update() -> None:
-            clamped = max(0.0, min(100.0, float(percent) if percent is not None else 0.0))
-            progress_bar = getattr(self, "progress_bar", None)
-            if progress_bar is not None:
-                progress_bar["value"] = clamped
-            percent_var = getattr(self, "progress_percent_var", None)
-            if percent_var is not None:
-                percent_var.set(f"{clamped:.0f}%")
-
-        self.root.after(0, update)
-
-    def _queue_eta_update(self, eta: str | None) -> None:
-        """Update ETA label on the Tk thread."""
-
-        def update() -> None:
-            eta_var = getattr(self, "eta_var", None)
-            if eta_var is not None:
-                eta_var.set(eta if eta else "ETA: --")
-
-        self.root.after(0, update)
-
-    def _queue_status_update(self, text: str | None) -> None:
-        """Update status text via Tk event loop."""
-        # If forced error status (test harness), ignore non-error updates
-        if getattr(self, "_force_error_status", False):
-            if not (text and str(text).strip().lower() == "error"):
-                return
-        self.root.after(0, lambda: self._apply_status_text(text))
-
-    def _apply_status_text(self, text: str | None) -> None:
-        """Apply status text to both status bar and execution label."""
-        # If forced error status (tests), always show Error regardless of queued updates
-        if getattr(self, "_force_error_status", False):
-            forced = "Error" if not (text and str(text).strip().lower() == "error") else "Error"
-            message_var = getattr(self, "progress_message_var", None)
-            if message_var is not None:
-                message_var.set(forced)
-            progress_var = getattr(self, "progress_var", None)
-            if progress_var is not None:
-                progress_var.set(forced)
-            return
-
-        if text is None:
-            try:
-                from .state import GUIState
-
-                if hasattr(self, "state_manager") and self.state_manager.is_state(GUIState.ERROR):
-                    message = "Error"
-                else:
-                    message = "Ready"
-            except Exception:
-                message = "Ready"
-        else:
-            message = text
-        # Normalize cancellation text to Ready once we've returned to IDLE
-        try:
-            from .state import GUIState
-
-            if (
-                str(message).strip().lower() == "cancelled"
-                and hasattr(self, "state_manager")
-                and self.state_manager.is_state(GUIState.IDLE)
-            ):
-                message = "Ready"
-        except Exception:
-            pass
-        message_var = getattr(self, "progress_message_var", None)
-        if message_var is not None:
-            message_var.set(message)
-        progress_var = getattr(self, "progress_var", None)
-        if progress_var is not None:
-            progress_var.set(message)
 
     def _normalize_api_url(self, value: Any) -> str:
         """Ensure downstream API clients always receive a fully-qualified URL."""
@@ -3388,7 +3383,7 @@ class StableNewGUI:
         if connected:
             if hasattr(self, "api_status_panel"):
                 self.api_status_panel.set_status("Connected", "green")
-            self.run_pipeline_btn.config(state=tk.NORMAL)
+            self._apply_run_button_state()
 
             # Update URL field if we found a different working port
             normalized_url = self._normalize_api_url(url) if url else None
@@ -3421,7 +3416,7 @@ class StableNewGUI:
         else:
             if hasattr(self, "api_status_panel"):
                 self.api_status_panel.set_status("Disconnected", "red")
-            self.run_pipeline_btn.config(state=tk.DISABLED)
+            self._apply_run_button_state()
 
     def _on_pack_selection_changed_mediator(self, selected_packs: list[str]):
         """
@@ -3860,9 +3855,21 @@ class StableNewGUI:
             pass
 
     def _run_full_pipeline(self):
+        if not self._refresh_txt2img_validation():
+            return
         if not self._confirm_run_with_dirty():
             return
         self._run_full_pipeline_impl()
+
+    def _start_learning_run_stub(self) -> None:
+        """Placeholder for future learning-mode entry point."""
+
+        self.log_message("Learning mode is not enabled yet.", "INFO")
+
+    def _collect_learning_feedback_stub(self) -> None:
+        """Placeholder for future learning-mode feedback collection."""
+
+        self.log_message("Learning feedback collection is not implemented yet.", "INFO")
 
     def _run_full_pipeline_impl(self):
         """Run the complete pipeline"""
@@ -3912,6 +3919,15 @@ class StableNewGUI:
             "api": {},
         }
         config_snapshot = self._apply_pipeline_panel_overrides(config_snapshot)
+        randomizer_plan_result = self._build_randomizer_plan_result(config_snapshot)
+        controller_run_config = deepcopy(config_snapshot)
+        if randomizer_plan_result and getattr(randomizer_plan_result, "configs", None):
+            controller_run_config = deepcopy(randomizer_plan_result.configs[0])
+            if randomizer_plan_result.variant_count > 1:
+                logger.info(
+                    "Randomizer plan produced %d variants; TODO: multi-variant execution",
+                    randomizer_plan_result.variant_count,
+                )
         pipeline_overrides = deepcopy(config_snapshot.get("pipeline", {}))
         api_overrides = deepcopy(config_snapshot.get("api", {}))
         try:
@@ -4272,10 +4288,17 @@ class StableNewGUI:
         def on_error(e: Exception):
             self._handle_pipeline_error(e)
 
+        final_run_config = deepcopy(controller_run_config)
         try:
-            setattr(self.controller, "last_run_config", deepcopy(config_snapshot))
+            setattr(self.controller, "last_run_config", final_run_config)
         except Exception:
             pass
+        record_hook = getattr(self.controller, "record_run_config", None)
+        if callable(record_hook):
+            try:
+                record_hook(final_run_config)
+            except Exception:
+                logger.debug("record_run_config hook failed", exc_info=True)
 
         started = self.controller.start_pipeline(
             pipeline_func, on_complete=on_complete, on_error=on_error

@@ -19,6 +19,9 @@ def test_run_button_invokes_controller(
 
     monkeypatch.setattr(type(app), "_run_full_pipeline_impl", _fake_run, raising=False)
 
+    app.api_connected = True
+    app._apply_run_button_state()
+
     run_button = getattr(app, "run_button", app.run_pipeline_btn)
     run_button.invoke()
 

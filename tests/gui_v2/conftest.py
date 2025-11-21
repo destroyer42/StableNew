@@ -25,10 +25,30 @@ DEFAULT_TXT2IMG_CFG = {
     "height": 1216,
 }
 
+DEFAULT_IMG2IMG_CFG = {
+    "model": "sd_xl_base_1.0",
+    "vae": "sdxl_vae.safetensors",
+    "sampler_name": "Euler",
+    "denoising_strength": 0.35,
+    "cfg_scale": 7.0,
+    "steps": 20,
+}
+
+DEFAULT_UPSCALE_CFG = {
+    "upscaler": "R-ESRGAN 4x+",
+    "upscale_mode": "single",
+    "steps": 20,
+    "denoising_strength": 0.35,
+}
+
 
 class DummyConfigManager:
     def __init__(self):
-        self._default_config = {"txt2img": deepcopy(DEFAULT_TXT2IMG_CFG)}
+        self._default_config = {
+            "txt2img": deepcopy(DEFAULT_TXT2IMG_CFG),
+            "img2img": deepcopy(DEFAULT_IMG2IMG_CFG),
+            "upscale": deepcopy(DEFAULT_UPSCALE_CFG),
+        }
         self._presets = {"default": deepcopy(self._default_config)}
         self._pack_configs: dict[str, dict] = {}
         self._default_preset = "default"
@@ -87,6 +107,7 @@ class DummyController:
         self.last_run_config = None
         self.is_terminal = False
         self.structured_logger = None
+        self.progress_callbacks: dict[str, callable] = {}
 
     def start_pipeline(self, *_args, **_kwargs):
         self.start_calls += 1
@@ -104,6 +125,12 @@ class DummyController:
 
     def report_progress(self, *_args, **_kwargs):
         return None
+
+    def configure_progress_callbacks(self, **callbacks):
+        self.progress_callbacks.update(callbacks)
+
+    register_progress_callbacks = configure_progress_callbacks
+    set_progress_callbacks = configure_progress_callbacks
 
     def record_run_config(self, config: dict):
         self.last_run_config = config
