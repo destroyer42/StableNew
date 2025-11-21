@@ -25,6 +25,11 @@ from src.gui.engine_settings_dialog import EngineSettingsDialog
 from src.gui.log_panel import LogPanel, TkinterLogHandler
 from src.gui.pipeline_controls_panel import PipelineControlsPanel
 from src.gui.prompt_pack_panel import PromptPackPanel
+from src.gui.pipeline_panel_v2 import PipelinePanelV2
+from src.gui.preview_panel_v2 import PreviewPanelV2
+from src.gui.randomizer_panel_v2 import RandomizerPanelV2
+from src.gui.sidebar_panel_v2 import SidebarPanelV2
+from src.gui.status_bar_v2 import StatusBarV2
 from src.gui.scrolling import enable_mousewheel, make_scrollable
 from src.gui.state import GUIState, StateManager
 from src.gui.theme import Theme
@@ -628,17 +633,42 @@ class StableNewGUI:
         vertical_split.add(content_frame, weight=4)
 
         # Configure grid for better space utilization
-        content_frame.columnconfigure(
-            0, weight=0, minsize=280
-        )  # Left: wider pack list for long names
-        content_frame.columnconfigure(1, weight=1)  # Center: flexible config
+        content_frame.columnconfigure(0, weight=0, minsize=280)
+        content_frame.columnconfigure(1, weight=1)
+        content_frame.columnconfigure(2, weight=0, minsize=260)
         content_frame.rowconfigure(0, weight=1)
 
-        # Left panel - Compact prompt pack selection
-        self._build_prompt_pack_panel(content_frame)
+        # Left panel - Sidebar container with legacy prompt packs inside
+        self.sidebar_panel_v2 = SidebarPanelV2(
+            content_frame, controller=self.controller, theme=self.theme
+        )
+        self.sidebar_panel_v2.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 5))
+        self._build_prompt_pack_panel(self.sidebar_panel_v2.body)
 
-        # Center panel - Configuration notebook
-        self._build_config_pipeline_panel(content_frame)
+        # Center column housing pipeline + randomizer panels
+        center_stack = ttk.Frame(content_frame, style="Dark.TFrame")
+        center_stack.grid(row=0, column=1, sticky=tk.NSEW)
+
+        self.pipeline_panel_v2 = PipelinePanelV2(
+            center_stack,
+            controller=self.controller,
+            theme=self.theme,
+            config_manager=self.config_manager,
+        )
+        self.pipeline_panel_v2.pack(fill=tk.BOTH, expand=True)
+        self._build_config_pipeline_panel(self.pipeline_panel_v2.body)
+
+        self.randomizer_panel_v2 = RandomizerPanelV2(
+            center_stack, controller=self.controller, theme=self.theme
+        )
+        self.randomizer_panel_v2.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+
+        # Right panel - Preview/inspector scaffold
+        self.preview_panel_v2 = PreviewPanelV2(
+            content_frame, controller=self.controller, theme=self.theme
+        )
+        self.preview_panel_v2.grid(row=0, column=2, sticky=tk.NSEW, padx=(5, 0))
+        self._initialize_pipeline_panel_config()
 
         # Bottom frame - Compact log and action buttons (resizable split)
         bottom_shell = ttk.Frame(vertical_split, style="Dark.TFrame")
@@ -696,13 +726,13 @@ class StableNewGUI:
             on_selection_changed=self._on_pack_selection_changed_mediator,
             style="Dark.TFrame",
         )
-        self.prompt_pack_panel.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 5))
+        self.prompt_pack_panel.pack(fill=tk.BOTH, expand=True)
 
     def _build_config_pipeline_panel(self, parent):
         """Build the consolidated configuration notebook with Pipeline, Randomization, and General tabs."""
         # Create main notebook for center panel
         self.center_notebook = ttk.Notebook(parent, style="Dark.TNotebook")
-        self.center_notebook.grid(row=0, column=1, sticky=tk.NSEW, padx=(0, 5))
+        self.center_notebook.pack(fill=tk.BOTH, expand=True)
 
         # Pipeline tab - configuration
         pipeline_tab = ttk.Frame(self.center_notebook, style="Dark.TFrame")
@@ -839,6 +869,38 @@ class StableNewGUI:
         advanced_tab = ttk.Frame(self.center_notebook, style="Dark.TFrame")
         self.center_notebook.add(advanced_tab, text="Advanced Editor")
         self._build_advanced_editor_tab(advanced_tab)
+
+    def _initialize_pipeline_panel_config(self) -> None:
+        panel = getattr(self, "pipeline_panel_v2", None)
+        if panel is None:
+            return
+        try:
+            initial_config = getattr(self, "current_config", None)
+            if not initial_config and getattr(self, "config_manager", None):
+                initial_config = self.config_manager.get_default_config()
+            if initial_config:
+                panel.load_from_config(initial_config)
+        except Exception:
+            logger.debug("Unable to initialize PipelinePanelV2 config", exc_info=True)
+
+    def _apply_pipeline_panel_overrides(self, config_snapshot: dict) -> dict:
+        panel = getattr(self, "pipeline_panel_v2", None)
+        if panel is None:
+            return config_snapshot
+        try:
+            delta = panel.to_config_delta()
+        except Exception:
+            logger.debug("PipelinePanelV2 delta failed", exc_info=True)
+            delta = {}
+        txt2img_delta = (delta or {}).get("txt2img")
+        if not txt2img_delta:
+            return config_snapshot
+        txt2img_section = config_snapshot.setdefault("txt2img", {})
+        if isinstance(txt2img_section, dict):
+            txt2img_section.update(txt2img_delta)
+        else:
+            config_snapshot["txt2img"] = dict(txt2img_delta)
+        return config_snapshot
 
     def _handle_preferences_load_failure(self, exc: Exception) -> None:
         """Notify the user that preferences failed to load and backup the corrupt file."""
@@ -2774,6 +2836,7 @@ class StableNewGUI:
             self.run_pipeline_btn,
             "Process every highlighted pack sequentially using the current configuration. Override mode applies when enabled.",
         )
+        self.run_button = self.run_pipeline_btn
 
         txt2img_only_btn = ttk.Button(
             main_buttons,
@@ -2905,21 +2968,21 @@ class StableNewGUI:
 
     def _build_status_bar(self, parent):
         """Build status bar showing current state"""
-        status_frame = ttk.Frame(parent, style="Dark.TFrame", relief=tk.SUNKEN)
-        status_frame.pack(fill=tk.X, pady=(4, 0))
+        self.status_bar_v2 = StatusBarV2(parent, controller=self.controller, theme=self.theme)
+        self.status_bar_v2.pack(fill=tk.X, pady=(4, 0))
+        status_frame = self.status_bar_v2.body
         status_frame.configure(height=52)
         status_frame.pack_propagate(False)
 
         # State indicator
-        self.state_label = ttk.Label(
-            status_frame, text="● Idle", style="Dark.TLabel", foreground="#4CAF50"
-        )
-        self.state_label.pack(side=tk.LEFT, padx=5)
+        self.state_label = self.status_bar_v2.status_label
+        self.state_label.configure(text="● Idle", style="Dark.TLabel", foreground="#4CAF50")
+        self.state_label.pack_configure(side=tk.LEFT, padx=5)
 
         # Progress bar
-        self.progress_bar = ttk.Progressbar(status_frame, mode="determinate")
-        self.progress_bar.config(maximum=100, value=0)
-        self.progress_bar.pack(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
+        self.progress_bar = self.status_bar_v2.progress_widget
+        self.progress_bar.config(maximum=100, value=0, mode="determinate")
+        self.progress_bar.pack_configure(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
 
         # ETA indicator
         self.eta_var = tk.StringVar(value=self._progress_eta_default)
@@ -3848,6 +3911,7 @@ class StableNewGUI:
             "upscale": {},
             "api": {},
         }
+        config_snapshot = self._apply_pipeline_panel_overrides(config_snapshot)
         pipeline_overrides = deepcopy(config_snapshot.get("pipeline", {}))
         api_overrides = deepcopy(config_snapshot.get("api", {}))
         try:
@@ -4207,6 +4271,11 @@ class StableNewGUI:
 
         def on_error(e: Exception):
             self._handle_pipeline_error(e)
+
+        try:
+            setattr(self.controller, "last_run_config", deepcopy(config_snapshot))
+        except Exception:
+            pass
 
         started = self.controller.start_pipeline(
             pipeline_func, on_complete=on_complete, on_error=on_error

@@ -4,20 +4,25 @@ from __future__ import annotations
 
 import logging
 import random
+import re
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
-
-from src.pipeline.variant_planner import (
-    VariantPlan,
-    VariantSpec,
-    apply_variant_to_config,
-    build_variant_plan,
-)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_VARIANTS = 512
 HARD_MAX_VARIANTS = 8192
+
+
+class RandomizerError(Exception):
+    """Raised when randomizer or matrix syntax is invalid."""
+
+
+_UNRESOLVED_TOKEN_PATTERNS = (
+    re.compile(r"\[\[[^\]]*\]\]?"),
+    re.compile(r"__[^_]+__"),
+)
 
 @dataclass
 class PromptVariant:
@@ -94,10 +99,12 @@ class PromptRandomizer:
         raw_mode = (self._matrix_config.get("mode") or "fanout").lower()
         if raw_mode in {"fanout", "grid", "all"}:
             self._matrix_mode = "fanout"
-        elif raw_mode in {"rotate", "random", "per_prompt"}:
-            self._matrix_mode = "random"
+        elif raw_mode in {"rotate"}:
+            self._matrix_mode = "rotate"
         elif raw_mode in {"sequential", "round_robin"}:
             self._matrix_mode = "sequential"
+        elif raw_mode in {"random", "per_prompt"}:
+            self._matrix_mode = "random"
         else:
             logger.warning(
                 "Randomizer: unknown matrix mode '%s'; defaulting to sequential", raw_mode
@@ -165,7 +172,8 @@ class PromptRandomizer:
             else:
                 working_prompt = base_prompt
 
-        matrix_combos = self._matrix_combos_for_prompt()
+        rotate_each_variant = self._matrix_enabled and self._matrix_mode == "rotate"
+        matrix_combos = None if rotate_each_variant else self._matrix_combos_for_prompt()
         sr_variants = self._expand_prompt_sr(working_prompt)
         matrix_requested = self._matrix_requested if self._matrix_enabled else 1
 
@@ -174,7 +182,12 @@ class PromptRandomizer:
         for sr_text, sr_labels in sr_variants:
             wildcard_variants = self._expand_wildcards(sr_text, list(sr_labels))
             for wildcard_text, wildcard_labels in wildcard_variants:
-                for combo in matrix_combos:
+                combos = (
+                    [self._next_matrix_combo()]
+                    if rotate_each_variant
+                    else matrix_combos
+                ) or [None]
+                for combo in combos:
                     labels = list(wildcard_labels)
                     final_text = self._apply_matrix(wildcard_text, combo, labels)
                     label_value = "; ".join(labels) or None
@@ -381,7 +394,9 @@ class PromptRandomizer:
         - Disabled/no slots -> [None]
         - mode == "fanout": return every combination for this prompt (grid behavior)
         - mode == "random": return one random combo per prompt
-        - other modes: return exactly one combo, rotating across prompts ("sequential")
+        - mode == "sequential": return exactly one combo, rotating across prompts
+        - mode == "rotate": handled per variant so callers should request combos
+          lazily
         """
         if not self._matrix_enabled or not self._matrix_slots or not self._matrix_combos:
             return [None]
@@ -398,10 +413,17 @@ class PromptRandomizer:
                 return [combo]
             return [None]
 
-        # default / "rotate": one combo at a time in a stable order
-        combo = self._matrix_combos[self._matrix_index]
-        self._matrix_index = (self._matrix_index + 1) % len(self._matrix_combos)
+        # sequential (and rotate fallback): one combo at a time in a stable order
+        combo = self._next_matrix_combo()
         return [combo]
+
+    def _next_matrix_combo(self) -> dict[str, str] | None:
+        if not self._matrix_enabled or not self._matrix_combos:
+            return None
+        combo = self._matrix_combos[self._matrix_index]
+        if self._matrix_combos:
+            self._matrix_index = (self._matrix_index + 1) % len(self._matrix_combos)
+        return combo
 
     def _build_matrix_combos(self) -> list[dict[str, str] | None]:
         if not self._matrix_slots:
@@ -516,4 +538,58 @@ class PromptRandomizer:
         return len(self._matrix_combos)
 
 
+def sanitize_prompt(
+    prompt_text: str,
+    config: dict[str, Any] | None = None,
+    *,
+    seed: int | None = None,
+) -> list[str]:
+    """
+    Expand and sanitize a prompt template, returning fully-resolved strings.
+
+    The returned list contains one or more prompt variants with all randomizer
+    syntax removed. The supplied config dict is not mutated.
+    """
+
+    cfg_copy = deepcopy(config) if config else {}
+    rng = random.Random(seed) if seed is not None else None
+    randomizer = PromptRandomizer(cfg_copy, rng=rng)
+    variants = randomizer.generate(prompt_text)
+    texts = [variant.text for variant in variants]
+    _ensure_sanitized(texts)
+    return texts
+
+
+def _ensure_sanitized(texts: list[str]) -> None:
+    for text in texts:
+        if "[[" in text or "__" in text:
+            raise RandomizerError(f"Unresolved randomizer token found in '{text}'")
+        for pattern in _UNRESOLVED_TOKEN_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                raise RandomizerError(f"Unresolved randomizer token '{match.group(0)}'")
+
+
 # --- Minimal stubs for missing functions ---
+
+
+def apply_variant_to_config(config: dict[str, Any], variant: Any) -> dict[str, Any]:
+    """Lazy shim for legacy imports from src.utils.randomizer.
+
+    The real implementation lives in src.pipeline.variant_planner, but some GUI
+    modules and older tests still import it from this module. We import lazily
+    so simply importing src.utils.randomizer does not pull in pipeline/GUI/Tk
+    dependencies.
+    """
+
+    from src.pipeline.variant_planner import apply_variant_to_config as _impl
+
+    return _impl(config, variant)
+
+
+def build_variant_plan(config: dict[str, Any] | None) -> Any:
+    """Lazy shim for build_variant_plan imported via src.utils.randomizer."""
+
+    from src.pipeline.variant_planner import build_variant_plan as _impl
+
+    return _impl(config)

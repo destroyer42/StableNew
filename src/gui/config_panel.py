@@ -12,9 +12,19 @@ from . import theme
 class ConfigPanel(ttk.Frame):
     """Basic configuration controls for model/sampler/resolution/steps/CFG."""
 
-    def __init__(self, master: tk.Misc, on_change: Callable[[str, Any], None]) -> None:
-        super().__init__(master, padding=theme.PADDING_MD, style=theme.SURFACE_FRAME_STYLE)
+    def __init__(
+        self,
+        master: tk.Misc,
+        on_change: Callable[[str, Any], None] | None = None,
+        *,
+        coordinator: Any | None = None,
+        style: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        frame_style = style or theme.SURFACE_FRAME_STYLE
+        super().__init__(master, padding=theme.PADDING_MD, style=frame_style, **kwargs)
         self.on_change = on_change
+        self.coordinator = coordinator
 
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
@@ -26,6 +36,26 @@ class ConfigPanel(ttk.Frame):
         self.steps_var = tk.StringVar()
         self.cfg_var = tk.StringVar()
 
+        # Legacy compatibility dictionaries expected by StableNewGUI
+        self.txt2img_vars = {
+            "model": self.model_var,
+            "sampler_name": self.sampler_var,
+            "width": self.width_var,
+            "height": self.height_var,
+            "steps": self.steps_var,
+            "cfg_scale": self.cfg_var,
+        }
+        self.img2img_vars = {
+            "model": tk.StringVar(),
+            "sampler_name": tk.StringVar(),
+        }
+        self.upscale_vars = {
+            "upscaler": tk.StringVar(),
+        }
+        self.api_vars = {"base_url": tk.StringVar()}
+        self.txt2img_widgets: dict[str, tk.Widget] = {}
+        self.upscale_widgets: dict[str, tk.Widget] = {}
+
         ttk.Label(self, text="Model", style=theme.STATUS_STRONG_LABEL_STYLE).grid(
             row=0, column=0, sticky="w", columnspan=2
         )
@@ -36,6 +66,7 @@ class ConfigPanel(ttk.Frame):
         )
         self.model_combo.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, theme.PADDING_MD))
         self.model_combo.bind("<<ComboboxSelected>>", self._handle_model_change)
+        self.txt2img_widgets["model"] = self.model_combo
 
         ttk.Label(self, text="Sampler", style=theme.STATUS_STRONG_LABEL_STYLE).grid(
             row=2, column=0, sticky="w", columnspan=2
@@ -47,6 +78,7 @@ class ConfigPanel(ttk.Frame):
         )
         self.sampler_combo.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, theme.PADDING_MD))
         self.sampler_combo.bind("<<ComboboxSelected>>", self._handle_sampler_change)
+        self.txt2img_widgets["sampler_name"] = self.sampler_combo
 
         ttk.Label(self, text="Resolution", style=theme.STATUS_STRONG_LABEL_STYLE).grid(
             row=4, column=0, sticky="w", columnspan=2
@@ -57,6 +89,8 @@ class ConfigPanel(ttk.Frame):
         height_entry.grid(row=5, column=1, sticky="ew", pady=(0, theme.PADDING_SM))
         width_entry.bind("<FocusOut>", self._handle_resolution_change)
         height_entry.bind("<FocusOut>", self._handle_resolution_change)
+        self.txt2img_widgets["width"] = width_entry
+        self.txt2img_widgets["height"] = height_entry
 
         ttk.Label(self, text="Steps", style=theme.STATUS_STRONG_LABEL_STYLE).grid(
             row=6, column=0, sticky="w"
@@ -85,6 +119,11 @@ class ConfigPanel(ttk.Frame):
         cfg_spin.grid(row=7, column=1, sticky="ew", pady=(0, theme.PADDING_MD))
         steps_spin.bind("<FocusOut>", self._handle_steps_change)
         cfg_spin.bind("<FocusOut>", self._handle_cfg_change)
+        self.txt2img_widgets["steps"] = steps_spin
+        self.txt2img_widgets["cfg_scale"] = cfg_spin
+
+        self.config_status_label = ttk.Label(self, text="", style=theme.STATUS_LABEL_STYLE)
+        self.config_status_label.grid(row=8, column=0, columnspan=2, sticky="w")
 
     def refresh_from_controller(
         self,

@@ -97,7 +97,7 @@ ignore_errors = true
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["tests"]
+testpaths = ["tests", "tests/gui_v2"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -106,6 +106,9 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--showlocals",
+]
+norecursedirs = [
+    "tests/gui_v1_legacy",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

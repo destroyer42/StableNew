@@ -80,6 +80,29 @@ def test_matrix_rotate_advances_between_calls():
     assert second == "look B"
 
 
+def test_matrix_rotate_advances_within_single_generate_call():
+    config = {
+        "enabled": True,
+        "prompt_sr": {
+            "enabled": True,
+            "mode": "fanout",
+            "rules": [
+                {"search": "CREATURE", "replacements": ["wolf", "lion"]},
+            ],
+        },
+        "matrix": {
+            "enabled": True,
+            "mode": "rotate",
+            "slots": [
+                {"name": "Style", "values": ["A", "B"]},
+            ],
+        },
+    }
+    randomizer = PromptRandomizer(config)
+    variants = randomizer.generate("CREATURE [[Style]]")
+    assert [variant.text for variant in variants] == ["wolf A", "lion B"]
+
+
 def test_randomizer_combines_all_features():
     config = {
         "enabled": True,

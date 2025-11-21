@@ -1,42 +1,164 @@
-"""Shared theming helpers for the Architecture_v2 GUI."""
+"""Shared theming helpers for StableNew GUIs."""
 
 from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
 
-# Color palette
-COLOR_BG = "#18181b"
-COLOR_SURFACE = "#1f1f25"
-COLOR_SURFACE_ALT = "#24242b"
-COLOR_ACCENT = "#facc15"
-COLOR_ACCENT_DANGER = "#ef4444"
-COLOR_TEXT = "#f9fafb"
-COLOR_TEXT_MUTED = "#9ca3af"
-COLOR_BORDER_SUBTLE = "#3f3f46"
+# --- ASWF palette --------------------------------------------------------- #
 
-# Spacing tokens
+ASWF_BLACK = "#221F20"
+ASWF_GOLD = "#FFC805"
+ASWF_DARK_GREY = "#2B2A2C"
+ASWF_MED_GREY = "#3A393D"
+ASWF_LIGHT_GREY = "#4A4950"
+ASWF_ERROR_RED = "#CC3344"
+ASWF_OK_GREEN = "#44AA55"
+
+FONT_FAMILY = "Calibri"
+FONT_SIZE_BASE = 11
+FONT_SIZE_LABEL = 11
+FONT_SIZE_BUTTON = 11
+FONT_SIZE_HEADING = 13
+
+# Derived tokens used by the newer ttk-based surfaces.
+COLOR_BG = ASWF_BLACK
+COLOR_SURFACE = ASWF_DARK_GREY
+COLOR_SURFACE_ALT = "#2F2D30"
+COLOR_TEXT = "#F5F5F5"
+COLOR_TEXT_MUTED = "#D5D5D8"
+COLOR_BORDER_SUBTLE = "#3F3F46"
+COLOR_ACCENT = ASWF_GOLD
+COLOR_ACCENT_DANGER = ASWF_ERROR_RED
+
 PADDING_XS = 2
 PADDING_SM = 4
 PADDING_MD = 8
 PADDING_LG = 12
 
-# Font families
-FONT_FAMILY_BASE = "Segoe UI"
-FONT_FAMILY_MONO = "Consolas"
-
-# Style identifiers
 PRIMARY_BUTTON_STYLE = "Primary.TButton"
-DANGER_BUTTON_STYLE = "Danger.TButton"
 GHOST_BUTTON_STYLE = "Ghost.TButton"
+DANGER_BUTTON_STYLE = "Danger.TButton"
 STATUS_LABEL_STYLE = "Status.TLabel"
 STATUS_STRONG_LABEL_STYLE = "StatusStrong.TLabel"
 SURFACE_FRAME_STYLE = "Surface.TFrame"
 HEADER_FRAME_STYLE = "Header.TFrame"
 
 
-def configure_style(root: tk.Misc) -> ttk.Style:
-    """Configure ttk styles for StableNew's dark theme."""
+class Theme:
+    """Helper with Tk widget styling methods (legacy UI expectations)."""
+
+    def apply_root(self, root: tk.Misc) -> None:
+        try:
+            root.configure(bg=ASWF_BLACK)
+        except Exception:
+            pass
+
+    def apply_ttk_styles(self, style: ttk.Style) -> ttk.Style:
+        configure_style(style.master or tk._default_root)  # type: ignore[attr-defined]
+        return style
+
+    def style_button_primary(self, button: tk.Widget) -> None:
+        try:
+            button.configure(
+                bg=ASWF_GOLD,
+                fg=ASWF_BLACK,
+                relief="flat",
+                borderwidth=0,
+                font=(FONT_FAMILY, FONT_SIZE_BUTTON, "bold"),
+            )
+        except Exception:
+            pass
+
+    def style_button_danger(self, button: tk.Widget) -> None:
+        try:
+            button.configure(
+                bg=ASWF_ERROR_RED,
+                fg="white",
+                relief="flat",
+                borderwidth=0,
+                font=(FONT_FAMILY, FONT_SIZE_BUTTON, "bold"),
+            )
+        except Exception:
+            pass
+
+    def style_frame(self, frame: tk.Widget) -> None:
+        try:
+            frame.configure(bg=ASWF_DARK_GREY, relief="flat", borderwidth=0)
+        except Exception:
+            pass
+
+    def style_label(self, label: tk.Widget) -> None:
+        try:
+            label.configure(
+                bg=ASWF_DARK_GREY,
+                fg=ASWF_GOLD,
+                font=(FONT_FAMILY, FONT_SIZE_LABEL),
+            )
+        except Exception:
+            pass
+
+    def style_label_heading(self, label: tk.Widget) -> None:
+        try:
+            label.configure(
+                bg=ASWF_DARK_GREY,
+                fg=ASWF_GOLD,
+                font=(FONT_FAMILY, FONT_SIZE_HEADING, "bold"),
+            )
+        except Exception:
+            pass
+
+    def style_entry(self, entry: tk.Widget) -> None:
+        try:
+            entry.configure(
+                bg=ASWF_MED_GREY,
+                fg="white",
+                insertbackground=ASWF_GOLD,
+                relief="flat",
+                borderwidth=1,
+            )
+        except Exception:
+            pass
+
+    def style_text(self, text_widget: tk.Widget) -> None:
+        try:
+            text_widget.configure(
+                bg=ASWF_MED_GREY,
+                fg=ASWF_LIGHT_GREY,
+                insertbackground=ASWF_GOLD,
+                relief="flat",
+                borderwidth=1,
+            )
+        except Exception:
+            pass
+
+    def style_listbox(self, widget: tk.Widget) -> None:
+        try:
+            widget.configure(
+                bg=ASWF_MED_GREY,
+                fg="white",
+                selectbackground=ASWF_GOLD,
+                selectforeground=ASWF_BLACK,
+                relief="flat",
+                borderwidth=1,
+            )
+        except Exception:
+            pass
+
+    def style_scrollbar(self, scrollbar: tk.Widget) -> None:
+        try:
+            scrollbar.configure(
+                bg=ASWF_MED_GREY,
+                troughcolor=ASWF_DARK_GREY,
+                relief="flat",
+                borderwidth=1,
+            )
+        except Exception:
+            pass
+
+
+def configure_style(root: tk.Misc | None) -> ttk.Style:
+    """Configure ttk styles used by the v2 window."""
 
     style = ttk.Style(master=root)
     try:
@@ -44,32 +166,28 @@ def configure_style(root: tk.Misc) -> ttk.Style:
     except tk.TclError:
         pass
 
-    root.configure(bg=COLOR_BG)
+    if root is not None:
+        try:
+            root.configure(bg=COLOR_BG)
+        except Exception:
+            pass
 
-    # Base frame styling
     style.configure("TFrame", background=COLOR_BG)
-    style.configure(
-        SURFACE_FRAME_STYLE,
-        background=COLOR_SURFACE,
-    )
-    style.configure(
-        HEADER_FRAME_STYLE,
-        background=COLOR_SURFACE_ALT,
-    )
+    style.configure(SURFACE_FRAME_STYLE, background=COLOR_SURFACE)
+    style.configure(HEADER_FRAME_STYLE, background=COLOR_SURFACE_ALT)
 
-    # Buttons
     style.configure(
         PRIMARY_BUTTON_STYLE,
         padding=(PADDING_MD, PADDING_SM),
         background=COLOR_ACCENT,
-        foreground="#000000",
+        foreground=ASWF_BLACK,
         borderwidth=0,
         focusthickness=0,
-        font=(FONT_FAMILY_BASE, 10, "bold"),
+        font=(FONT_FAMILY, FONT_SIZE_BUTTON, "bold"),
     )
     style.map(
         PRIMARY_BUTTON_STYLE,
-        background=[("pressed", "#e7b40f"), ("active", "#fde047")],
+        background=[("pressed", "#e6b204"), ("active", "#ffd84d")],
     )
 
     style.configure(
@@ -79,11 +197,11 @@ def configure_style(root: tk.Misc) -> ttk.Style:
         foreground="#ffffff",
         borderwidth=0,
         focusthickness=0,
-        font=(FONT_FAMILY_BASE, 10, "bold"),
+        font=(FONT_FAMILY, FONT_SIZE_BUTTON, "bold"),
     )
     style.map(
         DANGER_BUTTON_STYLE,
-        background=[("pressed", "#dc2626"), ("active", "#f87171")],
+        background=[("pressed", "#b82836"), ("active", "#f15965")],
     )
 
     style.configure(
@@ -94,66 +212,68 @@ def configure_style(root: tk.Misc) -> ttk.Style:
         borderwidth=1,
         focusthickness=0,
         relief="raised",
-        font=(FONT_FAMILY_BASE, 10),
+        font=(FONT_FAMILY, FONT_SIZE_BUTTON),
         bordercolor=COLOR_BORDER_SUBTLE,
         lightcolor=COLOR_BORDER_SUBTLE,
         darkcolor=COLOR_BORDER_SUBTLE,
     )
     style.map(
         GHOST_BUTTON_STYLE,
-        background=[
-            ("pressed", "#3a3a45"),
-            ("active", "#2b2b34"),
-        ],
-        foreground=[
-            ("pressed", COLOR_TEXT),
-            ("active", COLOR_TEXT),
-        ],
+        background=[("pressed", "#3a3a45"), ("active", "#2b2b34")],
+        foreground=[("pressed", COLOR_TEXT), ("active", COLOR_TEXT)],
         relief=[("pressed", "sunken"), ("active", "raised")],
-        bordercolor=[
-            ("pressed", COLOR_ACCENT),
-            ("active", COLOR_BORDER_SUBTLE),
-        ],
+        bordercolor=[("pressed", COLOR_ACCENT), ("active", COLOR_BORDER_SUBTLE)],
     )
 
-    # Status labels
     style.configure(
         STATUS_LABEL_STYLE,
         background=COLOR_SURFACE,
         foreground=COLOR_TEXT_MUTED,
-        font=(FONT_FAMILY_BASE, 9),
+        font=(FONT_FAMILY, FONT_SIZE_BASE),
         padding=(0, PADDING_XS),
     )
     style.configure(
         STATUS_STRONG_LABEL_STYLE,
         background=COLOR_SURFACE,
-        foreground="#e4e4e7",
-        font=(FONT_FAMILY_BASE, 10, "bold"),
+        foreground=COLOR_TEXT,
+        font=(FONT_FAMILY, FONT_SIZE_BASE, "bold"),
         padding=(0, PADDING_XS),
     )
-
     return style
 
 
 __all__ = [
+    "ASWF_BLACK",
+    "ASWF_GOLD",
+    "ASWF_DARK_GREY",
+    "ASWF_MED_GREY",
+    "ASWF_LIGHT_GREY",
+    "ASWF_ERROR_RED",
+    "ASWF_OK_GREEN",
+    "FONT_FAMILY",
+    "FONT_SIZE_BASE",
+    "FONT_SIZE_LABEL",
+    "FONT_SIZE_BUTTON",
+    "FONT_SIZE_HEADING",
     "COLOR_BG",
     "COLOR_SURFACE",
     "COLOR_SURFACE_ALT",
-    "COLOR_ACCENT",
-    "COLOR_ACCENT_DANGER",
     "COLOR_TEXT",
     "COLOR_TEXT_MUTED",
     "COLOR_BORDER_SUBTLE",
+    "COLOR_ACCENT",
+    "COLOR_ACCENT_DANGER",
     "PADDING_XS",
     "PADDING_SM",
     "PADDING_MD",
     "PADDING_LG",
     "PRIMARY_BUTTON_STYLE",
-    "DANGER_BUTTON_STYLE",
     "GHOST_BUTTON_STYLE",
+    "DANGER_BUTTON_STYLE",
     "STATUS_LABEL_STYLE",
     "STATUS_STRONG_LABEL_STYLE",
     "SURFACE_FRAME_STYLE",
     "HEADER_FRAME_STYLE",
+    "Theme",
     "configure_style",
 ]

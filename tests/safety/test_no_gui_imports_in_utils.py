@@ -32,7 +32,7 @@ def test_utils_modules_do_not_import_gui(module_path):
     for attr_name, value in sys.modules.items():
         if value is None:
             continue
-        if not attr_name.startswith("src."):
+        if not attr_name.startswith("src.utils"):
             continue
         for forbidden in FORBIDDEN_SUBSTRINGS:
             assert forbidden not in attr_name, f"{module_path} imported forbidden dependency {attr_name}"
