@@ -3,6 +3,7 @@ import logging
 import os
 import socket
 import sys
+from typing import Any
 
 if os.getenv("STABLENEW_LOGGING_BYPASS") == "1":
     root = logging.getLogger()
@@ -20,6 +21,8 @@ except Exception:  # pragma: no cover - Tk not ready
     tk = None
     messagebox = None
 
+from .api.healthcheck import wait_for_webui_ready
+from .api.webui_process_manager import WebUIProcessConfig, WebUIProcessManager
 from .controller.app_controller import AppController
 from .gui.main_window_v2 import MainWindow
 from .utils import setup_logging
@@ -45,6 +48,8 @@ def _acquire_single_instance_lock() -> socket.socket | None:
 def main():
     """Main function"""
     setup_logging("INFO")
+
+    bootstrap_webui(_load_webui_config())
 
     lock_sock = _acquire_single_instance_lock()
     if lock_sock is None:
@@ -73,3 +78,32 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def _load_webui_config() -> dict[str, Any]:
+    command = os.getenv("STABLENEW_WEBUI_COMMAND", "").split()
+    return {
+        "webui_autostart_enabled": os.getenv("STABLENEW_WEBUI_AUTOSTART", "false").lower()
+        in {"1", "true", "yes"},
+        "webui_command": command or ["python", "webui.py"],
+        "webui_working_dir": os.getenv("STABLENEW_WEBUI_WORKDIR"),
+        "webui_base_url": os.getenv("STABLENEW_WEBUI_BASE_URL", "http://127.0.0.1:7860"),
+        "webui_startup_timeout_seconds": float(os.getenv("STABLENEW_WEBUI_TIMEOUT", "30")),
+    }
+
+
+def bootstrap_webui(config: dict[str, Any]) -> None:
+    base_url: str = config.get("webui_base_url", "http://127.0.0.1:7860")
+    timeout = float(config.get("webui_startup_timeout_seconds", 30))
+    if config.get("webui_autostart_enabled"):
+        manager = WebUIProcessManager(
+            WebUIProcessConfig(
+                command=list(config.get("webui_command") or []),
+                working_dir=config.get("webui_working_dir"),
+                startup_timeout_seconds=timeout,
+            )
+        )
+        manager.start()
+        wait_for_webui_ready(base_url, timeout=timeout, poll_interval=timeout if timeout else 0.5)
+    else:
+        wait_for_webui_ready(base_url, timeout=timeout, poll_interval=timeout if timeout else 0.5)
