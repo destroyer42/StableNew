@@ -95,6 +95,7 @@ def _load_webui_config() -> dict[str, Any]:
 def bootstrap_webui(config: dict[str, Any]) -> None:
     base_url: str = config.get("webui_base_url", "http://127.0.0.1:7860")
     timeout = float(config.get("webui_startup_timeout_seconds", 30))
+    poll_interval = min(timeout, 0.5) if timeout else 0.5
     if config.get("webui_autostart_enabled"):
         manager = WebUIProcessManager(
             WebUIProcessConfig(
@@ -104,6 +105,6 @@ def bootstrap_webui(config: dict[str, Any]) -> None:
             )
         )
         manager.start()
-        wait_for_webui_ready(base_url, timeout=timeout, poll_interval=timeout if timeout else 0.5)
+        wait_for_webui_ready(base_url, timeout=timeout, poll_interval=poll_interval)
     else:
-        wait_for_webui_ready(base_url, timeout=timeout, poll_interval=timeout if timeout else 0.5)
+        wait_for_webui_ready(base_url, timeout=timeout, poll_interval=poll_interval)

@@ -8,7 +8,7 @@ def test_bootstrap_autostart_invokes_process_manager(monkeypatch):
         "webui_autostart_enabled": True,
         "webui_command": ["python", "webui.py"],
         "webui_base_url": "http://127.0.0.1:7860",
-        "webui_startup_timeout_seconds": 0.5,
+        "webui_startup_timeout_seconds": 30.0,
     }
 
     started = mock.Mock()
@@ -22,7 +22,7 @@ def test_bootstrap_autostart_invokes_process_manager(monkeypatch):
     main.bootstrap_webui(config)
 
     fake_manager.start.assert_called_once()
-    waited.assert_called_once_with("http://127.0.0.1:7860", timeout=0.5, poll_interval=0.5)
+    waited.assert_called_once_with("http://127.0.0.1:7860", timeout=30.0, poll_interval=0.5)
 
 
 def test_bootstrap_checks_health_when_disabled(monkeypatch):
