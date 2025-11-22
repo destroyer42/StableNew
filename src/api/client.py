@@ -10,6 +10,8 @@ from typing import Any
 
 import requests
 
+from src.api.healthcheck import wait_for_webui_ready
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,13 +59,22 @@ class SDWebUIClient:
         """
         effective_timeout = timeout if timeout is not None else min(self.timeout, 5.0)
         try:
+            return wait_for_webui_ready(self.base_url, timeout=effective_timeout, poll_interval=0.25)
+        except Exception:
+            pass
+        try:
             health = validate_webui_health(self.base_url, timeout=effective_timeout)
+            if isinstance(health, dict):
+                return bool(health.get("accessible"))
+            return bool(health)
         except TypeError:
             # Older validate_webui_health implementations may not accept timeout.
             health = validate_webui_health(self.base_url)
-        if isinstance(health, dict):
-            return bool(health.get("accessible"))
-        return bool(health)
+            if isinstance(health, dict):
+                return bool(health.get("accessible"))
+            return bool(health)
+        except Exception:
+            return False
 
     def _sleep(self, duration: float) -> None:
         """Sleep helper that can be overridden in tests."""
