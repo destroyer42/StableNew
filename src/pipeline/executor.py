@@ -59,6 +59,7 @@ class Pipeline:
         self._last_upscale_result: dict[str, Any] | None = None
         self._last_adetailer_result: dict[str, Any] | None = None
         self._last_full_pipeline_results: dict[str, Any] = {}
+        self._stage_events: list[dict[str, Any]] = []
         self._current_run_dir: Path | None = None
 
     def _clean_metadata_payload(self, payload: Any) -> Any:
@@ -180,6 +181,38 @@ class Pipeline:
         ):
             logger.info("Cancellation requested, aborting %s", context)
             raise CancellationError(f"Cancelled during {context}")
+
+    def reset_stage_events(self) -> None:
+        """Clear recorded stage events for a new run."""
+
+        self._stage_events = []
+
+    def get_stage_events(self) -> list[dict[str, Any]]:
+        """Return recorded stage events."""
+
+        return list(self._stage_events)
+
+    def _record_stage_event(
+        self,
+        stage: str,
+        phase: str,
+        image_index: int,
+        total_images: int,
+        cancelled: bool = False,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Record a stage-level lifecycle event."""
+
+        payload: dict[str, Any] = {
+            "stage": stage,
+            "phase": phase,
+            "image_index": image_index,
+            "total_images": total_images,
+            "cancelled": bool(cancelled),
+        }
+        if extra:
+            payload.update(extra)
+        self._stage_events.append(payload)
 
     def _log_pipeline_cancellation(self, phase: str, exc: Exception) -> None:
         """Emit a consistent INFO-level log for pipeline cancellations."""
@@ -1098,6 +1131,8 @@ class Pipeline:
         Run the full pipeline with cancellation handling.
         """
 
+        self.reset_stage_events()
+
         try:
             result = self._run_full_pipeline_impl(
                 prompt, config, run_name=run_name, batch_size=batch_size, cancel_token=cancel_token
@@ -1151,6 +1186,7 @@ class Pipeline:
             "prompt": prompt,
             "txt2img": [],
             "img2img": [],
+            "adetailer": [],
             "upscaled": [],
             "summary": [],
         }
@@ -1164,12 +1200,14 @@ class Pipeline:
         # Check pipeline stage configuration
         pipeline_cfg: dict[str, Any] = config.get("pipeline", {}) or {}
         img2img_enabled: bool = pipeline_cfg.get("img2img_enabled", True)
+        adetailer_enabled: bool = pipeline_cfg.get("adetailer_enabled", False)
         upscale_enabled: bool = pipeline_cfg.get("upscale_enabled", True)
         upscale_only_last: bool = pipeline_cfg.get("upscale_only_last", False)
 
         logger.info(
-            "Pipeline stages: txt2img=ON, img2img=%s, upscale=%s (upscale_only_last=%s)",
+            "Pipeline stages: txt2img=ON, img2img=%s, adetailer=%s, upscale=%s (upscale_only_last=%s)",
             "ON" if img2img_enabled else "SKIP",
+            "ON" if adetailer_enabled else "SKIP",
             "ON" if upscale_enabled else "SKIP",
             upscale_only_last,
         )
@@ -1184,6 +1222,7 @@ class Pipeline:
         results["prompt"] = prompt
         results["txt2img"] = []
         results["img2img"] = []
+        results["adetailer"] = []
         results["upscaled"] = []
         results["summary"] = []
 
@@ -1235,6 +1274,10 @@ class Pipeline:
             return results
 
         total_images = len(txt2img_results)
+        if total_images:
+            self._record_stage_event("txt2img", "enter", 1, total_images, False)
+            for idx in range(1, total_images + 1):
+                self._record_stage_event("txt2img", "exit", idx, total_images, False)
 
         txt2img_cfg = config.get("txt2img", {}) or {}
         diag_batch_size = txt2img_cfg.get("batch_size", batch_size)
@@ -1246,7 +1289,9 @@ class Pipeline:
             diag_n_iter,
         )
 
-        per_image_units = int(bool(img2img_enabled)) + int(bool(upscale_enabled))
+        per_image_units = (
+            int(bool(img2img_enabled)) + int(bool(adetailer_enabled)) + int(bool(upscale_enabled))
+        )
         if per_image_units and total_images:
             total_units = 1 + total_images * per_image_units
         else:
@@ -1254,52 +1299,107 @@ class Pipeline:
 
         # Step 2: img2img cleanup (optional, for each generated image)
         for index, txt2img_meta in enumerate(txt2img_results, start=1):
-            self._ensure_not_cancelled(cancel_token, "pipeline img2img loop")
-
             last_image_path = txt2img_meta["path"]
             final_image_path = last_image_path
+            adetailer_meta = None
             image_label = f"{index}/{total_images}" if total_images else str(index)
+            do_upscale = upscale_enabled and (not upscale_only_last or index == total_images)
+
+            if (
+                cancel_token
+                and getattr(cancel_token, "is_cancelled", None)
+                and cancel_token.is_cancelled()
+            ):
+                pending_stage = (
+                    "img2img"
+                    if img2img_enabled
+                    else "adetailer"
+                    if adetailer_enabled
+                    else "upscale"
+                    if do_upscale
+                    else None
+                )
+                if pending_stage:
+                    self._record_stage_event(pending_stage, "cancelled", index, total_images, True)
+                raise CancellationError("Cancelled during pipeline")
 
             if img2img_enabled:
                 emit(f"img2img ({image_label})", completed_units)
-                img2img_meta = self.run_img2img(
-                    Path(txt2img_meta["path"]),
-                    prompt,
-                    config.get("img2img", {}),
-                    run_dir,
-                    cancel_token,
-                )
+                self._record_stage_event("img2img", "enter", index, total_images, False)
+                try:
+                    img2img_meta = self.run_img2img(
+                        Path(txt2img_meta["path"]),
+                        prompt,
+                        config.get("img2img", {}),
+                        run_dir,
+                        cancel_token,
+                    )
+                except CancellationError:
+                    self._record_stage_event("img2img", "cancelled", index, total_images, True)
+                    raise
                 if img2img_meta:
                     results["img2img"].append(img2img_meta)
                     last_image_path = img2img_meta["path"]
-                    logger.info(f"✓ img2img completed for {txt2img_meta['name']}")
+                    logger.info(f"img2img completed for {txt2img_meta['name']}")
                 else:
                     logger.warning(
                         f"img2img failed for {txt2img_meta['name']}, using txt2img output for next steps"
                     )
+                self._record_stage_event("img2img", "exit", index, total_images, False)
                 completed_units += 1
                 emit(f"img2img ({image_label})", completed_units)
             else:
-                logger.info(f"⊘ img2img skipped for {txt2img_meta['name']}")
+                logger.info(f"img2img skipped for {txt2img_meta['name']}")
 
-            self._ensure_not_cancelled(cancel_token, "pipeline pre-upscale")
-
-            do_upscale = upscale_enabled and (not upscale_only_last or index == total_images)
+            if adetailer_enabled:
+                emit(f"adetailer ({image_label})", completed_units)
+                self._record_stage_event("adetailer", "enter", index, total_images, False)
+                adetailer_cfg = dict(config.get("adetailer", {}))
+                adetailer_cfg.setdefault("pipeline", pipeline_cfg)
+                try:
+                    adetailer_meta = self.run_adetailer(
+                        Path(last_image_path),
+                        prompt,
+                        adetailer_cfg,
+                        run_dir,
+                        cancel_token=cancel_token,
+                    )
+                except CancellationError:
+                    self._record_stage_event("adetailer", "cancelled", index, total_images, True)
+                    raise
+                if adetailer_meta:
+                    results["adetailer"].append(adetailer_meta)
+                    last_image_path = adetailer_meta["path"]
+                    final_image_path = last_image_path
+                    logger.info(f"adetailer completed for {Path(txt2img_meta['path']).name}")
+                else:
+                    logger.warning(
+                        f"adetailer failed for {Path(last_image_path).name}, using previous output"
+                    )
+                self._record_stage_event("adetailer", "exit", index, total_images, False)
+                completed_units += 1
+                emit(f"adetailer ({image_label})", completed_units)
 
             if do_upscale:
                 emit(f"upscale ({image_label})", completed_units)
-                upscaled_meta = self.run_upscale(
-                    Path(last_image_path), config.get("upscale", {}), run_dir, cancel_token
-                )
+                self._record_stage_event("upscale", "enter", index, total_images, False)
+                try:
+                    upscaled_meta = self.run_upscale(
+                        Path(last_image_path), config.get("upscale", {}), run_dir, cancel_token
+                    )
+                except CancellationError:
+                    self._record_stage_event("upscale", "cancelled", index, total_images, True)
+                    raise
                 if upscaled_meta:
                     results["upscaled"].append(upscaled_meta)
                     final_image_path = upscaled_meta["path"]
-                    logger.info(f"✓ upscale completed for {Path(last_image_path).name}")
+                    logger.info(f"upscale completed for {Path(last_image_path).name}")
                 else:
                     logger.warning(
                         f"upscale failed for {Path(last_image_path).name}, using previous output"
                     )
                     final_image_path = last_image_path
+                self._record_stage_event("upscale", "exit", index, total_images, False)
                 completed_units += 1
                 emit(f"upscale ({image_label})", completed_units)
             else:
@@ -1325,6 +1425,10 @@ class Pipeline:
             if img2img_enabled and len(results["img2img"]) > 0:
                 summary_entry["img2img_path"] = results["img2img"][-1]["path"]
                 summary_entry["stages_completed"].append("img2img")
+
+            if adetailer_enabled and adetailer_meta:
+                summary_entry["adetailer_path"] = adetailer_meta["path"]
+                summary_entry["stages_completed"].append("adetailer")
 
             if upscale_enabled and len(results["upscaled"]) > 0:
                 summary_entry["upscaled_path"] = results["upscaled"][-1]["path"]
@@ -1384,6 +1488,8 @@ class Pipeline:
         config_path = pack_dir / "config.json"
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
+
+        self.reset_stage_events()
 
         results: dict[str, Any] = {
             "pack_name": pack_name,
@@ -1726,6 +1832,7 @@ class Pipeline:
         Returns:
             Generated image metadata or None if failed
         """
+        self._record_stage_event("txt2img", "enter", 1, 1, False)
         try:
             # Ensure output directory exists
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -1947,9 +2054,11 @@ class Pipeline:
                         with open(manifest_dir / f"{image_name}.json", "w", encoding="utf-8") as f:
                             json.dump(metadata, f, indent=2, ensure_ascii=False)
 
+                self._record_stage_event("txt2img", "exit", 1, 1, False)
                 return metadata
             else:
                 logger.error("Failed to save generated image")
+                self._record_stage_event("txt2img", "exit", 1, 1, False)
                 return None
 
         except Exception as e:
@@ -1978,6 +2087,7 @@ class Pipeline:
         Returns:
             Generated image metadata or None if failed
         """
+        self._record_stage_event("img2img", "enter", 1, 1, False)
         try:
             # Ensure output directory exists
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -2125,10 +2235,12 @@ class Pipeline:
                         with open(manifest_dir / f"{image_name}.json", "w", encoding="utf-8") as f:
                             json.dump(metadata, f, indent=2, ensure_ascii=False)
 
-                logger.info(f"✅ img2img completed: {image_path.name}")
+                logger.info(f"img2img completed: {image_path.name}")
+                self._record_stage_event("img2img", "exit", 1, 1, False)
                 return metadata
             else:
                 logger.error(f"Failed to save img2img image: {image_path}")
+                self._record_stage_event("img2img", "exit", 1, 1, False)
                 return None
 
         except Exception as e:
@@ -2150,6 +2262,7 @@ class Pipeline:
         Returns:
             Generated image metadata or None if failed
         """
+        self._record_stage_event("upscale", "enter", 1, 1, False)
         try:
             # Ensure output directory exists
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -2364,33 +2477,45 @@ class Pipeline:
                     ) as f:
                         json.dump(metadata, f, indent=2, ensure_ascii=False)
 
-                logger.info(f"✅ Upscale completed: {image_path.name}")
+                logger.info(f"Upscale completed: {image_path.name}")
+                self._record_stage_event("upscale", "exit", 1, 1, False)
                 return metadata
             else:
                 logger.error(f"Failed to save upscaled image: {image_path}")
+                self._record_stage_event("upscale", "exit", 1, 1, False)
                 return None
 
         except Exception as e:
             logger.error(f"Upscale stage failed: {e}")
+            self._record_stage_event("upscale", "exit", 1, 1, False)
             return None
 
     def run_adetailer_stage(
-        self, input_image_path: Path, config: dict[str, Any], output_dir: Path, image_name: str
+        self,
+        input_image_path: Path,
+        config: dict[str, Any],
+        output_dir: Path,
+        image_name: str,
+        prompt: str | None = None,
+        cancel_token=None,
     ) -> dict[str, Any] | None:
         """
-        Run adetailer stage as a placeholder (no-op pass-through).
+        Run adetailer stage using the shared ADetailer helper.
         """
+        self._record_stage_event("adetailer", "enter", 1, 1, False)
         try:
             output_dir.mkdir(parents=True, exist_ok=True)
-            # For now, treat as passthrough; just record metadata.
-            metadata = {
-                "name": f"{image_name}_adetailer",
-                "stage": "adetailer",
-                "path": str(input_image_path),
-                "config": self._clean_metadata_payload(config),
-            }
-            self._last_adetailer_result = metadata
-            return metadata
+            adetailer_cfg = dict(config or {})
+            adetailer_cfg.setdefault("pipeline", config.get("pipeline", {}) if isinstance(config, dict) else {})
+            prompt_text = prompt or adetailer_cfg.get("adetailer_prompt", "")
+            result = self.run_adetailer(
+                input_image_path, prompt_text, adetailer_cfg, output_dir, cancel_token=cancel_token
+            )
+            if result:
+                self._last_adetailer_result = result
+            return result
         except Exception as e:
             logger.error(f"adetailer stage failed: {e}")
             return None
+        finally:
+            self._record_stage_event("adetailer", "exit", 1, 1, False)

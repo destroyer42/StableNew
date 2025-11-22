@@ -652,46 +652,43 @@ class StableNewGUI:
         content_frame.columnconfigure(2, weight=0, minsize=260)
         content_frame.rowconfigure(0, weight=1)
 
-        # Left panel - Sidebar container with legacy prompt packs inside
-        self.sidebar_panel_v2 = SidebarPanelV2(
-            content_frame, controller=self.controller, theme=self.theme
-        )
-        self.sidebar_panel_v2.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 5))
-        self._build_prompt_pack_panel(self.sidebar_panel_v2.body)
+        # Define layout zones; AppLayoutV2 owns panel composition
+        self.left_zone = ttk.Frame(content_frame, style="Dark.TFrame")
+        self.left_zone.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 5))
 
-        # Center column housing pipeline + randomizer panels
-        center_stack = ttk.Frame(content_frame, style="Dark.TFrame")
-        center_stack.grid(row=0, column=1, sticky=tk.NSEW)
+        self.center_zone = ttk.Frame(content_frame, style="Dark.TFrame")
+        self.center_zone.grid(row=0, column=1, sticky=tk.NSEW)
+        self.center_zone.columnconfigure(0, weight=1)
 
-        self.pipeline_panel_v2 = PipelinePanelV2(
-            center_stack,
-            controller=self.controller,
-            theme=self.theme,
-            config_manager=self.config_manager,
-        )
-        self.pipeline_panel_v2.pack(fill=tk.BOTH, expand=True)
-        self.pipeline_panel_v2.set_txt2img_change_callback(self._on_pipeline_txt2img_updated)
-        self._build_config_pipeline_panel(self.pipeline_panel_v2.body)
+        self.center_stack = ttk.Frame(self.center_zone, style="Dark.TFrame")
+        self.center_stack.pack(fill=tk.BOTH, expand=True)
 
-        self.randomizer_panel_v2 = RandomizerPanelV2(
-            center_stack, controller=self.controller, theme=self.theme
-        )
-        self.randomizer_panel_v2.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
-        self.randomizer_panel_v2.set_change_callback(self._on_randomizer_panel_changed)
+        self.right_zone = ttk.Frame(content_frame, style="Dark.TFrame")
+        self.right_zone.grid(row=0, column=2, sticky=tk.NSEW, padx=(5, 0))
 
-        # Right panel - Preview/inspector scaffold
-        self.preview_panel_v2 = PreviewPanelV2(
-            content_frame, controller=self.controller, theme=self.theme
-        )
-        self.preview_panel_v2.grid(row=0, column=2, sticky=tk.NSEW, padx=(5, 0))
-        self._initialize_pipeline_panel_config()
-        self._initialize_randomizer_panel_config()
+        # Let AppLayoutV2 create and attach V2 panels and the run button alias
+        self._layout_v2 = AppLayoutV2(self, theme=self.theme)
+        self._layout_v2.build_layout(getattr(self, "root", None))
 
         # Bottom frame - Compact log and action buttons (resizable split)
         bottom_shell = ttk.Frame(vertical_split, style="Dark.TFrame")
         vertical_split.add(bottom_shell, weight=3)
         self._bottom_pane = bottom_shell
+        self.bottom_zone = bottom_shell
         self._build_bottom_panel(bottom_shell)
+        if self._layout_v2:
+            self._layout_v2.attach_run_button(getattr(self, "run_pipeline_btn", None))
+
+        # Populate panels now that layout is composed
+        if getattr(self, "sidebar_panel_v2", None) is not None:
+            self._build_prompt_pack_panel(self.sidebar_panel_v2.body)
+        if getattr(self, "pipeline_panel_v2", None) is not None:
+            self.pipeline_panel_v2.set_txt2img_change_callback(self._on_pipeline_txt2img_updated)
+            self._build_config_pipeline_panel(self.pipeline_panel_v2.body)
+        if getattr(self, "randomizer_panel_v2", None) is not None:
+            self.randomizer_panel_v2.set_change_callback(self._on_randomizer_panel_changed)
+        self._initialize_pipeline_panel_config()
+        self._initialize_randomizer_panel_config()
 
         # Defer all heavy UI state initialization until after Tk mainloop starts
         try:

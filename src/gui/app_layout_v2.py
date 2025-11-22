@@ -35,30 +35,49 @@ class AppLayoutV2:
             owner.sidebar_panel_v2 = SidebarPanelV2(
                 owner.left_zone, controller=getattr(owner, "controller", None), theme=self.theme
             )
+            try:
+                owner.sidebar_panel_v2.pack(fill="both", expand=True)
+            except Exception:
+                pass
 
         # Pipeline / center panel
-        if not hasattr(owner, "pipeline_panel_v2") and hasattr(owner, "center_notebook"):
+        center_parent = getattr(owner, "center_stack", None) or getattr(owner, "center_zone", None)
+        if not hasattr(owner, "pipeline_panel_v2") and center_parent is not None:
             owner.pipeline_panel_v2 = PipelinePanelV2(
-                owner.center_notebook,
+                center_parent,
                 controller=getattr(owner, "controller", None),
                 theme=self.theme,
                 config_manager=getattr(owner, "config_manager", None),
             )
+            try:
+                owner.pipeline_panel_v2.pack(fill="both", expand=True)
+            except Exception:
+                pass
 
-        # Right-side panels: preview + randomizer
+        if (
+            not hasattr(owner, "randomizer_panel_v2")
+            and center_parent is not None
+            and hasattr(owner, "pipeline_panel_v2")
+        ):
+            owner.randomizer_panel_v2 = RandomizerPanelV2(
+                center_parent, controller=getattr(owner, "controller", None), theme=self.theme
+            )
+            try:
+                owner.randomizer_panel_v2.pack(fill="both", expand=True, pady=(5, 0))
+            except Exception:
+                pass
+
+        # Right-side panels: preview
         if not hasattr(owner, "preview_panel_v2") and hasattr(owner, "right_zone"):
             owner.preview_panel_v2 = PreviewPanelV2(
                 owner.right_zone,
                 controller=getattr(owner, "controller", None),
                 theme=self.theme,
             )
-
-        if not hasattr(owner, "randomizer_panel_v2") and hasattr(owner, "right_zone"):
-            owner.randomizer_panel_v2 = RandomizerPanelV2(
-                owner.right_zone,
-                controller=getattr(owner, "controller", None),
-                theme=self.theme,
-            )
+            try:
+                owner.preview_panel_v2.pack(fill="both", expand=True)
+            except Exception:
+                pass
 
         # Status bar
         if not hasattr(owner, "status_bar_v2") and hasattr(owner, "bottom_zone"):
@@ -67,19 +86,13 @@ class AppLayoutV2:
                 controller=getattr(owner, "controller", None),
                 theme=self.theme,
             )
-
-        # Run button (keep existing handler)
-        if not hasattr(owner, "run_button") and hasattr(owner, "bottom_zone"):
-            import tkinter as tk
-            from tkinter import ttk
-
             try:
-                btn = ttk.Button(
-                    owner.bottom_zone,
-                    text="Run",
-                    command=getattr(owner, "_run_full_pipeline", None),
-                )
-                btn.pack(side=tk.LEFT, padx=(0, 10))
-                owner.run_button = btn
+                owner.status_bar_v2.pack(fill="x", pady=(4, 0))
             except Exception:
-                owner.run_button = None
+                pass
+
+    def attach_run_button(self, run_button: Any | None = None) -> None:
+        """Expose the run button reference consistently."""
+
+        if run_button is not None:
+            self.owner.run_button = run_button

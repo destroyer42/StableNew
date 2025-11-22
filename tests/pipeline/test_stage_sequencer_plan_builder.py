@@ -46,3 +46,15 @@ def test_plan_builder_missing_required_fields_raises():
     cfg["txt2img"]["model"] = ""
     with pytest.raises(ValueError):
         build_stage_execution_plan(cfg)
+
+
+def test_plan_builder_includes_adetailer_before_upscale():
+    cfg = _base_config()
+    cfg["pipeline"]["adetailer_enabled"] = True
+    cfg["pipeline"]["upscale_enabled"] = True
+    cfg["upscale"]["enabled"] = True
+    cfg["adetailer"] = {"enabled": True}
+    plan = build_stage_execution_plan(cfg)
+    assert [s.stage_type for s in plan.stages] == ["txt2img", "adetailer", "upscale"]
+    assert plan.stages[1].requires_input_image is True
+    assert plan.stages[2].order_index == 2

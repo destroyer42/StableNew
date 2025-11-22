@@ -4,8 +4,6 @@ from pathlib import Path
 
 import pytest
 
-import pytest
-
 from src.pipeline.executor import Pipeline
 from src.utils.logger import StructuredLogger
 from src.gui.state import CancellationError
@@ -44,12 +42,6 @@ def _seed_images(tmp_path: Path, count: int) -> list[Path]:
     return images
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Stage events are not emitted by src/pipeline/executor.py yet; "
-        "will be wired in PR-V2-PIPELINE-STAGE-SEQUENCER-002."
-    )
-)
 def test_multi_image_run_upscale_is_serial_and_honors_cancel(tmp_path, monkeypatch):
     pipeline = _make_pipeline(tmp_path)
     image_paths = _seed_images(tmp_path / "src", 3)
@@ -112,12 +104,6 @@ def test_multi_image_run_upscale_is_serial_and_honors_cancel(tmp_path, monkeypat
     assert cancel_events[-1][2] == 2
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Stage events are not emitted by src/pipeline/executor.py yet; "
-        "will be wired in PR-V2-PIPELINE-STAGE-SEQUENCER-002."
-    )
-)
 def test_upscale_stage_logs_stage_and_image_progress(tmp_path, monkeypatch):
     pipeline = _make_pipeline(tmp_path)
     image_paths = _seed_images(tmp_path / "src", 2)

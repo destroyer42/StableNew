@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any, Literal
 
 
-StageType = Literal["txt2img", "img2img", "upscale"]
+StageType = Literal["txt2img", "img2img", "upscale", "adetailer"]
 
 
 class StageTypeEnum(str, Enum):
@@ -72,11 +72,11 @@ def build_stage_execution_plan(config: dict[str, Any]) -> StageExecutionPlan:
     img_enabled = _extract_enabled(config, "img2img", False) and pipeline_flags.get(
         "img2img_enabled", True
     )
-    up_enabled = _extract_enabled(config, "upscale", False) and pipeline_flags.get(
-        "upscale_enabled", False
-    )
     ad_enabled = _extract_enabled(config, "adetailer", False) and pipeline_flags.get(
         "adetailer_enabled", False
+    )
+    up_enabled = _extract_enabled(config, "upscale", False) and pipeline_flags.get(
+        "upscale_enabled", False
     )
 
     order = 0
@@ -108,13 +108,12 @@ def build_stage_execution_plan(config: dict[str, Any]) -> StageExecutionPlan:
         )
         order += 1
 
-    if up_enabled:
-        payload = _stage_payload(config, "upscale")
-        _require_fields(payload, ["upscaler"], "upscale")
+    if ad_enabled:
+        payload = _stage_payload(config, "adetailer")
         stages.append(
             StageExecution(
-                stage_type="upscale",
-                config=StageConfig(enabled=up_enabled, payload=payload),
+                stage_type="adetailer",
+                config=StageConfig(enabled=ad_enabled, payload=payload),
                 order_index=order,
                 requires_input_image=True,
                 produces_output_image=True,
@@ -122,12 +121,13 @@ def build_stage_execution_plan(config: dict[str, Any]) -> StageExecutionPlan:
         )
         order += 1
 
-    if ad_enabled:
-        payload = _stage_payload(config, "adetailer")
+    if up_enabled:
+        payload = _stage_payload(config, "upscale")
+        _require_fields(payload, ["upscaler"], "upscale")
         stages.append(
             StageExecution(
-                stage_type="adetailer",
-                config=StageConfig(enabled=ad_enabled, payload=payload),
+                stage_type="upscale",
+                config=StageConfig(enabled=up_enabled, payload=payload),
                 order_index=order,
                 requires_input_image=True,
                 produces_output_image=True,

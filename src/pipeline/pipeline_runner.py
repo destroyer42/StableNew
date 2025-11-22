@@ -86,6 +86,9 @@ class PipelineRunner:
         stage_events: list[dict[str, Any]] = []
 
         try:
+            reset_events = getattr(self._pipeline, "reset_stage_events", None)
+            if callable(reset_events):
+                reset_events()
             stage_plan = build_stage_execution_plan(executor_config)
             if not stage_plan.stages:
                 raise ValueError("No pipeline stages enabled")
@@ -94,7 +97,15 @@ class PipelineRunner:
 
             for stage in stage_plan.stages:
                 stage_type = StageTypeEnum(stage.stage_type)
-                stage_events.append({"stage": stage_type.value, "phase": "enter"})
+                stage_events.append(
+                    {
+                        "stage": stage_type.value,
+                        "phase": "enter",
+                        "image_index": 1,
+                        "total_images": 1,
+                        "cancelled": False,
+                    }
+                )
                 if stage_type == StageTypeEnum.TXT2IMG:
                     negative = executor_config.get("txt2img", {}).get("negative_prompt", "")
                     last_image_meta = self._pipeline.run_txt2img_stage(
@@ -125,13 +136,24 @@ class PipelineRunner:
                 elif stage_type == StageTypeEnum.ADETAILER:
                     if not last_image_meta or not last_image_meta.get("path"):
                         raise ValueError("adetailer requires input image from previous stage")
+                    adetailer_cfg = dict(executor_config.get("adetailer", {}))
+                    adetailer_cfg.setdefault("pipeline", executor_config.get("pipeline", {}))
                     last_image_meta = self._pipeline.run_adetailer_stage(
                         Path(last_image_meta["path"]),
-                        executor_config.get("adetailer", {}),
+                        adetailer_cfg,
                         run_dir,
                         image_name=Path(last_image_meta["path"]).stem,
+                        prompt=prompt,
                     )
-                stage_events.append({"stage": stage_type.value, "phase": "exit"})
+                stage_events.append(
+                    {
+                        "stage": stage_type.value,
+                        "phase": "exit",
+                        "image_index": 1,
+                        "total_images": 1,
+                        "cancelled": False,
+                    }
+                )
             success = True
         finally:
             record = self._emit_learning_record(config, executor_config) if success else None
@@ -150,6 +172,9 @@ class PipelineRunner:
             stage_outputs=[],
             base_dir=self._runs_base_dir,
         )
+        get_events = getattr(self._pipeline, "get_stage_events", None)
+        if callable(get_events):
+            stage_events = get_events() or stage_events
         result = PipelineRunResult(
             run_id=run_id,
             success=success,
@@ -254,6 +279,7 @@ class PipelineRunResult:
     randomizer_plan_size: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
     stage_plan: StageExecutionPlan | None = None
+    stage_events: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def variant_count(self) -> int:
