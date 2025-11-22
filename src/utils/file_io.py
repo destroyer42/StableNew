@@ -104,7 +104,7 @@ def write_text_file(file_path: Path, content: str) -> bool:
         return False
 
 
-def read_prompt_pack(pack_path: Path) -> list:
+def read_prompt_pack(pack_path: Path) -> list[dict[str, str]]:
     """
     Read prompt pack from .txt or .tsv file with UTF-8 safety.
 
@@ -179,7 +179,7 @@ def read_prompt_pack(pack_path: Path) -> list:
         return []
 
 
-def get_prompt_packs(packs_dir: Path) -> list:
+def get_prompt_packs(packs_dir: Path) -> list[Path]:
     """
     Get list of available prompt pack files.
 

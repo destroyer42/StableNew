@@ -37,7 +37,7 @@ class ConfigPanel(ttk.Frame):
         self.cfg_var = tk.StringVar()
 
         # Legacy compatibility dictionaries expected by StableNewGUI
-        self.txt2img_vars = {
+        self.txt2img_vars: dict[str, tk.StringVar] = {
             "model": self.model_var,
             "sampler_name": self.sampler_var,
             "width": self.width_var,
@@ -45,14 +45,14 @@ class ConfigPanel(ttk.Frame):
             "steps": self.steps_var,
             "cfg_scale": self.cfg_var,
         }
-        self.img2img_vars = {
+        self.img2img_vars: dict[str, tk.StringVar] = {
             "model": tk.StringVar(),
             "sampler_name": tk.StringVar(),
         }
-        self.upscale_vars = {
+        self.upscale_vars: dict[str, tk.StringVar] = {
             "upscaler": tk.StringVar(),
         }
-        self.api_vars = {"base_url": tk.StringVar()}
+        self.api_vars: dict[str, tk.StringVar] = {"base_url": tk.StringVar()}
         self.txt2img_widgets: dict[str, tk.Widget] = {}
         self.upscale_widgets: dict[str, tk.Widget] = {}
 
@@ -138,26 +138,26 @@ class ConfigPanel(ttk.Frame):
             self.sampler_combo["values"] = sampler_options
 
         self.model_var.set(config.get("model", ""))
-        self.sampler_var.set(config.get("sampler", ""))
+        self.sampler_var.set(config.get("sampler_name", ""))
         self.width_var.set(str(config.get("width", "")))
         self.height_var.set(str(config.get("height", "")))
         self.steps_var.set(str(config.get("steps", "")))
         self.cfg_var.set(str(config.get("cfg_scale", "")))
 
-    def _handle_model_change(self, _event) -> None:
+    def _handle_model_change(self, _event: tk.Event | None) -> None:
         self._notify_change("model", self.model_var.get())
 
-    def _handle_sampler_change(self, _event) -> None:
-        self._notify_change("sampler", self.sampler_var.get())
+    def _handle_sampler_change(self, _event: tk.Event | None) -> None:
+        self._notify_change("sampler_name", self.sampler_var.get())
 
-    def _handle_resolution_change(self, _event) -> None:
+    def _handle_resolution_change(self, _event: tk.Event | None) -> None:
         self._notify_change("width", self.width_var.get())
         self._notify_change("height", self.height_var.get())
 
-    def _handle_steps_change(self, _event) -> None:
+    def _handle_steps_change(self, _event: tk.Event | None) -> None:
         self._notify_change("steps", self.steps_var.get())
 
-    def _handle_cfg_change(self, _event) -> None:
+    def _handle_cfg_change(self, _event: tk.Event | None) -> None:
         self._notify_change("cfg_scale", self.cfg_var.get())
 
     def _notify_change(self, field: str, value: Any) -> None:

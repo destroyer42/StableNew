@@ -4,7 +4,7 @@ import json
 import logging
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 DEFAULT_GLOBAL_NEGATIVE_PROMPT = (
     "blurry, bad quality, distorted, ugly, malformed, nsfw, nude, naked, explicit, "
@@ -14,7 +14,7 @@ DEFAULT_GLOBAL_NEGATIVE_PROMPT = (
 logger = logging.getLogger(__name__)
 
 
-def _normalize_scheduler_name(scheduler: Optional[str]) -> Optional[str]:
+def _normalize_scheduler_name(scheduler: str | None) -> str | None:
     """
     Normalize scheduler names into values WebUI understands.
 
@@ -36,9 +36,9 @@ def _normalize_scheduler_name(scheduler: Optional[str]) -> Optional[str]:
 
 
 def build_sampler_scheduler_payload(
-    sampler_name: Optional[str],
-    scheduler_name: Optional[str],
-) -> Dict[str, str]:
+    sampler_name: str | None,
+    scheduler_name: str | None,
+) -> dict[str, str]:
     """
     Build sampler / scheduler payload segment following WebUI expectations.
 
@@ -47,7 +47,7 @@ def build_sampler_scheduler_payload(
     we omit the scheduler key entirely and send only the sampler name.
     """
 
-    payload: Dict[str, str] = {}
+    payload: dict[str, str] = {}
 
     sampler = (sampler_name or "").strip()
     if not sampler:
@@ -67,7 +67,7 @@ def build_sampler_scheduler_payload(
 class ConfigManager:
     """Manages configuration and presets"""
 
-    def __init__(self, presets_dir: str = "presets"):
+    def __init__(self, presets_dir: str | Path = "presets"):
         """
         Initialize configuration manager.
 
@@ -126,7 +126,7 @@ class ConfigManager:
             logger.error(f"Failed to save preset '{name}': {e}")
             return False
 
-    def list_presets(self) -> list:
+    def list_presets(self) -> list[str]:
         """
         List all available presets.
 
@@ -311,9 +311,9 @@ class ConfigManager:
 
     def resolve_config(
         self,
-        preset_name: str = None,
-        pack_overrides: dict[str, Any] = None,
-        runtime_params: dict[str, Any] = None,
+        preset_name: str | None = None,
+        pack_overrides: dict[str, Any] | None = None,
+        runtime_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Resolve configuration with hierarchy: Default → Preset → Pack overrides → Runtime params.
