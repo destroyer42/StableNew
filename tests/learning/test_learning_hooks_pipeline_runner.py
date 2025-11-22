@@ -61,6 +61,7 @@ def test_pipeline_runner_emits_learning_record(tmp_path):
         learning_record_writer=writer,
         on_learning_record=callback_records.append,
         runs_base_dir=tmp_path / "runs",
+        learning_enabled=True,
     )
 
     config = PipelineConfig(

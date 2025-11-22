@@ -170,7 +170,8 @@ LearningRecords:
 
 - **Unit tests** for scheduler decisions using fake nodes and jobs.
 - **Simulation tests** for queue behavior under load (no real SD calls).
-- Later **integration tests** for a single worker in loopback mode (controller + worker on the same machine) to validate end‑to‑end flows without involving multiple physical nodes.
+- Later **integration tests** for a single worker in loopback mode (controller + worker on the same machine) to validate end-to-end flows without involving multiple physical nodes.
+- Initial queue/job skeleton (PR-QUEUE-V2-JOBMODEL-001) provides Job model, in-memory JobQueue, and SingleNodeJobRunner for single-node loopback; networking is still out of scope.
 
 ---
 

@@ -114,6 +114,7 @@ Codex instructions and PR templates will:
   - Add folders for new test domains.
   - Add safety tests for any sensitive new modules.
 - When legacy tests become irrelevant, move them to an archive or delete them rather than letting them rot in the main suite.
+- Queue domain tests validate Job/JobQueue ordering, status transitions, and SingleNodeJobRunner loopback execution without GUI or networking dependencies.
 
 ---
 

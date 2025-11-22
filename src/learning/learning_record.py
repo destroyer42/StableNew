@@ -46,6 +46,9 @@ class LearningRecord:
     primary_steps: int
     primary_cfg_scale: float
     metadata: Dict[str, Any] = field(default_factory=dict)
+    stage_plan: List[str] = field(default_factory=list)
+    stage_events: List[Dict[str, Any]] = field(default_factory=list)
+    outputs: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), sort_keys=True)
@@ -66,6 +69,9 @@ class LearningRecord:
             primary_steps=int(payload.get("primary_steps", 0)),
             primary_cfg_scale=float(payload.get("primary_cfg_scale", 0.0)),
             metadata=payload.get("metadata", {}),
+            stage_plan=payload.get("stage_plan", []),
+            stage_events=payload.get("stage_events", []),
+            outputs=payload.get("outputs", []),
         )
 
     @staticmethod
@@ -98,27 +104,48 @@ class LearningRecord:
             primary_steps=_safe_int(knob_info.get("steps"), 0),
             primary_cfg_scale=_safe_float(knob_info.get("cfg_scale"), 0.0),
             metadata=dict(metadata or {}),
+            stage_plan=[],
+            stage_events=[],
+            outputs=[],
         )
 
 
 class LearningRecordWriter:
-    """Writes learning records atomically to disk."""
+    """Writes learning records atomically to append-only JSONL."""
 
-    def __init__(self, base_dir: str | os.PathLike[str]) -> None:
-        self.base_dir = Path(base_dir)
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, records_path: str | os.PathLike[str]) -> None:
+        path_obj = Path(records_path)
+        if path_obj.is_dir() or not path_obj.suffix:
+            path_obj.mkdir(parents=True, exist_ok=True)
+            path_obj = path_obj / "learning_records.jsonl"
+        else:
+            path_obj.parent.mkdir(parents=True, exist_ok=True)
+        self.records_path = path_obj
 
-    def write(self, record: LearningRecord) -> None:
+    def append_record(self, record: LearningRecord) -> None:
+        """Append a record as a single JSON line with fsync for durability."""
         try:
-            payload = record.to_json()
-            filename = f"{record.timestamp}_{record.run_id}.json".replace(":", "-")
-            temp_path = self.base_dir / f".{filename}.tmp"
-            final_path = self.base_dir / filename
+            line = record.to_json() + "\n"
+            temp_path = self.records_path.with_suffix(self.records_path.suffix + ".tmp")
             with open(temp_path, "w", encoding="utf-8") as temp_file:
-                temp_file.write(payload)
+                temp_file.write(line)
                 temp_file.flush()
                 os.fsync(temp_file.fileno())
-            os.replace(temp_path, final_path)
+            with open(self.records_path, "a", encoding="utf-8") as dest:
+                with open(temp_path, "r", encoding="utf-8") as src:
+                    data = src.read()
+                dest.write(data)
+                dest.flush()
+                os.fsync(dest.fileno())
+            try:
+                temp_path.unlink(missing_ok=True)  # type: ignore[arg-type]
+            except Exception:
+                pass
         except Exception:
             logger.debug("Failed to write learning record", exc_info=True)
+
+    def write(self, record: LearningRecord) -> None:
+        """Backward compatible alias for append_record."""
+
+        self.append_record(record)
 logger = logging.getLogger(__name__)

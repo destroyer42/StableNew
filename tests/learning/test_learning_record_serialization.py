@@ -35,8 +35,10 @@ def test_learning_record_writer(tmp_path: Path):
     record = _sample_record()
     writer = LearningRecordWriter(tmp_path)
     writer.write(record)
-    files = list(tmp_path.glob("*.json"))
-    assert len(files) == 1
-    loaded = LearningRecord.from_json(files[0].read_text())
+    records_file = writer.records_path
+    assert records_file.exists()
+    lines = records_file.read_text().splitlines()
+    assert len(lines) == 1
+    loaded = LearningRecord.from_json(lines[0])
     assert loaded.primary_model == record.primary_model
     assert loaded.randomizer_mode == record.randomizer_mode

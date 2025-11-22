@@ -108,6 +108,7 @@ class DummyController:
         self.is_terminal = False
         self.structured_logger = None
         self.progress_callbacks: dict[str, callable] = {}
+        self.learning_enabled = False
 
     def start_pipeline(self, *_args, **_kwargs):
         self.start_calls += 1
@@ -134,6 +135,9 @@ class DummyController:
 
     def record_run_config(self, config: dict):
         self.last_run_config = config
+
+    def set_learning_enabled(self, enabled: bool):
+        self.learning_enabled = bool(enabled)
 
 
 def _create_messagebox_stub():

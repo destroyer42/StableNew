@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from pathlib import Path
+from typing import Any, Callable, List
 
 from src.learning.learning_execution import (
     LearningExecutionContext,
@@ -10,6 +11,10 @@ from src.learning.learning_execution import (
     LearningExecutionRunner,
 )
 from src.learning.learning_plan import LearningPlan
+from src.gui_v2.adapters.learning_adapter_v2 import (
+    list_recent_learning_records,
+    save_learning_feedback,
+)
 from src.pipeline.pipeline_runner import PipelineRunResult
 
 
@@ -19,6 +24,7 @@ class LearningExecutionController:
     def __init__(self, run_callable: Callable[[dict, Any], PipelineRunResult] | None = None) -> None:
         self._run_callable = run_callable
         self._last_result: LearningExecutionResult | None = None
+        self._records_path: Path = Path("output/learning/learning_records.jsonl")
 
     def run_learning_plan(
         self,
@@ -38,6 +44,22 @@ class LearningExecutionController:
             return self._run_callable(cfg, step)
 
         return _call
+
+    # GUI helper APIs -------------------------------------------------
+    def list_recent_records(self, limit: int = 10):
+        """Return recent learning records for display."""
+
+        return list_recent_learning_records(self._records_path, limit=limit)
+
+    def save_feedback(self, record, rating: int, tags: str | None = None):
+        """Persist rating/tags for a run result."""
+
+        return save_learning_feedback(self._records_path, record, rating, tags)
+
+    def set_records_path(self, path: Path) -> None:
+        """Override records path for tests."""
+
+        self._records_path = Path(path)
 
     def get_last_learning_execution_result_for_tests(self) -> LearningExecutionResult | None:
         return self._last_result

@@ -40,6 +40,7 @@ def test_pipeline_controller_handles_learning_records():
     )
 
     handler = controller.get_learning_record_handler()
+    controller.set_learning_enabled(True)
     record = _sample_record()
     handler(record)
 

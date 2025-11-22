@@ -17,11 +17,13 @@ from typing import Any, Callable
 
 from src.api.client import SDWebUIClient, find_webui_api_port, validate_webui_health
 from src.controller.pipeline_controller import PipelineController
+from src.controller.learning_execution_controller import LearningExecutionController
 from src.gui.advanced_prompt_editor import AdvancedPromptEditor
 from src.gui.api_status_panel import APIStatusPanel
 from src.gui.config_panel import ConfigPanel
 from src.gui.enhanced_slider import EnhancedSlider
 from src.gui.engine_settings_dialog import EngineSettingsDialog
+from src.gui.learning_review_dialog_v2 import LearningReviewDialogV2
 from src.gui.log_panel import LogPanel, TkinterLogHandler
 from src.gui.pipeline_controls_panel import PipelineControlsPanel
 from src.gui.prompt_pack_panel import PromptPackPanel
@@ -52,6 +54,7 @@ from src.utils.randomizer import (
 from src.utils.state import CancellationError
 from src.utils.webui_discovery import WebUIDiscovery
 from src.utils.webui_launcher import launch_webui_safely
+from src.config.app_config import learning_enabled_default
 
 
 # Config source state machine
@@ -138,6 +141,7 @@ class StableNewGUI:
         self._run_button_validation_locked = False
         self._last_txt2img_validation_result = None
         self.api_connected = False
+        self._learning_enabled_flag = learning_enabled_default()
 
         # Single StructuredLogger instance owned by the GUI and shared with the controller.
         self.structured_logger = StructuredLogger()
@@ -150,10 +154,16 @@ class StableNewGUI:
         self.settings_suggestion_controller = SettingsSuggestionController()
         self.webui = webui_discovery or WebUIDiscovery()
         self._refreshing_config = False
+        self.learning_execution_controller = LearningExecutionController()
+        try:
+            self.controller.set_learning_enabled(self.learning_enabled_var.get())
+        except Exception:
+            pass
         if root is not None:
             self.root = root
         else:
             self.root = tk.Tk()
+        self.learning_enabled_var = tk.BooleanVar(master=self.root, value=self._learning_enabled_flag)
         self.root.title(title)
         self.root.geometry(geometry)
         self.window_min_size = (1024, 720)
@@ -1035,6 +1045,23 @@ class StableNewGUI:
         enabled = state_allows and connected and not self._run_button_validation_locked
         button.config(state=tk.NORMAL if enabled else tk.DISABLED)
 
+    def _on_learning_toggle(self, enabled: bool) -> None:
+        try:
+            self.controller.set_learning_enabled(bool(enabled))
+        except Exception:
+            pass
+        try:
+            self.learning_enabled_var.set(bool(enabled))
+        except Exception:
+            pass
+
+    def _open_learning_review_dialog(self) -> None:
+        try:
+            records = self.learning_execution_controller.list_recent_records(limit=10)
+            LearningReviewDialogV2(self.root, self.learning_execution_controller, records)
+        except Exception:
+            logger.debug("Failed to open learning review dialog", exc_info=True)
+
     def _handle_preferences_load_failure(self, exc: Exception) -> None:
         """Notify the user that preferences failed to load and backup the corrupt file."""
 
@@ -1257,6 +1284,15 @@ class StableNewGUI:
         settings_menu.add_command(
             label="Engine settings...",
             command=self._open_engine_settings_dialog,
+        )
+        settings_menu.add_checkbutton(
+            label="Enable learning (record runs for review)",
+            variable=self.learning_enabled_var,
+            command=lambda: self._on_learning_toggle(self.learning_enabled_var.get()),
+        )
+        settings_menu.add_command(
+            label="Review recent runs...",
+            command=self._open_learning_review_dialog,
         )
         menubar.add_cascade(label="Settings", menu=settings_menu)
         self.root.config(menu=menubar)

@@ -58,6 +58,7 @@ def test_pipeline_runner_returns_result_and_learning_record(tmp_path):
         DummyLogger(),
         learning_record_writer=writer,
         on_learning_record=callback_records.append,
+        learning_enabled=True,
     )
 
     variant_cfgs = [

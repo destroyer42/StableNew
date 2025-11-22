@@ -28,6 +28,7 @@ class PipelineController(_GUIPipelineController):
         self._last_run_result: PipelineRunResult | None = None
         self._last_stage_execution_plan: StageExecutionPlan | None = None
         self._last_stage_events: list[dict] | None = None
+        self._learning_enabled: bool = False
 
     def _get_learning_runner(self):
         if self._learning_runner is None:
@@ -45,9 +46,13 @@ class PipelineController(_GUIPipelineController):
         """Handle learning records forwarded from pipeline runner."""
 
         self._last_learning_record = record
-        if self._learning_record_writer:
+        if self._learning_record_writer and self._learning_enabled:
             try:
-                self._learning_record_writer.write(record)
+                append = getattr(self._learning_record_writer, "append_record", None)
+                if callable(append):
+                    append(record)
+                else:
+                    self._learning_record_writer.write(record)
             except Exception:
                 pass
         if self._learning_record_callback:
@@ -65,6 +70,16 @@ class PipelineController(_GUIPipelineController):
         """Return the most recent LearningRecord handled by the controller."""
 
         return self._last_learning_record
+
+    def set_learning_enabled(self, enabled: bool) -> None:
+        """Enable or disable passive learning record emission."""
+
+        self._learning_enabled = bool(enabled)
+
+    def is_learning_enabled(self) -> bool:
+        """Return whether learning record emission is enabled."""
+
+        return self._learning_enabled
 
     def record_run_result(self, result: PipelineRunResult) -> None:
         """Record the last PipelineRunResult for inspection by higher layers/tests."""

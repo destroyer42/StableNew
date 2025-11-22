@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from src.api.client import SDWebUIClient
 from src.learning.learning_record import LearningRecord, LearningRecordWriter
+from src.learning.learning_record_builder import build_learning_record
 from src.learning.run_metadata import write_run_metadata
 from src.pipeline.executor import Pipeline
 from src.pipeline.stage_sequencer import (
@@ -55,6 +56,7 @@ class PipelineRunner:
         learning_record_writer: Optional[LearningRecordWriter] = None,
         on_learning_record: Optional[Callable[[LearningRecord], None]] = None,
         runs_base_dir: str | None = None,
+        learning_enabled: bool = False,
     ) -> None:
         self._api_client = api_client
         self._structured_logger = structured_logger
@@ -64,6 +66,12 @@ class PipelineRunner:
         self._learning_record_callback = on_learning_record
         self._last_run_result: PipelineRunResult | None = None
         self._runs_base_dir = runs_base_dir or "runs"
+        self._learning_enabled = bool(learning_enabled)
+
+    def set_learning_enabled(self, enabled: bool) -> None:
+        """Toggle passive learning record emission."""
+
+        self._learning_enabled = bool(enabled)
 
     def run(
         self,
@@ -156,7 +164,7 @@ class PipelineRunner:
                 )
             success = True
         finally:
-            record = self._emit_learning_record(config, executor_config) if success else None
+            record = None
 
         if log_fn:
             log_fn("[pipeline] PipelineRunner completed execution.")
@@ -164,6 +172,8 @@ class PipelineRunner:
         variants = config.variant_configs or [executor_config]
         if record:
             run_id = record.run_id
+        metadata_payload = dict(config.metadata or {})
+        metadata_payload.setdefault("stage_outputs", [])
         write_run_metadata(
             run_id,
             executor_config,
@@ -183,10 +193,14 @@ class PipelineRunner:
             learning_records=[record] if record else [],
             randomizer_mode=config.randomizer_mode or "",
             randomizer_plan_size=config.randomizer_plan_size or len(variants),
-            metadata=dict(config.metadata or {}),
+            metadata=metadata_payload,
             stage_plan=stage_plan,
             stage_events=stage_events,
         )
+        if success and self._learning_enabled:
+            record = self._emit_learning_record(config, result)
+            if record:
+                result.learning_records = [record]
         self._last_run_result = result
         return result
 
@@ -221,41 +235,28 @@ class PipelineRunner:
 
         return base
 
-    def _emit_learning_record(self, config: PipelineConfig, executor_config: dict[str, Any]) -> LearningRecord | None:
+    def _emit_learning_record(
+        self, config: PipelineConfig, run_result: PipelineRunResult
+    ) -> LearningRecord | None:
         if not (self._learning_record_writer or self._learning_record_callback):
             return None
         try:
-            variants = config.variant_configs or []
-            if not variants:
-                variants = [executor_config]
-            variant_payload = [deepcopy(variant) for variant in variants]
-            pipeline_section = executor_config.get("pipeline", {}) or {}
-            randomizer_mode = (
-                config.randomizer_mode
-                or pipeline_section.get("variant_mode")
-                or ""
-            )
-            plan_size = config.randomizer_plan_size or len(variant_payload)
             metadata = dict(config.metadata or {})
             if config.pack_name:
                 metadata["pack_name"] = config.pack_name
             if config.preset_name:
                 metadata["preset_name"] = config.preset_name
-
-            record = LearningRecord.from_pipeline_context(
-                base_config=deepcopy(executor_config),
-                variant_configs=variant_payload,
-                randomizer_mode=randomizer_mode,
-                randomizer_plan_size=plan_size,
-                extract_primary=_extract_primary_knobs,
-                metadata=metadata,
-            )
+            record = build_learning_record(config, run_result, learning_context=metadata)
         except Exception:
             return None
 
         if self._learning_record_writer:
             try:
-                self._learning_record_writer.write(record)
+                append = getattr(self._learning_record_writer, "append_record", None)
+                if callable(append):
+                    append(record)
+                else:
+                    self._learning_record_writer.write(record)
             except Exception:
                 pass
         if self._learning_record_callback:
