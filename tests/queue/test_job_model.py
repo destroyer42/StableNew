@@ -12,6 +12,7 @@ def test_job_serialization_and_status_update():
     assert job.status == JobStatus.QUEUED
     job.mark_status(JobStatus.RUNNING)
     assert job.status == JobStatus.RUNNING
+    assert job.started_at is not None
     payload = job.to_dict()
     assert payload["job_id"] == "job-1"
     assert payload["status"] == JobStatus.RUNNING.value

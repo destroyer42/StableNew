@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any, Iterable
 
-from src.learning.learning_record import LearningRecord
+from src.gui_v2.adapters.learning_adapter_v2 import LearningRecordSummary
 
 
 class LearningReviewDialogV2(tk.Toplevel):
@@ -16,12 +16,12 @@ class LearningReviewDialogV2(tk.Toplevel):
         self,
         parent: tk.Misc,
         controller: Any,
-        records: Iterable[LearningRecord] | None = None,
+        records: Iterable[LearningRecordSummary] | None = None,
     ) -> None:
         super().__init__(parent)
         self.title("Review Recent Runs")
         self.controller = controller
-        self._rows: list[tuple[LearningRecord, tk.StringVar, tk.StringVar]] = []
+        self._rows: list[tuple[LearningRecordSummary, tk.StringVar, tk.StringVar]] = []
         self._build_ui(records or [])
         self.grab_set()
 
@@ -32,6 +32,14 @@ class LearningReviewDialogV2(tk.Toplevel):
         header = ttk.Label(container, text="Recent Runs", style="Dark.TLabel")
         header.pack(anchor=tk.W, pady=(0, 6))
 
+        records_list = list(records)
+        if not records_list:
+            ttk.Label(container, text="No learning data yet. Enable learning and run a few pipelines.", style="Dark.TLabel").pack(
+                anchor=tk.W, pady=(0, 6)
+            )
+            ttk.Button(container, text="Close", command=self.destroy).pack()
+            return
+
         table = ttk.Frame(container)
         table.pack(fill=tk.BOTH, expand=True)
 
@@ -40,16 +48,23 @@ class LearningReviewDialogV2(tk.Toplevel):
         ttk.Label(table, text="Rating").grid(row=0, column=2, sticky=tk.W, padx=4)
         ttk.Label(table, text="Tags").grid(row=0, column=3, sticky=tk.W, padx=4)
 
-        for idx, record in enumerate(records, start=1):
-            rating_var = tk.StringVar(value=str(record.metadata.get("rating", "")))
-            tags_value = ""
-            if record.metadata:
-                tags_value = str(record.metadata.get("tags", ""))
-            tags_var = tk.StringVar(value=tags_value)
-            summary = record.metadata.get("prompt", "") if record.metadata else ""
-            model = record.primary_model
+        for idx, record in enumerate(records_list, start=1):
+            rating_value = getattr(record, "rating", None)
+            tags_value = getattr(record, "tags", [])
+            if hasattr(record, "metadata"):
+                meta = getattr(record, "metadata", {}) or {}
+                if rating_value is None:
+                    rating_value = meta.get("rating")
+                if not tags_value:
+                    tags_val = meta.get("tags", "")
+                    tags_value = tags_val if isinstance(tags_val, list) else str(tags_val).split(",")
+            rating_var = tk.StringVar(value=str(rating_value or ""))
+            tags_str = ",".join([t for t in tags_value]) if isinstance(tags_value, list) else str(tags_value or "")
+            tags_var = tk.StringVar(value=tags_str)
+            summary = getattr(record, "prompt_summary", "") or getattr(record, "run_id", "")
+            model = getattr(record, "pipeline_summary", "") or getattr(record, "primary_model", "")
             ttk.Label(table, text=record.timestamp).grid(row=idx, column=0, sticky=tk.W, padx=4, pady=2)
-            ttk.Label(table, text=f"{summary or record.run_id} / {model}").grid(
+            ttk.Label(table, text=f"{summary} / {model}").grid(
                 row=idx, column=1, sticky=tk.W, padx=4, pady=2
             )
             rating_spin = ttk.Spinbox(table, from_=1, to=5, textvariable=rating_var, width=4)

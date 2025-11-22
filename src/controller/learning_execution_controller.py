@@ -13,9 +13,10 @@ from src.learning.learning_execution import (
 from src.learning.learning_plan import LearningPlan
 from src.gui_v2.adapters.learning_adapter_v2 import (
     list_recent_learning_records,
-    save_learning_feedback,
+    update_record_feedback,
 )
 from src.pipeline.pipeline_runner import PipelineRunResult
+from src.config.app_config import get_learning_enabled, set_learning_enabled
 
 
 class LearningExecutionController:
@@ -25,6 +26,7 @@ class LearningExecutionController:
         self._run_callable = run_callable
         self._last_result: LearningExecutionResult | None = None
         self._records_path: Path = Path("output/learning/learning_records.jsonl")
+        self._learning_enabled = get_learning_enabled()
 
     def run_learning_plan(
         self,
@@ -54,12 +56,19 @@ class LearningExecutionController:
     def save_feedback(self, record, rating: int, tags: str | None = None):
         """Persist rating/tags for a run result."""
 
-        return save_learning_feedback(self._records_path, record, rating, tags)
+        return update_record_feedback(self._records_path, record, rating=rating, tags=tags)
 
     def set_records_path(self, path: Path) -> None:
         """Override records path for tests."""
 
         self._records_path = Path(path)
+
+    def set_learning_enabled(self, enabled: bool) -> None:
+        self._learning_enabled = bool(enabled)
+        set_learning_enabled(self._learning_enabled)
+
+    def get_learning_enabled(self) -> bool:
+        return bool(self._learning_enabled)
 
     def get_last_learning_execution_result_for_tests(self) -> LearningExecutionResult | None:
         return self._last_result

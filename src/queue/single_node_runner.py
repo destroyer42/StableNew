@@ -18,12 +18,14 @@ class SingleNodeJobRunner:
         job_queue: JobQueue,
         run_callable: Callable[[Job], dict] | None,
         poll_interval: float = 0.1,
+        on_status_change: Callable[[Job, JobStatus], None] | None = None,
     ) -> None:
         self.job_queue = job_queue
         self.run_callable = run_callable
         self.poll_interval = poll_interval
         self._stop_event = threading.Event()
         self._worker: Optional[threading.Thread] = None
+        self._on_status_change = on_status_change
 
     def start(self) -> None:
         if self._worker and self._worker.is_alive():
@@ -44,12 +46,22 @@ class SingleNodeJobRunner:
                 time.sleep(self.poll_interval)
                 continue
             self.job_queue.mark_running(job.job_id)
+            self._notify(job, JobStatus.RUNNING)
             try:
                 if self.run_callable:
                     result = self.run_callable(job)
                 else:
                     result = {}
                 self.job_queue.mark_completed(job.job_id, result=result)
+                self._notify(job, JobStatus.COMPLETED)
             except Exception as exc:  # noqa: BLE001
                 self.job_queue.mark_failed(job.job_id, error_message=str(exc))
+                self._notify(job, JobStatus.FAILED)
         return
+
+    def _notify(self, job: Job, status: JobStatus) -> None:
+        if self._on_status_change:
+            try:
+                self._on_status_change(job, status)
+            except Exception:
+                pass

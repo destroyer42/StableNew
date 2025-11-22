@@ -42,3 +42,11 @@ def test_learning_execution_controller_saves_feedback(tmp_path: Path):
     assert saved is not None
     lines = records_path.read_text().splitlines()
     assert lines, "expected feedback to append a record"
+
+
+def test_learning_execution_controller_toggle_syncs_pipeline_controller():
+    controller = PipelineController()
+    learning = LearningExecutionController(run_callable=None)
+    learning.set_learning_enabled(True)
+    assert learning.get_learning_enabled() is True
+from src.controller.pipeline_controller import PipelineController

@@ -54,7 +54,7 @@ from src.utils.randomizer import (
 from src.utils.state import CancellationError
 from src.utils.webui_discovery import WebUIDiscovery
 from src.utils.webui_launcher import launch_webui_safely
-from src.config.app_config import learning_enabled_default
+from src.config.app_config import learning_enabled_default, get_learning_enabled
 
 
 # Config source state machine
@@ -141,7 +141,10 @@ class StableNewGUI:
         self._run_button_validation_locked = False
         self._last_txt2img_validation_result = None
         self.api_connected = False
-        self._learning_enabled_flag = learning_enabled_default()
+        try:
+            self._learning_enabled_flag = get_learning_enabled()
+        except Exception:
+            self._learning_enabled_flag = learning_enabled_default()
 
         # Single StructuredLogger instance owned by the GUI and shared with the controller.
         self.structured_logger = StructuredLogger()
@@ -157,6 +160,10 @@ class StableNewGUI:
         self.learning_execution_controller = LearningExecutionController()
         try:
             self.controller.set_learning_enabled(self.learning_enabled_var.get())
+        except Exception:
+            pass
+        try:
+            self.learning_execution_controller.set_learning_enabled(self.learning_enabled_var.get())
         except Exception:
             pass
         if root is not None:
@@ -1048,6 +1055,10 @@ class StableNewGUI:
     def _on_learning_toggle(self, enabled: bool) -> None:
         try:
             self.controller.set_learning_enabled(bool(enabled))
+        except Exception:
+            pass
+        try:
+            self.learning_execution_controller.set_learning_enabled(bool(enabled))
         except Exception:
             pass
         try:

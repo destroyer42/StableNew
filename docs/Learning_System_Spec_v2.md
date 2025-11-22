@@ -46,6 +46,7 @@ A **LearningRecord** captures a single pipeline run (or a single variant from a 
 The record is written via **LearningRecordWriter** as **append-only JSONL**, enabling later analysis and LLM consumption.
 Passive learning (L2) is now live for single pipeline runs when learning is enabled in configuration, emitting LearningRecords without changing user-visible behavior.
 GUI V2 now exposes a Learning toggle and a simple Review Recent Runs dialog for rating/tagging past runs; this remains optional and off by default.
+Review dialog and toggle provide passive L2 entrypoint: users can enable learning, list recent records, and append ratings/tags via GUI V2 without affecting pipeline semantics.
 
 ### 2.2 LearningPlan and LearningRunStep
 

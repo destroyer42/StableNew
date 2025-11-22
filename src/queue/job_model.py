@@ -31,19 +31,26 @@ def _utcnow() -> datetime:
 @dataclass
 class Job:
     job_id: str
-    pipeline_config: PipelineConfig
+    pipeline_config: PipelineConfig | None
     priority: JobPriority = JobPriority.NORMAL
     status: JobStatus = JobStatus.QUEUED
     created_at: datetime = field(default_factory=_utcnow)
     updated_at: datetime = field(default_factory=_utcnow)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     learning_enabled: bool = False
     randomizer_metadata: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
+    payload: Any | None = None
 
     def mark_status(self, status: JobStatus, error_message: str | None = None) -> None:
         self.status = status
         self.updated_at = _utcnow()
+        if status == JobStatus.RUNNING and self.started_at is None:
+            self.started_at = self.updated_at
+        if status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}:
+            self.completed_at = self.updated_at
         if error_message:
             self.error_message = error_message
 
@@ -54,6 +61,8 @@ class Job:
             "status": self.status.value,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "learning_enabled": self.learning_enabled,
             "randomizer_metadata": self.randomizer_metadata or {},
             "error_message": self.error_message,
