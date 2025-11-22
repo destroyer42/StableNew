@@ -21,8 +21,17 @@ class FakePipeline:
     def __init__(self, *_args, **_kwargs):
         self.calls = []
 
-    def run_full_pipeline(self, prompt, config, **kwargs):
-        self.calls.append((prompt, config, kwargs))
+    def run_txt2img_stage(self, prompt, negative_prompt, config, output_dir, image_name):
+        self.calls.append(("txt2img", prompt, output_dir, image_name))
+        return {"path": str(output_dir / f"{image_name}.png")}
+
+    def run_img2img_stage(self, input_image_path, prompt, config, output_dir):
+        self.calls.append(("img2img", prompt, str(input_image_path)))
+        return {"path": str(output_dir / "img2img.png")}
+
+    def run_upscale_stage(self, input_image_path, config, output_dir, image_name):
+        self.calls.append(("upscale", str(input_image_path), image_name))
+        return {"path": str(output_dir / "upscaled.png")}
 
 
 class DummyClient:
@@ -51,6 +60,7 @@ def test_pipeline_runner_emits_learning_record(tmp_path):
         DummyLogger(),
         learning_record_writer=writer,
         on_learning_record=callback_records.append,
+        runs_base_dir=tmp_path / "runs",
     )
 
     config = PipelineConfig(
@@ -68,13 +78,15 @@ def test_pipeline_runner_emits_learning_record(tmp_path):
         variant_configs=[{"txt2img": {"model": "Model-X", "sampler_name": "Euler", "steps": 30}}],
     )
 
-    runner.run(config, cancel_token=_cancel_token())
+    result = runner.run(config, cancel_token=_cancel_token())
 
     assert len(writer.records) == 1
     record = writer.records[0]
     assert record.randomizer_mode == "fanout"
     assert record.primary_model == "Model-X"
     assert callback_records[0] == record
+    assert result.learning_records[0] == record
+    assert (tmp_path / "runs" / record.run_id / "run_metadata.json").exists()
 
 
 def test_pipeline_runner_handles_missing_writer():

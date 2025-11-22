@@ -57,6 +57,7 @@ class Pipeline:
         self._last_txt2img_results: list[dict[str, Any]] = []
         self._last_img2img_result: dict[str, Any] | None = None
         self._last_upscale_result: dict[str, Any] | None = None
+        self._last_adetailer_result: dict[str, Any] | None = None
         self._last_full_pipeline_results: dict[str, Any] = {}
         self._current_run_dir: Path | None = None
 
@@ -2371,4 +2372,25 @@ class Pipeline:
 
         except Exception as e:
             logger.error(f"Upscale stage failed: {e}")
+            return None
+
+    def run_adetailer_stage(
+        self, input_image_path: Path, config: dict[str, Any], output_dir: Path, image_name: str
+    ) -> dict[str, Any] | None:
+        """
+        Run adetailer stage as a placeholder (no-op pass-through).
+        """
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            # For now, treat as passthrough; just record metadata.
+            metadata = {
+                "name": f"{image_name}_adetailer",
+                "stage": "adetailer",
+                "path": str(input_image_path),
+                "config": self._clean_metadata_payload(config),
+            }
+            self._last_adetailer_result = metadata
+            return metadata
+        except Exception as e:
+            logger.error(f"adetailer stage failed: {e}")
             return None

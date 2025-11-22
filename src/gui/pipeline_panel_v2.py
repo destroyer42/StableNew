@@ -6,10 +6,10 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import theme as theme_mod
-from .txt2img_stage_card import Txt2ImgStageCard
-from .img2img_stage_card import Img2ImgStageCard
-from .upscale_stage_card import UpscaleStageCard
-from src.gui_v2.validation.pipeline_txt2img_validator import validate_txt2img, ValidationResult
+from src.gui.stage_cards_v2.advanced_txt2img_stage_card_v2 import AdvancedTxt2ImgStageCardV2
+from src.gui.stage_cards_v2.advanced_img2img_stage_card_v2 import AdvancedImg2ImgStageCardV2
+from src.gui.stage_cards_v2.advanced_upscale_stage_card_v2 import AdvancedUpscaleStageCardV2
+from src.gui.stage_cards_v2.validation_result import ValidationResult
 
 
 class PipelinePanelV2(ttk.Frame):
@@ -39,14 +39,16 @@ class PipelinePanelV2(ttk.Frame):
 
         self._txt2img_change_callback = None
 
-        self.txt2img_card = Txt2ImgStageCard(self.body, controller=controller, theme=theme)
+        self.txt2img_card = AdvancedTxt2ImgStageCardV2(self.body, controller=controller, theme=theme)
         self.txt2img_card.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
-        self.txt2img_card.set_on_change(self._handle_txt2img_change)
-
-        self.img2img_card = Img2ImgStageCard(self.body, controller=controller, theme=theme)
+        try:
+            self.txt2img_card.set_on_change(self._handle_txt2img_change)
+        except Exception:
+            pass
+        self.img2img_card = AdvancedImg2ImgStageCardV2(self.body, controller=controller, theme=theme)
         self.img2img_card.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
 
-        self.upscale_card = UpscaleStageCard(self.body, controller=controller, theme=theme)
+        self.upscale_card = AdvancedUpscaleStageCardV2(self.body, controller=controller, theme=theme)
         self.upscale_card.pack(fill=tk.BOTH, expand=True)
 
     def load_from_config(self, config: dict | None) -> None:
@@ -66,10 +68,10 @@ class PipelinePanelV2(ttk.Frame):
         return delta
 
     def get_txt2img_form_view(self) -> dict:
-        return self.txt2img_card.get_form_values()
+        return self.txt2img_card.to_config_dict().get("txt2img", {})
 
     def validate_txt2img(self) -> ValidationResult:
-        return validate_txt2img(self.get_txt2img_form_view())
+        return self.txt2img_card.validate()
 
     def set_txt2img_change_callback(self, callback) -> None:
         self._txt2img_change_callback = callback
@@ -77,3 +79,10 @@ class PipelinePanelV2(ttk.Frame):
     def _handle_txt2img_change(self) -> None:
         if self._txt2img_change_callback:
             self._txt2img_change_callback()
+
+    def validate_full_pipeline(self) -> ValidationResult:
+        for card in (self.txt2img_card, self.img2img_card, self.upscale_card):
+            result = card.validate()
+            if not result.ok:
+                return result
+        return ValidationResult(True, None)

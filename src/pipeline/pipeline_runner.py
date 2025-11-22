@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, List, Optional, TYPE_CHECKING
+from uuid import uuid4
 
 from src.api.client import SDWebUIClient
 from src.learning.learning_record import LearningRecord, LearningRecordWriter
+from src.learning.run_metadata import write_run_metadata
 from src.pipeline.executor import Pipeline
+from src.pipeline.stage_sequencer import (
+    StageExecutionPlan,
+    StageTypeEnum,
+    build_stage_execution_plan,
+)
 from src.utils import StructuredLogger
 from src.utils.config import ConfigManager
 
@@ -46,6 +54,7 @@ class PipelineRunner:
         config_manager: Optional[ConfigManager] = None,
         learning_record_writer: Optional[LearningRecordWriter] = None,
         on_learning_record: Optional[Callable[[LearningRecord], None]] = None,
+        runs_base_dir: str | None = None,
     ) -> None:
         self._api_client = api_client
         self._structured_logger = structured_logger
@@ -53,13 +62,15 @@ class PipelineRunner:
         self._pipeline = Pipeline(api_client, structured_logger)
         self._learning_record_writer = learning_record_writer
         self._learning_record_callback = on_learning_record
+        self._last_run_result: PipelineRunResult | None = None
+        self._runs_base_dir = runs_base_dir or "runs"
 
     def run(
         self,
         config: PipelineConfig,
         cancel_token: "CancelToken",
         log_fn: Optional[Callable[[str], None]] = None,
-    ) -> None:
+    ) -> "PipelineRunResult":
         """Execute the full pipeline using the provided configuration."""
 
         if log_fn:
@@ -69,22 +80,90 @@ class PipelineRunner:
         prompt = config.prompt.strip() or config.pack_name or config.preset_name or "StableNew GUI Run"
         run_name = config.pack_name or config.preset_name or "stable_new_session"
         success = False
+        last_image_meta: dict[str, Any] | None = None
+        stage_plan: StageExecutionPlan | None = None
+        run_id = str(uuid4())
+        stage_events: list[dict[str, Any]] = []
 
         try:
-            self._pipeline.run_full_pipeline(
-                prompt,
-                executor_config,
-                run_name=run_name,
-                batch_size=1,
-                cancel_token=cancel_token,
-            )
+            stage_plan = build_stage_execution_plan(executor_config)
+            if not stage_plan.stages:
+                raise ValueError("No pipeline stages enabled")
+            run_dir = Path(self._runs_base_dir) / run_id
+            run_dir.mkdir(parents=True, exist_ok=True)
+
+            for stage in stage_plan.stages:
+                stage_type = StageTypeEnum(stage.stage_type)
+                stage_events.append({"stage": stage_type.value, "phase": "enter"})
+                if stage_type == StageTypeEnum.TXT2IMG:
+                    negative = executor_config.get("txt2img", {}).get("negative_prompt", "")
+                    last_image_meta = self._pipeline.run_txt2img_stage(
+                        prompt,
+                        negative,
+                        executor_config,
+                        run_dir,
+                        image_name=f"txt2img_{stage.order_index}",
+                    )
+                elif stage_type == StageTypeEnum.IMG2IMG:
+                    if not last_image_meta or not last_image_meta.get("path"):
+                        raise ValueError("img2img requires input image from previous stage")
+                    last_image_meta = self._pipeline.run_img2img_stage(
+                        Path(last_image_meta["path"]),
+                        prompt,
+                        executor_config.get("img2img", {}),
+                        run_dir,
+                    )
+                elif stage_type == StageTypeEnum.UPSCALE:
+                    if not last_image_meta or not last_image_meta.get("path"):
+                        raise ValueError("upscale requires input image from previous stage")
+                    last_image_meta = self._pipeline.run_upscale_stage(
+                        Path(last_image_meta["path"]),
+                        executor_config.get("upscale", {}),
+                        run_dir,
+                        image_name=Path(last_image_meta["path"]).stem,
+                    )
+                elif stage_type == StageTypeEnum.ADETAILER:
+                    if not last_image_meta or not last_image_meta.get("path"):
+                        raise ValueError("adetailer requires input image from previous stage")
+                    last_image_meta = self._pipeline.run_adetailer_stage(
+                        Path(last_image_meta["path"]),
+                        executor_config.get("adetailer", {}),
+                        run_dir,
+                        image_name=Path(last_image_meta["path"]).stem,
+                    )
+                stage_events.append({"stage": stage_type.value, "phase": "exit"})
             success = True
         finally:
-            if success:
-                self._emit_learning_record(config, executor_config)
+            record = self._emit_learning_record(config, executor_config) if success else None
 
         if log_fn:
             log_fn("[pipeline] PipelineRunner completed execution.")
+
+        variants = config.variant_configs or [executor_config]
+        if record:
+            run_id = record.run_id
+        write_run_metadata(
+            run_id,
+            executor_config,
+            packs=[config.pack_name] if config.pack_name else [],
+            one_click_action=(config.metadata or {}).get("one_click_action"),
+            stage_outputs=[],
+            base_dir=self._runs_base_dir,
+        )
+        result = PipelineRunResult(
+            run_id=run_id,
+            success=success,
+            error=None,
+            variants=deepcopy(variants),
+            learning_records=[record] if record else [],
+            randomizer_mode=config.randomizer_mode or "",
+            randomizer_plan_size=config.randomizer_plan_size or len(variants),
+            metadata=dict(config.metadata or {}),
+            stage_plan=stage_plan,
+            stage_events=stage_events,
+        )
+        self._last_run_result = result
+        return result
 
     def _build_executor_config(self, config: PipelineConfig) -> dict[str, Any]:
         """Prepare the executor configuration dict from PipelineConfig."""
@@ -98,23 +177,28 @@ class PipelineRunner:
         txt2img["height"] = config.height
         txt2img["steps"] = config.steps
         txt2img["cfg_scale"] = config.cfg_scale
+        txt2img.setdefault("enabled", True)
 
         img2img = base.setdefault("img2img", {})
         img2img["model"] = config.model
         img2img["sampler_name"] = config.sampler
         img2img["steps"] = max(img2img.get("steps", 15), 1)
+        img2img.setdefault("enabled", base.get("pipeline", {}).get("img2img_enabled", False))
 
         metadata = base.setdefault("metadata", {})
         if config.pack_name:
             metadata["pack_name"] = config.pack_name
         if config.preset_name:
             metadata["preset_name"] = config.preset_name
+        pipeline_flags = base.setdefault("pipeline", {})
+        upscale = base.setdefault("upscale", {})
+        upscale.setdefault("enabled", pipeline_flags.get("upscale_enabled", False))
 
         return base
 
-    def _emit_learning_record(self, config: PipelineConfig, executor_config: dict[str, Any]) -> None:
+    def _emit_learning_record(self, config: PipelineConfig, executor_config: dict[str, Any]) -> LearningRecord | None:
         if not (self._learning_record_writer or self._learning_record_callback):
-            return
+            return None
         try:
             variants = config.variant_configs or []
             if not variants:
@@ -142,7 +226,7 @@ class PipelineRunner:
                 metadata=metadata,
             )
         except Exception:
-            return
+            return None
 
         if self._learning_record_writer:
             try:
@@ -154,6 +238,26 @@ class PipelineRunner:
                 self._learning_record_callback(record)
             except Exception:
                 pass
+        return record
+
+
+@dataclass
+class PipelineRunResult:
+    """Stable output contract for PipelineRunner.run."""
+
+    run_id: str
+    success: bool
+    error: str | None
+    variants: list[dict[str, Any]]
+    learning_records: list[LearningRecord]
+    randomizer_mode: str = ""
+    randomizer_plan_size: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
+    stage_plan: StageExecutionPlan | None = None
+
+    @property
+    def variant_count(self) -> int:
+        return len(self.variants)
 
 
 def _extract_primary_knobs(config: dict[str, Any]) -> dict[str, Any]:
@@ -167,4 +271,4 @@ def _extract_primary_knobs(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-__all__ = ["PipelineConfig", "PipelineRunner"]
+__all__ = ["PipelineConfig", "PipelineRunner", "PipelineRunResult"]

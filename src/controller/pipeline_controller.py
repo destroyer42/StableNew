@@ -5,6 +5,8 @@ from typing import Callable
 from src.gui.controller import PipelineController as _GUIPipelineController
 from src.gui.state import StateManager
 from src.learning.learning_record import LearningRecord, LearningRecordWriter
+from src.pipeline.stage_sequencer import StageExecutionPlan, build_stage_execution_plan
+from src.pipeline.pipeline_runner import PipelineRunResult
 
 
 class PipelineController(_GUIPipelineController):
@@ -23,6 +25,9 @@ class PipelineController(_GUIPipelineController):
         self._learning_record_writer = learning_record_writer
         self._learning_record_callback = on_learning_record
         self._last_learning_record: LearningRecord | None = None
+        self._last_run_result: PipelineRunResult | None = None
+        self._last_stage_execution_plan: StageExecutionPlan | None = None
+        self._last_stage_events: list[dict] | None = None
 
     def _get_learning_runner(self):
         if self._learning_runner is None:
@@ -60,3 +65,31 @@ class PipelineController(_GUIPipelineController):
         """Return the most recent LearningRecord handled by the controller."""
 
         return self._last_learning_record
+
+    def record_run_result(self, result: PipelineRunResult) -> None:
+        """Record the last PipelineRunResult for inspection by higher layers/tests."""
+
+        self._last_run_result = result
+        self._last_stage_events = getattr(result, "stage_events", None)
+
+    def get_last_run_result(self) -> PipelineRunResult | None:
+        """Return the most recent PipelineRunResult recorded on this controller."""
+
+        return self._last_run_result
+
+    def validate_stage_plan(self, config: dict) -> StageExecutionPlan:
+        """Build and store a stage execution plan for testing/inspection."""
+
+        plan = build_stage_execution_plan(config)
+        self._last_stage_execution_plan = plan
+        return plan
+
+    def get_last_stage_execution_plan_for_tests(self) -> StageExecutionPlan | None:
+        """Return the most recent StageExecutionPlan built by this controller."""
+
+        return self._last_stage_execution_plan
+
+    def get_last_stage_events_for_tests(self) -> list[dict] | None:
+        """Return last emitted stage events."""
+
+        return self._last_stage_events

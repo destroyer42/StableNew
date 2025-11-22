@@ -25,12 +25,13 @@ from src.gui.engine_settings_dialog import EngineSettingsDialog
 from src.gui.log_panel import LogPanel, TkinterLogHandler
 from src.gui.pipeline_controls_panel import PipelineControlsPanel
 from src.gui.prompt_pack_panel import PromptPackPanel
-from src.gui.pipeline_panel_v2 import PipelinePanelV2
-from src.gui.preview_panel_v2 import PreviewPanelV2
-from src.gui.randomizer_panel_v2 import RandomizerPanelV2
-from src.gui_v2.randomizer_adapter import compute_variant_count
-from src.gui.sidebar_panel_v2 import SidebarPanelV2
-from src.gui.status_bar_v2 import StatusBarV2
+from src.gui.panels_v2 import PipelinePanelV2, PreviewPanelV2, RandomizerPanelV2, SidebarPanelV2, StatusBarV2
+from src.gui.app_layout_v2 import AppLayoutV2
+from src.gui_v2.adapters.pipeline_adapter_v2 import build_effective_config
+from src.gui_v2.adapters.randomizer_adapter_v2 import compute_variant_count
+from src.gui_v2.adapters.status_adapter_v2 import StatusAdapterV2
+from src.controller.settings_suggestion_controller import SettingsSuggestionController
+from src.ai.settings_generator_contract import SuggestionIntent
 from src.gui.scrolling import enable_mousewheel, make_scrollable
 from src.gui.state import GUIState, StateManager
 from src.gui.theme import Theme
@@ -146,6 +147,7 @@ class StableNewGUI:
             self.controller.structured_logger = self.structured_logger
         except Exception:
             setattr(self.controller, "structured_logger", self.structured_logger)
+        self.settings_suggestion_controller = SettingsSuggestionController()
         self.webui = webui_discovery or WebUIDiscovery()
         self._refreshing_config = False
         if root is not None:
@@ -217,6 +219,7 @@ class StableNewGUI:
         self._progress_idle_message = "Ready"
         self._last_randomizer_plan_result = None
         self._randomizer_variant_update_job: int | None = None
+        self._ai_settings_enabled = bool(os.environ.get("ENABLE_AI_SETTINGS_GENERATOR"))
 
         # Load preferences before building UI
         default_config = self.config_manager.get_default_config()
@@ -231,6 +234,11 @@ class StableNewGUI:
 
         # Build the user interface
         self._build_ui()
+        # Ensure V2 layout panels are attached via helper (idempotent)
+        try:
+            AppLayoutV2(self, theme=self.theme).build_layout(getattr(self, "root", None))
+        except Exception:
+            logger.debug("AppLayoutV2 build_layout skipped", exc_info=True)
         self._wire_progress_callbacks()
         try:
             self.root.bind("<Configure>", self._on_root_resize, add="+")
@@ -850,6 +858,8 @@ class StableNewGUI:
 
         # Pipeline controls in General tab
         self._build_pipeline_controls_panel(general_body)
+        if self._ai_settings_enabled:
+            self._build_ai_settings_button(general_body)
 
         api_frame = ttk.LabelFrame(
             general_body, text="API Configuration", style="Dark.TLabelframe", padding=8
@@ -912,22 +922,17 @@ class StableNewGUI:
         if panel is None:
             return config_snapshot
         try:
-            delta = panel.to_config_delta()
+            delta = panel.to_config_delta() or {}
         except Exception:
             logger.debug("PipelinePanelV2 delta failed", exc_info=True)
             delta = {}
-        if not delta:
-            return config_snapshot
-
-        for section, values in delta.items():
-            if not isinstance(values, dict) or not values:
-                continue
-            target = config_snapshot.setdefault(section, {})
-            if isinstance(target, dict):
-                target.update(values)
-            else:
-                config_snapshot[section] = dict(values)
-        return config_snapshot
+        return build_effective_config(
+            config_snapshot or {},
+            txt2img_overrides=delta.get("txt2img"),
+            img2img_overrides=delta.get("img2img"),
+            upscale_overrides=delta.get("upscale"),
+            pipeline_overrides=delta.get("pipeline"),
+        )
 
     def _build_randomizer_plan_result(self, config_snapshot: dict):
         panel = getattr(self, "randomizer_panel_v2", None)
@@ -3106,12 +3111,27 @@ class StableNewGUI:
         status_frame.configure(height=52)
         status_frame.pack_propagate(False)
         self.status_bar_v2.set_idle()
+        self._status_adapter = StatusAdapterV2(self.status_bar_v2)
 
         self.progress_message_var = tk.StringVar(value=self._progress_idle_message)
         self.progress_status_var = self.progress_message_var
         ttk.Label(status_frame, textvariable=self.progress_message_var, style="Dark.TLabel").pack(
             side=tk.LEFT, padx=10
         )
+
+    def _build_ai_settings_button(self, parent) -> None:
+        """Optional AI settings button guarded by feature flag."""
+        try:
+            btn = ttk.Button(
+                parent,
+                text="Ask AI for Settings",
+                command=self._on_ask_ai_for_settings_clicked,
+                state="normal",
+            )
+            btn.pack(anchor=tk.W, pady=(10, 0))
+            self._ai_settings_button = btn
+        except Exception:
+            self._ai_settings_button = None
 
     def _setup_state_callbacks(self):
         """Setup callbacks for state transitions"""
@@ -3205,9 +3225,10 @@ class StableNewGUI:
             eta_val = None
 
         def apply():
-            if hasattr(self, "status_bar_v2"):
-                self.status_bar_v2.update_progress(fraction)
-                self.status_bar_v2.update_eta(eta_val)
+            if hasattr(self, "_status_adapter"):
+                self._status_adapter.on_progress(
+                    {"percent": (fraction * 100) if fraction is not None else None, "eta_seconds": eta_val}
+                )
 
         apply()
         try:
@@ -3215,20 +3236,34 @@ class StableNewGUI:
         except Exception:
             pass
 
+    def _on_ask_ai_for_settings_clicked(self) -> None:
+        try:
+            baseline = self._get_config_from_forms()
+            pack = None
+            if hasattr(self, "current_selected_packs") and self.current_selected_packs:
+                pack = getattr(self.current_selected_packs[0], "name", None) or str(
+                    self.current_selected_packs[0]
+                )
+            suggestion = self.settings_suggestion_controller.request_suggestion(
+                SuggestionIntent.HIGH_DETAIL,
+                pack,
+                baseline,
+                dataset_snapshot=None,
+            )
+            new_config = self.settings_suggestion_controller.apply_suggestion_to_config(
+                baseline, suggestion
+            )
+            self._load_config_into_forms(new_config)
+            self.log_message("Applied AI settings suggestion (stub).", "INFO")
+        except Exception as exc:
+            self.log_message(f"AI settings suggestion failed: {exc}", "WARNING")
+
     def _on_pipeline_state_change(self, state: str | None) -> None:
         normalized = (state or "").lower()
 
         def apply():
-            if not hasattr(self, "status_bar_v2"):
-                return
-            if normalized in ("idle",):
-                self.status_bar_v2.set_idle()
-            elif normalized in ("running", "started", "busy"):
-                self.status_bar_v2.set_running()
-            elif normalized in ("completed", "done", "success"):
-                self.status_bar_v2.set_completed()
-            elif normalized in ("error", "failed"):
-                self.status_bar_v2.set_error()
+            if hasattr(self, "_status_adapter"):
+                self._status_adapter.on_state_change(normalized)
 
         apply()
         try:

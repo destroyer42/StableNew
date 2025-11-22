@@ -55,14 +55,14 @@ def test_validator_rejects_invalid_dimensions_and_missing_strings():
 @pytest.mark.usefixtures("tk_root")
 def test_run_button_disabled_when_invalid(gui_app_with_dummies):
     gui, controller, _ = gui_app_with_dummies
-    gui.pipeline_panel_v2.txt2img_card._vars["steps"].set("0")
+    gui.pipeline_panel_v2.txt2img_card.steps_var.set("0")
     gui.root.update_idletasks()
 
     assert str(gui.run_button["state"]).lower() == "disabled"
     assert "Config Error" in gui.status_bar_v2.status_label["text"]
 
     # Fix the value and ensure the status clears and button re-enables.
-    gui.pipeline_panel_v2.txt2img_card._vars["steps"].set("10")
+    gui.pipeline_panel_v2.txt2img_card.steps_var.set("10")
     gui.root.update_idletasks()
     assert str(gui.run_button["state"]).lower() == "normal"
     assert "Config Error" not in gui.status_bar_v2.status_label["text"]
@@ -79,7 +79,7 @@ def test_run_guard_blocks_invalid_config(gui_app_with_dummies, monkeypatch):
 
     monkeypatch.setattr(type(gui), "_run_full_pipeline_impl", fake_run, raising=False)
 
-    gui.pipeline_panel_v2.txt2img_card._vars["width"].set("123")
+    gui.pipeline_panel_v2.txt2img_card.width_var.set("123")
     gui.root.update_idletasks()
     gui.run_button.invoke()
 
@@ -87,7 +87,7 @@ def test_run_guard_blocks_invalid_config(gui_app_with_dummies, monkeypatch):
     assert controller.start_calls == 0
     assert "Config Error" in gui.status_bar_v2.status_label["text"]
 
-    gui.pipeline_panel_v2.txt2img_card._vars["width"].set("768")
+    gui.pipeline_panel_v2.txt2img_card.width_var.set("768")
     gui.root.update_idletasks()
     gui.run_button.invoke()
 

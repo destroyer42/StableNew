@@ -1,18 +1,28 @@
-# StableNew CHANGELOG
 
-## Unreleased (V2 Track)
-- README + CHANGELOG rewrite with V1 → V2 pivot explanation.
-- Added V2 architecture docs.
-- Added learning-mode foundation.
-- Added randomizer V2 foundation.
-- Added GUI V2 stage cards.
-- Added pipeline runner extensions.
-- Added safety isolation layer.
+# Changelog
 
-## Completed PRs (V2)
-- PR-PIPE-CORE-001 — Centralized Pipeline Runner
-- PR-GUI-V2-MIGRATION-001 — GUI V2 Harness
-- PR-GUI-V2-STAGE-CARDS-001 — Modular Stage Cards
-- PR-GUI-V2-VALIDATION-001 — Input Validation
-- PR-GUI-V2-RANDOMIZER-001 — Randomizer Adapter Integration
-- PR-LEARNING-STUB-001 — Learning Plan/Runner/Feedback Stubs
+## [Unreleased]
+
+## [2.1.0] - 2025-11-21
+### Added
+- Full adoption of StableNew V2 architecture.
+- Stage cards, adapters, sequencer, learning metadata stack.
+- Randomizer V2 with advanced UX.
+- AI Settings Generator stubs.
+- Safety wrapper enforcement.
+- GUI V2-only test harness.
+- New roadmap and pivot explanation.
+
+### Changed
+- main_window.py partially modularized.
+- Randomizer import surface isolated.
+- Legacy GUI tests migrated.
+
+### Fixed
+- Theme constants restored.
+- Randomizer rotate behavior corrected.
+
+### Known Issues
+- Stage-event emissions pending executor wiring.
+- Some GUI tests skipped when Tk/Tcl unavailable.
+
