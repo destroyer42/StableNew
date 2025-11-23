@@ -16,6 +16,7 @@ from src.gui.panels_v2 import (
     SidebarPanelV2,
     StatusBarV2,
 )
+from src.gui.job_history_panel_v2 import JobHistoryPanelV2
 
 
 class AppLayoutV2:
@@ -78,6 +79,33 @@ class AppLayoutV2:
                 owner.preview_panel_v2.pack(fill="both", expand=True)
             except Exception:
                 pass
+
+        # Jobs / history panel (optional, read-only)
+        if not hasattr(owner, "job_history_panel_v2") and hasattr(owner, "right_zone"):
+            history_service = getattr(owner, "job_history_service", None)
+            if history_service is None:
+                ctrl = getattr(owner, "controller", None)
+                getter = getattr(ctrl, "get_job_history_service", None)
+                if callable(getter):
+                    try:
+                        history_service = getter()
+                    except Exception:
+                        history_service = None
+            if history_service:
+                owner.job_history_panel_v2 = JobHistoryPanelV2(
+                    owner.right_zone, job_history_service=history_service, theme=self.theme
+                )
+                try:
+                    owner.job_history_panel_v2.pack(fill="both", expand=True, pady=(5, 0))
+                except Exception:
+                    pass
+        elif hasattr(owner, "job_history_panel_v2"):
+            history_service = getattr(owner, "job_history_service", None)
+            if history_service:
+                try:
+                    owner.job_history_panel_v2._service = history_service
+                except Exception:
+                    pass
 
         # Status bar
         if not hasattr(owner, "status_bar_v2") and hasattr(owner, "bottom_zone"):

@@ -21,7 +21,10 @@ The target environment is a **home lab / personal cluster**, not a multi‑tenan
 - **Controller Node (StableNew Core)**
   - Runs the GUI and queue manager.
   - Holds the authoritative config, learning records, and job history.
+  - Job history is persisted via the JobHistoryStore abstraction so restarts do not wipe recent job visibility.
   - Schedules jobs to worker nodes based on capabilities and load.
+  - Mediates GUI job actions (cancel/retry) and forwards them to queue/runner layers.
+  - Maintains a WorkerRegistry with a local worker descriptor; future remote workers will extend this registry.
 
 - **Worker Nodes**
   - Run SD WebUI (or equivalent backend) plus a **StableNew worker agent**.

@@ -8,6 +8,7 @@ from enum import IntEnum, Enum
 from typing import Any, Dict, Optional
 
 from src.pipeline.pipeline_runner import PipelineConfig
+from src.cluster.worker_model import WorkerId
 
 
 class JobPriority(IntEnum):
@@ -43,6 +44,7 @@ class Job:
     error_message: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
     payload: Any | None = None
+    worker_id: WorkerId | None = None
 
     def mark_status(self, status: JobStatus, error_message: str | None = None) -> None:
         self.status = status
@@ -67,5 +69,6 @@ class Job:
             "randomizer_metadata": self.randomizer_metadata or {},
             "error_message": self.error_message,
             "result": self.result,
-            "pipeline_config": self.pipeline_config.__dict__,
+            "pipeline_config": self.pipeline_config.__dict__ if self.pipeline_config is not None else None,
+            "worker_id": self.worker_id,
         }

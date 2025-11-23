@@ -154,6 +154,13 @@ class StableNewGUI:
             self.controller.structured_logger = self.structured_logger
         except Exception:
             setattr(self.controller, "structured_logger", self.structured_logger)
+        self.job_history_service = None
+        getter = getattr(self.controller, "get_job_history_service", None)
+        if callable(getter):
+            try:
+                self.job_history_service = getter()
+            except Exception:
+                self.job_history_service = None
         self.settings_suggestion_controller = SettingsSuggestionController()
         self.webui = webui_discovery or WebUIDiscovery()
         self._refreshing_config = False

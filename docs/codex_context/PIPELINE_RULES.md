@@ -85,3 +85,12 @@ Stages must be **composable** and individually testable where possible.
   - Stage is represented in learning events (if enabled).
 - When touching upscale/tiling:
   - Always update tests and add new fixtures for edge cases.
+
+---
+
+## 7. Queue-Backed Execution Mode
+
+- Controlled by configuration (`queue_execution_enabled`, default False).
+- When enabled, PipelineController submits jobs via QueueExecutionController using `PipelineConfig` as the job payload.
+- Cancellation in queue mode must use queue semantics (`cancel_job` on the queued/running job) rather than direct thread cancellation.
+- When disabled, execution follows the existing direct path without queue indirection.

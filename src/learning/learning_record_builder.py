@@ -64,6 +64,23 @@ def build_learning_record(
             "height": config_dict.get("height", 0),
         }
     primary_knobs = _extract_primary_knobs(base_config if isinstance(base_config, dict) else {})
+    # Discover sidecar priors for model and LoRA
+    from pathlib import Path
+    from src.learning.learning_profile_sidecar import find_profile_sidecar
+    sidecar_priors = {}
+    model_name = str(primary_knobs.get("model", ""))
+    if model_name:
+        model_sidecar = find_profile_sidecar(Path("profiles"), model_name)
+        if model_sidecar:
+            sidecar_priors[model_name] = model_sidecar.get_prior()
+    # If LoRA(s) are present in config, add their priors
+    loras = base_config.get("txt2img", {}).get("loras", [])
+    for lora in loras:
+        lora_name = lora.get("name") if isinstance(lora, dict) else str(lora)
+        if lora_name:
+            lora_sidecar = find_profile_sidecar(Path("profiles"), lora_name)
+            if lora_sidecar:
+                sidecar_priors[lora_name] = lora_sidecar.get_prior()
     record = LearningRecord(
         run_id=run_result.run_id,
         timestamp=timestamp_value,
@@ -80,5 +97,6 @@ def build_learning_record(
         stage_plan=_stage_plan_list(run_result),
         stage_events=getattr(run_result, "stage_events", []) or [],
         outputs=getattr(run_result, "metadata", {}).get("stage_outputs", []) if hasattr(run_result, "metadata") else [],
+        sidecar_priors=sidecar_priors,
     )
     return record

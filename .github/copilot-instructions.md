@@ -1,189 +1,257 @@
 # StableNew — AI Coding Agent Instructions
 
-> **Context:** Stable Diffusion WebUI automation (txt2img → img2img → upscale → video) with Python 3.11, Tk/Ttk GUI, FFmpeg, pytest, ruff, black, mypy, and pre-commit. This file guides GitHub Copilot coding agent, Copilot Chat, and human contributors for **StableNew**.
+# CODEX 5.1 MAX – StableNew Project Instructions (Extended Version)
 
-## 1) Branching & Release Flow
-- **main**: release-only (protected). No direct pushes.
-- **postGemini**: integration branch for GUI + controller work.
-- **Feature branches**: create per task, e.g. `feature/gui-stop-cancel`, `fix/editor-status-text`.
-- **PR route**: `feature` → `postGemini` (manual journey tests) → `main` (RC/tag).
+## 1. Overview
+This document defines the operational doctrine for all AI-assisted development inside the StableNew Project. It governs:
 
-## 2) Architecture Guardrails (GUI + Controller)
-- GUI is componentized; `main_window.py` is the **mediator**.
-  - Panels: `PromptPackPanel`, `PipelineControlsPanel`, `ConfigPanel`, `APIStatusPanel`, `LogPanel`.
-  - Panels own their `tk.*Var` state and expose `get_state()/set_state()` or `get_settings()`.
-  - Events bubble **up** to mediator; mediator pushes updates **down**.
-- Controller is authoritative for lifecycle and the **only** place that joins workers.
-  - GUI/tests **must not** join worker threads.
-  - Use cooperative cancellation; Tk main thread must remain non‑blocking.
-- Pipeline (high level): `txt2img` → (optional) `img2img` → `upscale` → `video`.
-  - SD WebUI API readiness is checked before calls; use exponential backoff.
-  - Base64 image handling goes through `utils/file_io.py` helpers.
-  - Each run writes manifests (JSON) + CSV rollups into time‑stamped `output/run_YYYYMMDD_HHMMSS/...`
+- ChatGPT (Architect/Controller)  
+- GitHub Copilot / **Codex 5.1 MAX** (Implementer)  
+- ChatGPT Test Agent (Tester)  
+- All future development threads in this ChatGPT Project Folder
 
-## 3) How to Work (Copilot + Humans)
-**We use strict TDD and small PRs.**
-1. Write/extend tests under `tests/` first (`tests/gui` for panels).
-2. Run: `pre-commit run --all-files` then `pytest --cov=src --cov-report=term-missing`.
-3. Implement the minimal change to make tests pass.
-4. Refactor with tests green. Update docs and changelog.
+It ensures architectural consistency, safe refactors, and predictable behavior across sessions.
 
-**Task sizing for Copilot**
-- Prefer focused tasks: bug fixes, UI polish, test coverage, docs, config validation, technical debt.
-- Avoid broad refactors, cross-repo changes, or domain‑heavy business logic in a single task.
-- If a task is ambiguous, add acceptance criteria **before** starting.
+Authoritative project docs that Codex must respect on every PR:
 
-**How to assign tasks/prompts**
-- Issues double as prompts. Include:
-  - What to change (files/paths), acceptance tests, success criteria.
-  - Any GUI behaviors (non‑blocking, cancel, log, status text) and validation points.
-- In PRs, mention **@copilot** with batched review comments (use “Start a review”), not single comments.
-
-## 4) Build, Test, Lint (local + CI)
-```cmd
-:: Windows developer quick checks
-pre-commit run --all-files
-pytest -q
-pytest --cov=src --cov-report=term-missing
-```
-- Linters/formatters: `ruff`, `black`, `mypy` (strict enough to catch regressions).
-- GUI tests run **headless** (xvfb in CI). Tests should poll controller state/events rather than join threads.
-
-## 5) Definition of Done (applies to every PR)
-- ✅ CI green: ruff, black, mypy, pytest (+ headless GUI lane).
-- ✅ No Tk main‑thread blocking; cooperative cancel is honored.
-- ✅ Tests added/updated for all new behavior.
-- ✅ README/ARCHITECTURE updated; CHANGELOG entry for user‑visible changes.
-- ✅ Config backward compatible; manifests preserved.
-
-## 10) PR Template (enforced)
-
-```markdown
-# Summary
-Describe what this PR changes and why.
-
-# Linked Issues
-- Closes # (list issues)
-
-# Type of change
-- [ ] Feature / [ ] Bugfix / [ ] Refactor / [ ] Docs/CI / [ ] Tests
-
-# Validation
-- [ ] `pre-commit run --all-files` passed
-- [ ] `pytest -q` shows 0 failures
-- [ ] New behavior has tests (unit and/or GUI headless)
-- [ ] No main-thread blocking (Tk); heavy work in threads/subprocesses
-- [ ] Cooperative cancel honored in new paths
-
-## Test commands
-pytest -q
-pytest tests/gui -q
-
-# Screenshots (if UI changes)
-(attach images)
-
-# Docs
-- [ ] README/ARCHITECTURE updated
-- [ ] In-app Help updated
-
-# Risk & Rollback
-- Risk: Low/Medium/High
-- Rollback: Revert PR; config backward compatible
-```
-
-## 11) Key File Reference
-
-| Path | Purpose |
-|------|---------|
-| `src/api/client.py` | SD WebUI communication + retry/backoff logic |
-| `src/pipeline/executor.py` | Stage orchestration (txt2img/img2img/upscale) |
-| `src/pipeline/video.py` | FFmpeg video assembly |
-| `src/gui/main_window.py` | GUI mediator - coordinates all panels |
-| `src/gui/controller.py` | Pipeline lifecycle - **only** place that joins threads |
-| `src/gui/state.py` | State machine + CancelToken for cooperative cancellation |
-| `src/utils/config.py` | Config management - **update here when adding params** |
-| `src/utils/file_io.py` | Base64 helpers, UTF-8 file I/O |
-| `tests/test_config_passthrough.py` | **Mandatory** validation for config changes |
-| `tests/gui/conftest.py` | GUI test fixtures (tk_root, tk_pump) |
-| `presets/` | JSON config presets (txt2img/img2img/upscale/video/api) |
-| `packs/` | Prompt packs (.txt, .tsv with `neg:` prefix support) |
-
-## 12) Quick Copilot Prompts
-
-**Config Changes:**
-```
-Add `hires_steps` parameter to control second-pass steps independently:
-1. Update src/utils/config.py::get_default_config()
-2. Add slider to src/gui/config_panel.py
-3. Use in src/pipeline/executor.py txt2img payload
-4. Update tests/test_config_passthrough.py EXPECTED_TXT2IMG_PARAMS
-5. Run pytest tests/test_config_passthrough.py
-```
-
-**GUI Panel:**
-```
-Create ADetailerPanel in src/gui/adetailer_panel.py:
-1. Expose get_config() returning dict with adetailer_enabled, adetailer_model
-2. Wire to main_window.py mediator
-3. Add tests in tests/gui/test_adetailer_panel.py (use tk_root fixture)
-4. Ensure non-blocking - no direct thread joins
-```
-
-**API Backoff:**
-```
-Refactor client.check_api_ready() to exponential backoff:
-1. Use _calculate_backoff() helper from existing SDWebUIClient
-2. Add unit tests for timeout behavior in tests/test_api_client_backoff.py
-3. Test with max_retries=3, backoff_factor=1.0, jitter=0.5
-```
+- `docs/architecture/ARCHITECTURE_v2_COMBINED.md`  
+- `docs/StableNew_Roadmap_v2.0.md`  
+- `docs/CODEX_PR_Usage_SOP_COMBINED.md`  
+- `docs/codex_context/PIPELINE_RULES.md`  
+- `docs/LEARNING_SYSTEM_SPEC.md`  
+- `docs/CODING_STANDARDS.md`  
+- `docs/PROJECT_CONTEXT.md`  
 
 ---
 
+# 2. Guiding Doctrine
 
-**Last Updated:** 2025-11-06
+## 2.1 Purpose
+StableNew V2 exists to stabilize, simplify, and modernize the StableNew codebase, improving:
 
-## 6) PR Template (enforced by Copilot and humans)
-Copy lives at `.github/PULL_REQUEST_TEMPLATE.md` and is inlined here for Copilot context:
+- Reliability  
+- Architecture clarity  
+- Test coverage  
+- GUI usability  
+- Pipeline robustness  
+- Maintainability  
+- AI-assisted contribution safety  
+
+## 2.2 Golden Rules
+
+1. **Failing test first**.  
+2. **One PR = One Concern.**  
+3. **Small, incremental diffs.**  
+4. **Pipeline runs in worker threads.**  
+5. **CancelToken honored at every stage.**  
+6. **Randomizer/matrix logic are pure functions.**  
+7. **Prompt sanitization is mandatory.**  
+8. **GUI is UI-only.**  
+9. **StructuredLogger writes all manifests.**  
+10. **Architecture_v2 (combined doc) is the single source of truth.**
 
 ---
+
+# 3. Roles
+
+## 3.1 ChatGPT (Architect)
+Must:
+- Produce Codex-first PRs.
+- Require tests before code.
+- Reference Architecture_v2, Roadmap_v2.0, Pipeline Rules, Learning Spec.
+- Request missing info.
+
+Must NOT:
+- Perform large refactors.
+- Mix GUI + pipeline logic.
+- Modify code outside PR scope.
+
+## 3.2 Codex 5.1 MAX (Implementer)
+
+Codex must:
+- Apply diffs **exactly** as written.
+- Change only **Allowed Files**.
+- Ask if unsure.
+- Run tests exactly as PR specifies.
+- Respect all authoritative docs.
+
+Codex must NOT:
+- Guess behaviors.
+- Move/rename files unrequested.
+- Introduce dependencies.
+- Auto-refactor other modules.
+- Invent new PRs.
+
+## 3.3 Tester (ChatGPT)
+- Designs failing tests.
+- Ensures deterministic tests.
+- Validates lifecycle, CancelToken, threading.
+- Protects architectural separation.
+
+---
+
+# 4. Workflow
+
+## 4.1 PR Flow
+1. User request  
+2. ChatGPT PR  
+3. User approve  
+4. ChatGPT diffs  
+5. Codex implements  
+6. Codex runs tests  
+7. ChatGPT reviews  
+8. Approve/Revise  
+
+## 4.2 TDD
+1. Write failing tests  
+2. Run tests (RED)  
+3. Implement minimum code  
+4. Run tests (GREEN)  
+5. Refactor only within PR scope  
+
+---
+
+# 5. Architecture Rules
+
+## 5.1 GUI Layer
+- Tk/Ttk only  
+- No pipeline logic  
+- Only calls controller  
+- Thread-safe updates with root.after()
+
+## 5.2 Controller Layer
+- Owns lifecycle state  
+- Owns CancelToken  
+- Owns worker threads  
+- Validates config  
+- No pipeline work  
+- No file writing  
+
+## 5.3 Pipeline Layer
+- txt2img → adetailer → img2img → upscale → video  
+- No GUI references  
+- No randomizer logic  
+- API client + StructuredLogger only  
+- Returns structured outputs  
+
+## 5.4 Randomizer Layer
+- Pure functions  
+- Wildcard + matrix logic separated  
+- Sanitization required  
+- Preview/pipeline parity  
+
+## 5.5 API Layer
+- ApiResponse wrapper  
+- Retry/backoff  
+- No GUI or pipeline logic  
+
+## 5.6 Logger / Learning Layers
+- StructuredLogger atomic writes  
+- LearningRecordWriter JSONL append  
+- No controller/GUI logic  
+
+---
+
+# 6. PR Structure Requirements
+
+1. Title  
+2. Summary  
+3. Problem  
+4. Goals  
+5. Non-goals  
+6. Allowed Files  
+7. Forbidden Files  
+8. Step-by-step Implementation  
+9. Required Tests  
+10. Acceptance Criteria  
+11. Rollback Plan  
+12. Codex Constraints  
+13. Smoke Test Checklist  
+
+---
+
+# 7. Memory Keys (Always Loaded)
+
+- ARCHITECTURE_v2_COMBINED.md  
+- StableNew_Roadmap_v2.0.md  
+- CODEX_PR_Usage_SOP_COMBINED.md  
+- PIPELINE_RULES.md  
+- LEARNING_SYSTEM_SPEC.md  
+- CODING_STANDARDS.md  
+- PROJECT_CONTEXT.md  
+- GUI skeleton  
+- Controller skeleton  
+- Randomizer summary  
+- StructuredLogger plan  
+- PR bundle map  
+- Known issues  
+- Threading fix plan  
+
+---
+
+# 8. Repo Organization
+
+```
+src/
+  gui/
+  controller/
+  pipeline/
+  api/
+  learning/
+  utils/
+docs/
+  architecture/
+  pr_templates/
+  schemas/
+  agents/
+tests/
+  controller/
+  pipeline/
+  gui/
+  learning/
+  utils/
+  config/
 ```
 
+Forbidden:
+- Root-level untyped modules  
+- Versioned folders  
+- Duplicate agent instructions  
+- Multiple READMEs  
+
 ---
 
-**Last Updated:** 2025-11-06
+# 9. Testing Doctrine
+
+Tests MUST:
+- Be deterministic  
+- Validate lifecycle & CancelToken  
+- Mock API  
+- Validate manifests  
+- Validate randomization  
+- No real windows  
+- No timing sleeps  
+- No network calls  
+
 ---
 
-## 7) Repository Structure (high‑value paths for Copilot)
-- `src/api/client.py` — SD WebUI communication + readiness checks (backoff).
-- `src/pipeline/executor.py` — stage orchestration and error logging.
-- `src/pipeline/video.py` — FFmpeg assembly.
-- `utils/file_io.py` — base64 helpers and atomic writes.
-- `presets/` — hierarchical JSON configs (`txt2img/img2img/upscale/video/api`).
-- `packs/` — prompt packs (`.txt` and `.tsv`; `neg:` prefix supported).
+# 10. ChatGPT Behavioral Constraints
 
-## 8) Path‑Specific Instructions (auto‑applied by Copilot)
-- **GUI tests** (`tests/gui/**`)
-  - Use headless harness, poll controller events (e.g., `lifecycle_event`) and widget state.
-  - No `join()` on worker threads; never block Tk.
-- **Config tests** (`tests/config/**`)
-  - Verify pass‑through of settings to API calls; cover `global_neg` safety list.
-- **Editor panel** (`src/gui/editor/**`)
-  - Preserve `status_text`, `name:` prefix handling, angle‑brackets, Global Negative, and Save‑All UX.
+ChatGPT MUST:
+- Follow Architecture_v2  
+- Use TDD  
+- Ask for clarification  
+- Keep diffs tiny  
+- Avoid rewrites  
 
-## 9) Copilot Environment (Actions) — Setup Steps
-- We pre‑install dependencies in `copilot-setup-steps.yml` (runs before the agent session).
-- Environment secrets/variables (if needed) should be set in the `copilot` environment.
-- Larger runners may be configured later; current default is ubuntu‑latest.
+ChatGPT MUST NOT:
+- Add abstractions  
+- Modify stable modules  
+- Merge concerns  
+- Break controller/pipeline rules  
 
-## 10) Working Agreements (sequence of small PRs Copilot can follow)
-1) Extract/finish panels + mediator wiring.
-2) Stop/Cancel: controller cancel token plumbed; non‑blocking logs.
-3) Generation params: hires steps, dimensions, face‑restore toggles.
-4) ADetailer panel + per‑image decision loop.
-5) Editor polish (status_text, name prefix, angle brackets, Global Negative; Save‑All UX).
-6) Docs/CI polish.
+---
 
-
-**Appendix B — Known Non‑Goals for Copilot**
-- Cross‑repo refactors, major redesigns, or production‑critical auth/security changes in one PR.
-- Tasks lacking acceptance criteria or reproducible steps.
+# 11. Conclusion
+These rules govern **all** PRs created by ChatGPT and implemented by **Co-pilot** or **Codex 5.1 MAX**.
+They ensure safe, consistent, maintainable development across StableNew V2.

@@ -49,6 +49,7 @@ class LearningRecord:
     stage_plan: List[str] = field(default_factory=list)
     stage_events: List[Dict[str, Any]] = field(default_factory=list)
     outputs: List[Dict[str, Any]] = field(default_factory=list)
+    sidecar_priors: Dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), sort_keys=True)

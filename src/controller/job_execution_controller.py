@@ -9,6 +9,11 @@ from typing import Callable, Optional
 from src.queue.job_model import Job, JobPriority, JobStatus
 from src.queue.job_queue import JobQueue
 from src.queue.single_node_runner import SingleNodeJobRunner
+from src.queue.job_history_store import JobHistoryStore, JSONLJobHistoryStore
+from pathlib import Path
+from src.config.app_config import get_job_history_path
+from src.cluster.worker_registry import WorkerRegistry
+from src.cluster.worker_model import WorkerDescriptor
 
 
 class JobExecutionController:
@@ -18,8 +23,12 @@ class JobExecutionController:
         self,
         execute_job: Callable[[Job], dict] | None = None,
         poll_interval: float = 0.05,
+        history_store: JobHistoryStore | None = None,
+        worker_registry: WorkerRegistry | None = None,
     ) -> None:
-        self._queue = JobQueue()
+        self._history_store = history_store or self._default_history_store()
+        self._worker_registry = worker_registry or WorkerRegistry()
+        self._queue = JobQueue(history_store=self._history_store)
         self._execute_job = execute_job
         self._runner = SingleNodeJobRunner(
             self._queue, self._execute_job, poll_interval=poll_interval, on_status_change=self._on_status
@@ -42,7 +51,12 @@ class JobExecutionController:
 
     def submit_pipeline_run(self, pipeline_callable, *, priority: JobPriority = JobPriority.NORMAL) -> str:
         job_id = str(uuid.uuid4())
-        job = Job(job_id=job_id, pipeline_config=None, priority=priority, payload=pipeline_callable)
+        worker_id = None
+        try:
+            worker_id = self._worker_registry.get_local_worker().id
+        except Exception:
+            worker_id = None
+        job = Job(job_id=job_id, pipeline_config=None, priority=priority, payload=pipeline_callable, worker_id=worker_id)
         self._queue.submit(job)
         self.start()
         return job_id
@@ -69,3 +83,16 @@ class JobExecutionController:
                 cb(job, status)
             except Exception:
                 pass
+
+    def get_history_store(self) -> JobHistoryStore:
+        return self._history_store
+
+    def get_queue(self) -> JobQueue:
+        return self._queue
+
+    def get_worker_registry(self) -> WorkerRegistry:
+        return self._worker_registry
+
+    def _default_history_store(self) -> JobHistoryStore:
+        path = Path(get_job_history_path())
+        return JSONLJobHistoryStore(path)

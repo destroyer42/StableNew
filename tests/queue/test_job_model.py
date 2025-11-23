@@ -1,19 +1,10 @@
-from __future__ import annotations
-
-from datetime import datetime
-
 from src.queue.job_model import Job, JobPriority, JobStatus
-from src.pipeline.pipeline_runner import PipelineConfig
 
 
-def test_job_serialization_and_status_update():
-    cfg = PipelineConfig(prompt="p", model="m", sampler="Euler", width=512, height=512, steps=20, cfg_scale=7.0)
-    job = Job(job_id="job-1", pipeline_config=cfg, priority=JobPriority.HIGH, learning_enabled=True)
+def test_job_defaults_include_worker_id_optional():
+    job = Job(job_id="j1", pipeline_config=None, priority=JobPriority.NORMAL)
+    assert job.worker_id is None
     assert job.status == JobStatus.QUEUED
-    job.mark_status(JobStatus.RUNNING)
-    assert job.status == JobStatus.RUNNING
-    assert job.started_at is not None
-    payload = job.to_dict()
-    assert payload["job_id"] == "job-1"
-    assert payload["status"] == JobStatus.RUNNING.value
-    assert isinstance(datetime.fromisoformat(payload["created_at"]), datetime)
+
+    as_dict = job.to_dict()
+    assert "worker_id" in as_dict

@@ -172,6 +172,15 @@ Integration Points:
 - Controller provides an opt‑in learning runner and will later expose user‑triggered Learning Runs via GUI V2.
 - Future external LLMs can ingest LearningRecords to propose new presets.
 
+### 5.3 Model & LoRA Profile Priors (NEW)
+
+- **ModelProfile** and **LoraProfile** JSON sidecars provide external priors for pipeline config assembly.
+- Controller can load these priors to suggest recommended presets for a given model + LoRA combination.
+- Priors are merged with user overrides and learning records; they do not alter canonical LearningRecord format.
+- Enables sensible defaults and future GUI surfacing of "Good/Better/Best" presets.
+
+See `src/learning/model_profiles.py` for schema and usage.
+
 ---
 
 ## 6. Cluster & IO Layer (Vision Aligned with C3)
@@ -188,11 +197,15 @@ Although not fully implemented yet, the architecture reserves a dedicated layer 
 
 ### 6.2 Queue Manager
 
-- Central in‑memory (later persistent) queue.
+- Central in-memory (later persistent) queue.
 - Responsible for:
   - Accepting jobs from GUI/CLI.
   - Assigning jobs to worker nodes based on capabilities and load.
   - Tracking job state (queued, running, completed, failed).
+  - Writing lifecycle snapshots to a JobHistoryStore so controllers and GUI panels can inspect active and completed work without depending on in-memory state.
+  - Exposing controller-facing hooks for cancel/retry actions; GUI invokes these via controller facades only (no direct queue mutations).
+  - Maintaining worker metadata via a WorkerRegistry; jobs carry an optional worker_id for future scheduling/diagnostics.
+  - QueueExecutionController is the bridge from PipelineController into the queue/runner; PipelineController uses it when queue_execution_enabled is on.
 
 ### 6.3 Worker Agents
 

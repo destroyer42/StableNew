@@ -76,6 +76,17 @@ A **LearningRunResult** aggregates records and feedback for an entire LearningPl
 - steps: list of (step_id, rating, tags)
 - summary stats (best performing value, spread of ratings, etc.).
 
+### 2.4 Model & LoRA Profile Priors (NEW)
+
+StableNew now supports structured sidecar files—**ModelProfile** and **LoraProfile**—as external "priors" for learning runs. These JSON files can be co-located with model and LoRA files and encode recommended presets (sampler, scheduler, steps, CFG, resolution, LoRA pairings/weights) sourced from community best practices or local learning history.
+
+- **ModelProfile**: Encodes recommended pipeline settings for a base model, including preset tiers (good/better/best) and summary stats.
+- **LoraProfile**: Encodes recommended weights, pairings, and trigger phrases for a LoRA.
+
+The controller can assemble pipeline configs using these priors, merging them with user overrides and learning records. This enables "cold start" runs with sensible defaults and lays the foundation for future GUI surfacing and automated preset updates.
+
+See `src/learning/model_profiles.py` for schema and helpers.
+
 ---
 
 ## 3. Passive Learning Workflow
