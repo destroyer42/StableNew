@@ -12,6 +12,7 @@ from src.api.client import SDWebUIClient
 from src.learning.learning_record import LearningRecord, LearningRecordWriter
 from src.learning.learning_record_builder import build_learning_record
 from src.learning.run_metadata import write_run_metadata
+from src.gui.state import CancellationError
 from src.pipeline.executor import Pipeline
 from src.pipeline.stage_sequencer import (
     StageExecutionPlan,
@@ -68,6 +69,10 @@ class PipelineRunner:
         self._runs_base_dir = runs_base_dir or "runs"
         self._learning_enabled = bool(learning_enabled)
 
+    def _ensure_not_cancelled(self, cancel_token: "CancelToken" | None, context: str) -> None:
+        if cancel_token and getattr(cancel_token, "is_cancelled", None) and cancel_token.is_cancelled():
+            raise CancellationError(f"Cancelled during {context}")
+
     def set_learning_enabled(self, enabled: bool) -> None:
         """Toggle passive learning record emission."""
 
@@ -92,6 +97,7 @@ class PipelineRunner:
         stage_plan: StageExecutionPlan | None = None
         run_id = str(uuid4())
         stage_events: list[dict[str, Any]] = []
+        current_stage: StageTypeEnum | None = None
 
         try:
             reset_events = getattr(self._pipeline, "reset_stage_events", None)
@@ -100,21 +106,23 @@ class PipelineRunner:
             stage_plan = build_stage_execution_plan(executor_config)
             if not stage_plan.stages:
                 raise ValueError("No pipeline stages enabled")
+            self._ensure_not_cancelled(cancel_token, "pipeline start")
             run_dir = Path(self._runs_base_dir) / run_id
             run_dir.mkdir(parents=True, exist_ok=True)
 
             for stage in stage_plan.stages:
-                stage_type = StageTypeEnum(stage.stage_type)
+                current_stage = StageTypeEnum(stage.stage_type)
+                self._ensure_not_cancelled(cancel_token, f"{current_stage.value} start")
                 stage_events.append(
                     {
-                        "stage": stage_type.value,
+                        "stage": current_stage.value,
                         "phase": "enter",
                         "image_index": 1,
                         "total_images": 1,
                         "cancelled": False,
                     }
                 )
-                if stage_type == StageTypeEnum.TXT2IMG:
+                if current_stage == StageTypeEnum.TXT2IMG:
                     negative = executor_config.get("txt2img", {}).get("negative_prompt", "")
                     last_image_meta = self._pipeline.run_txt2img_stage(
                         prompt,
@@ -122,8 +130,9 @@ class PipelineRunner:
                         executor_config,
                         run_dir,
                         image_name=f"txt2img_{stage.order_index}",
+                        cancel_token=cancel_token,
                     )
-                elif stage_type == StageTypeEnum.IMG2IMG:
+                elif current_stage == StageTypeEnum.IMG2IMG:
                     if not last_image_meta or not last_image_meta.get("path"):
                         raise ValueError("img2img requires input image from previous stage")
                     last_image_meta = self._pipeline.run_img2img_stage(
@@ -131,8 +140,9 @@ class PipelineRunner:
                         prompt,
                         executor_config.get("img2img", {}),
                         run_dir,
+                        cancel_token=cancel_token,
                     )
-                elif stage_type == StageTypeEnum.UPSCALE:
+                elif current_stage == StageTypeEnum.UPSCALE:
                     if not last_image_meta or not last_image_meta.get("path"):
                         raise ValueError("upscale requires input image from previous stage")
                     last_image_meta = self._pipeline.run_upscale_stage(
@@ -140,8 +150,9 @@ class PipelineRunner:
                         executor_config.get("upscale", {}),
                         run_dir,
                         image_name=Path(last_image_meta["path"]).stem,
+                        cancel_token=cancel_token,
                     )
-                elif stage_type == StageTypeEnum.ADETAILER:
+                elif current_stage == StageTypeEnum.ADETAILER:
                     if not last_image_meta or not last_image_meta.get("path"):
                         raise ValueError("adetailer requires input image from previous stage")
                     adetailer_cfg = dict(executor_config.get("adetailer", {}))
@@ -152,10 +163,12 @@ class PipelineRunner:
                         run_dir,
                         image_name=Path(last_image_meta["path"]).stem,
                         prompt=prompt,
+                        cancel_token=cancel_token,
                     )
+                self._ensure_not_cancelled(cancel_token, f"{current_stage.value} post")
                 stage_events.append(
                     {
-                        "stage": stage_type.value,
+                        "stage": current_stage.value,
                         "phase": "exit",
                         "image_index": 1,
                         "total_images": 1,
@@ -163,6 +176,16 @@ class PipelineRunner:
                     }
                 )
             success = True
+        except CancellationError:
+            stage_events.append(
+                {
+                    "stage": current_stage.value if current_stage else "pipeline",
+                    "phase": "cancelled",
+                    "image_index": 1,
+                    "total_images": 1,
+                    "cancelled": True,
+                }
+            )
         finally:
             record = None
 
