@@ -2,6 +2,10 @@
 # Summary
 Describe what this PR changes and why.
 
+# Layers & Boundaries
+- Layers touched (per docs/architecture/ARCHITECTURE_v2.md): GUI / Controller / Pipeline / Integration.
+- Forbidden boundary check: confirm no direct calls across layers (e.g., GUI -> pipeline internals) and flag any scope creep early.
+
 # Linked Issues
 - Closes # (list the issues this PR addresses)
 
@@ -18,6 +22,10 @@ Describe what this PR changes and why.
 - [ ] New/changed behavior has tests (unit and/or GUI headless where applicable).
 - [ ] No main-thread blocking (Tk); heavy work is in threads/subprocesses with queue callbacks.
 - [ ] Cooperative cancel is honored in new/changed paths.
+
+## Test Plan (write failing tests first)
+- Enumerate deterministic failing tests to add under `tests/<domain>/` following docs/Testing_Strategy_v2.md.
+- Note any mocks/stubs needed to avoid flakiness or forbidden dependencies (e.g., network/UI threads).
 
 ## Test commands used
 ```
