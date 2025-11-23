@@ -1818,6 +1818,7 @@ class Pipeline:
         config: dict[str, Any],
         output_dir: Path,
         image_name: str,
+        cancel_token=None,
     ) -> dict[str, Any] | None:
         """
         Run single txt2img stage for individual prompt.
@@ -1834,6 +1835,7 @@ class Pipeline:
         """
         self._record_stage_event("txt2img", "enter", 1, 1, False)
         try:
+            self._ensure_not_cancelled(cancel_token, "txt2img stage start")
             # Ensure output directory exists
             output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2061,6 +2063,9 @@ class Pipeline:
                 self._record_stage_event("txt2img", "exit", 1, 1, False)
                 return None
 
+        except CancellationError:
+            self._record_stage_event("txt2img", "cancelled", 1, 1, True)
+            raise
         except Exception as e:
             logger.error(f"txt2img stage failed: {str(e)}")
             return None
@@ -2073,6 +2078,7 @@ class Pipeline:
         output_dir: Path,
         image_name: str,
         full_config: dict[str, Any] | None = None,
+        cancel_token=None,
     ) -> dict[str, Any] | None:
         """
         Run img2img stage for image cleanup/refinement.
@@ -2089,6 +2095,7 @@ class Pipeline:
         """
         self._record_stage_event("img2img", "enter", 1, 1, False)
         try:
+            self._ensure_not_cancelled(cancel_token, "img2img stage start")
             # Ensure output directory exists
             output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2243,12 +2250,15 @@ class Pipeline:
                 self._record_stage_event("img2img", "exit", 1, 1, False)
                 return None
 
+        except CancellationError:
+            self._record_stage_event("img2img", "cancelled", 1, 1, True)
+            raise
         except Exception as e:
             logger.error(f"img2img stage failed: {e}")
             return None
 
     def run_upscale_stage(
-        self, input_image_path: Path, config: dict[str, Any], output_dir: Path, image_name: str
+        self, input_image_path: Path, config: dict[str, Any], output_dir: Path, image_name: str, cancel_token=None
     ) -> dict[str, Any] | None:
         """
         Run upscale stage for image enhancement.
@@ -2264,6 +2274,7 @@ class Pipeline:
         """
         self._record_stage_event("upscale", "enter", 1, 1, False)
         try:
+            self._ensure_not_cancelled(cancel_token, "upscale stage start")
             # Ensure output directory exists
             output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2485,6 +2496,9 @@ class Pipeline:
                 self._record_stage_event("upscale", "exit", 1, 1, False)
                 return None
 
+        except CancellationError:
+            self._record_stage_event("upscale", "cancelled", 1, 1, True)
+            raise
         except Exception as e:
             logger.error(f"Upscale stage failed: {e}")
             self._record_stage_event("upscale", "exit", 1, 1, False)
@@ -2504,6 +2518,7 @@ class Pipeline:
         """
         self._record_stage_event("adetailer", "enter", 1, 1, False)
         try:
+            self._ensure_not_cancelled(cancel_token, "adetailer stage start")
             output_dir.mkdir(parents=True, exist_ok=True)
             adetailer_cfg = dict(config or {})
             adetailer_cfg.setdefault("pipeline", config.get("pipeline", {}) if isinstance(config, dict) else {})
@@ -2514,6 +2529,9 @@ class Pipeline:
             if result:
                 self._last_adetailer_result = result
             return result
+        except CancellationError:
+            self._record_stage_event("adetailer", "cancelled", 1, 1, True)
+            raise
         except Exception as e:
             logger.error(f"adetailer stage failed: {e}")
             return None
