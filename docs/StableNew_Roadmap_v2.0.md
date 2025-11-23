@@ -97,6 +97,7 @@ As of the **StableNew-MoreSafe-11-21-2025-0818** snapshot:
 
 - Finish stage cards with all relevant fields (including ADetailer, Refiner, Hires fix where appropriate).
 - Group Run / Stop / Queue mode controls into a dedicated pipeline command bar within the V2 layout.
+- Add an **Advanced Prompt Editor** entry point so long-form prompts can be edited in a focused overlay without changing pipeline semantics.
 - Add **Learning mode toggles** (Off / Passive / Active) at the GUI level.
 - Add **Randomizer UX** enhancements (clear labels, “How many variants?”, safety hints).
 - Implement **preset & profile management** within GUI V2.

@@ -58,6 +58,12 @@
 
 ---
 
+## 2025-11-22 (Advanced prompt editor overlay)
+
+> **PR-#49-GUI-V2-AdvancedPromptEditor-001** – Added an AdvancedPromptEditorV2 widget and integrated it with the GUI V2 pipeline panel so users can edit prompts in a larger, focused text area. Opening the editor pre-fills from the current prompt input; applying changes feeds updated text back into the main pipeline prompt field(s) without changing pipeline or controller behavior. New GUI V2 tests cover editor callback behavior and prompt roundtrip between the pipeline panel and the advanced editor.
+
+---
+
 ## How To Update
 
 After each major PR or refactor, add 3-6 bullets:

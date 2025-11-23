@@ -236,6 +236,27 @@ Each issue is described in terms of:
 
 ---
 
+### 4.3 Cramped Prompt Editing (Partially Addressed)
+
+**Symptom**
+
+- Main prompt input is small and hard to use for long-form prompts.
+- No obvious way to review or edit prompt text without losing context.
+
+**Status**
+
+- V2 now exposes an Advanced Prompt Editor overlay for long-form prompt editing without changing pipeline semantics.
+- Negative prompt editing and deeper validation are future follow-ups.
+
+**Suggested Approach**
+
+- Continue refining the advanced editor UX (negative prompt area, validation hints, shortcut to open from prompt field).
+- Keep edits flowing back to the existing prompt field to avoid changing pipeline/controller behavior.
+- Add guardrail tests that opening the editor pre-fills from the main prompt and applying updates the main field while cancel
+  leaves it unchanged.
+
+---
+
 ## 5. Testing Gaps & TDD Discipline
 
 ### 5.1 Tests Not Keeping Up With Features
