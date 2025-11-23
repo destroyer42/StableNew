@@ -136,12 +136,22 @@ class PipelinePanelV2(ttk.Frame):
         self._close_advanced_editor()
 
     def _close_advanced_editor(self) -> None:
-        if self._editor_window and self._editor_window.winfo_exists():
+        window = self._editor_window
+        if window is None:
+            class _NullWindow:
+                @staticmethod
+                def winfo_exists():
+                    return False
+            self._editor_window = _NullWindow()
+            self._editor = None
+            return
+        if window.winfo_exists():
             try:
-                self._editor_window.destroy()
+                window.destroy()
             except Exception:
                 pass
-        self._editor_window = None
+        # Keep the destroyed window reference so tests can safely query winfo_exists()
+        self._editor_window = window
         self._editor = None
 
     def load_from_config(self, config: dict | None) -> None:

@@ -13,11 +13,20 @@ from src.utils.config import ConfigManager
 class GuiOverrides:
     prompt: str = ""
     model: str = ""
+    model_name: str = ""
+    vae_name: str = ""
     sampler: str = ""
     width: int = 512
     height: int = 512
     steps: int = 20
     cfg_scale: float = 7.0
+    resolution_preset: str = ""
+    negative_prompt: str = ""
+    output_dir: str = ""
+    filename_pattern: str = ""
+    image_format: str = ""
+    batch_size: int = 1
+    seed_mode: str = ""
     metadata: dict[str, Any] | None = None
 
 
@@ -39,18 +48,39 @@ class PipelineConfigAssembler:
         gui_overrides = self._normalize_overrides(overrides)
         base = deepcopy(base_config or self._default_txt2img())
         merged = self._merge_base_and_overrides(base, gui_overrides)
+
+        preset_value = gui_overrides.get("resolution_preset") or merged.get("resolution_preset")
+        if preset_value:
+            merged = self._apply_resolution_preset(merged, preset_value)
+
         merged = self.apply_megapixel_clamp(merged)
 
         metadata = dict(gui_overrides.get("metadata") or {})
+        if gui_overrides.get("negative_prompt") is not None:
+            metadata["negative_prompt"] = gui_overrides.get("negative_prompt", "")
+        if gui_overrides.get("vae_name"):
+            metadata["vae"] = gui_overrides.get("vae_name", "")
+        if gui_overrides.get("model_name"):
+            metadata["model_name"] = gui_overrides.get("model_name", "")
+        output_meta = {
+            "output_dir": gui_overrides.get("output_dir"),
+            "filename_pattern": gui_overrides.get("filename_pattern"),
+            "image_format": gui_overrides.get("image_format"),
+            "batch_size": gui_overrides.get("batch_size"),
+            "seed_mode": gui_overrides.get("seed_mode"),
+        }
+        metadata["output"] = {k: v for k, v in output_meta.items() if v not in (None, "")}
         if learning_metadata:
             metadata["learning"] = learning_metadata
             metadata["learning_enabled"] = bool(learning_metadata.get("learning_enabled", True))
         if randomizer_metadata:
             metadata["randomizer"] = randomizer_metadata
 
+        selected_model = gui_overrides.get("model_name") or gui_overrides.get("model") or merged.get("model", "")
+
         return PipelineConfig(
             prompt=gui_overrides.get("prompt", merged.get("prompt", "")),
-            model=gui_overrides.get("model", merged.get("model", "")),
+            model=selected_model,
             sampler=gui_overrides.get("sampler", merged.get("sampler_name", "")),
             width=int(merged.get("width", 512)),
             height=int(merged.get("height", 512)),
@@ -107,11 +137,20 @@ class PipelineConfigAssembler:
             return {
                 "prompt": overrides.prompt,
                 "model": overrides.model,
+                "model_name": overrides.model_name,
+                "vae_name": overrides.vae_name,
                 "sampler": overrides.sampler,
                 "width": overrides.width,
                 "height": overrides.height,
                 "steps": overrides.steps,
                 "cfg_scale": overrides.cfg_scale,
+                "resolution_preset": overrides.resolution_preset,
+                "negative_prompt": overrides.negative_prompt,
+                "output_dir": overrides.output_dir,
+                "filename_pattern": overrides.filename_pattern,
+                "image_format": overrides.image_format,
+                "batch_size": overrides.batch_size,
+                "seed_mode": overrides.seed_mode,
                 "metadata": overrides.metadata or {},
             }
         return dict(overrides)
@@ -123,3 +162,27 @@ class PipelineConfigAssembler:
                 continue
             merged[k] = v
         return merged
+
+    def _apply_resolution_preset(self, cfg: dict[str, Any], preset: str) -> dict[str, Any]:
+        width_height = self._parse_resolution_preset(preset)
+        if width_height:
+            cfg["width"], cfg["height"] = width_height
+            cfg["resolution_preset"] = preset
+        return cfg
+
+    @staticmethod
+    def _parse_resolution_preset(preset: str) -> tuple[int, int] | None:
+        if not preset:
+            return None
+        token = preset.lower().replace(" ", "")
+        if "x" not in token:
+            return None
+        try:
+            parts = token.split("x")
+            if len(parts) != 2:
+                return None
+            width = int(parts[0])
+            height = int(parts[1])
+            return width, height
+        except Exception:
+            return None

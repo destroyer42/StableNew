@@ -16,6 +16,7 @@ from src.gui.panels_v2 import (
     SidebarPanelV2,
     StatusBarV2,
 )
+from src.gui.prompt_pack_adapter_v2 import PromptPackAdapterV2, PromptPackSummary
 from src.gui.job_history_panel_v2 import JobHistoryPanelV2
 
 
@@ -25,21 +26,21 @@ class AppLayoutV2:
     def __init__(self, owner: Any, theme: Any = None) -> None:
         self.owner = owner
         self.theme = theme
+        try:
+            self.prompt_pack_adapter = getattr(owner, "prompt_pack_adapter_v2")
+        except Exception:
+            self.prompt_pack_adapter = None
+        if self.prompt_pack_adapter is None:
+            try:
+                self.prompt_pack_adapter = PromptPackAdapterV2()
+                setattr(owner, "prompt_pack_adapter_v2", self.prompt_pack_adapter)
+            except Exception:
+                self.prompt_pack_adapter = None
 
     def build_layout(self, root_frame: Any | None = None) -> None:
         """Instantiate panels and attach them to the owner if not already present."""
 
         owner = self.owner
-
-        # Sidebar
-        if not hasattr(owner, "sidebar_panel_v2") and hasattr(owner, "left_zone"):
-            owner.sidebar_panel_v2 = SidebarPanelV2(
-                owner.left_zone, controller=getattr(owner, "controller", None), theme=self.theme
-            )
-            try:
-                owner.sidebar_panel_v2.pack(fill="both", expand=True)
-            except Exception:
-                pass
 
         # Pipeline / center panel
         center_parent = getattr(owner, "center_stack", None) or getattr(owner, "center_zone", None)
@@ -52,6 +53,28 @@ class AppLayoutV2:
             )
             try:
                 owner.pipeline_panel_v2.pack(fill="both", expand=True)
+            except Exception:
+                pass
+
+        # Sidebar (depends on prompt pack adapter and apply callback)
+        if not hasattr(owner, "sidebar_panel_v2") and hasattr(owner, "left_zone"):
+            owner.sidebar_panel_v2 = SidebarPanelV2(
+                owner.left_zone,
+                controller=getattr(owner, "controller", None),
+                theme=self.theme,
+                prompt_pack_adapter=self.prompt_pack_adapter,
+                on_apply_pack=self._apply_pack_to_prompt,
+            )
+            try:
+                owner.sidebar_panel_v2.pack(fill="both", expand=True)
+            except Exception:
+                pass
+        if hasattr(owner, "sidebar_panel_v2"):
+            try:
+                owner.model_manager_panel_v2 = getattr(owner.sidebar_panel_v2, "model_manager_panel", None)
+                owner.core_config_panel_v2 = owner.sidebar_panel_v2.core_config_panel
+                owner.negative_prompt_panel_v2 = owner.sidebar_panel_v2.negative_prompt_panel
+                owner.resolution_panel_v2 = getattr(owner.sidebar_panel_v2.core_config_panel, "resolution_panel", None)
             except Exception:
                 pass
 
@@ -124,3 +147,18 @@ class AppLayoutV2:
 
         if run_button is not None:
             self.owner.run_button = run_button
+
+    def _apply_pack_to_prompt(self, prompt_text: str, summary: PromptPackSummary | None = None) -> None:
+        pipeline_panel = getattr(self.owner, "pipeline_panel_v2", None)
+        if pipeline_panel is None:
+            return
+        pipeline_panel.set_prompt(prompt_text or "")
+        editor = getattr(pipeline_panel, "_editor", None)
+        editor_window = getattr(pipeline_panel, "_editor_window", None)
+        if editor and editor_window and getattr(editor_window, "winfo_exists", lambda: False)():
+            try:
+                editor.prompt_text.delete("1.0", "end")
+                if prompt_text:
+                    editor.prompt_text.insert("1.0", prompt_text)
+            except Exception:
+                pass

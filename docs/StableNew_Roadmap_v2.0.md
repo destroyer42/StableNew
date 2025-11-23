@@ -164,6 +164,7 @@ As of the **StableNew-MoreSafe-11-21-2025-0818** snapshot:
 ### Phase 1 – Solidify V2 Single‑Node Experience
 
 - Lock V2 layout and stage cards (txt2img, img2img, upscale, adetailer/refiner where applicable).
+- Surface prompt pack browsing/apply in the GUI V2 sidebar without changing pack formats.
 - Complete pipeline stage sequencing and CancelToken handling.
 - Add passive learning hooks for every run (LearningRecord writing).
 - Finalize randomizer preview/pipeline parity and UI clarity.

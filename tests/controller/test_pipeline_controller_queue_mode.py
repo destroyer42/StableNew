@@ -1,3 +1,4 @@
+from src.controller.webui_connection_controller import WebUIConnectionState
 from types import SimpleNamespace
 from unittest import mock
 
@@ -31,6 +32,7 @@ class FakeQueueExecutionController:
 def test_queue_mode_disabled_uses_direct(monkeypatch):
     monkeypatch.setattr("src.controller.pipeline_controller.is_queue_execution_enabled", lambda: False)
     controller = PipelineController(state_manager=StateManager())
+    controller._webui_connection.ensure_connected = lambda autostart=True: WebUIConnectionState.READY
     controller._queue_execution_enabled = False
     controller._queue_execution_controller = mock.Mock()
     controller._job_controller.submit_pipeline_run = mock.Mock(return_value="direct-job")
@@ -46,6 +48,7 @@ def test_queue_mode_enabled_submits_and_handles_callbacks(monkeypatch):
     queue_ctrl = FakeQueueExecutionController()
     sm = StateManager()
     controller = PipelineController(state_manager=sm, queue_execution_controller=queue_ctrl)
+    controller._webui_connection.ensure_connected = lambda autostart=True: WebUIConnectionState.READY
     controller._queue_execution_enabled = True
 
     started = controller.start_pipeline(lambda: {"ok": True})

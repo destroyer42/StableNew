@@ -87,9 +87,33 @@ Stages must be **composable** and individually testable where possible.
 - When touching upscale/tiling:
   - Always update tests and add new fixtures for edge cases.
 
+## 7. Output Settings (GUI V2)
+
+- Output directory/profile, filename pattern, image format, batch size, and seed mode are surfaced via `OutputSettingsPanelV2`.
+- These values flow GUI → `GuiOverrides` → `PipelineConfigAssembler` and are stored under `config.metadata["output"]`; the pipeline runner consumes them as part of config metadata (no direct filesystem writes in GUI).
+- Defaults come from `app_config`; keep them centralized and avoid hard-coded paths in widgets or assemblers.
+
 ---
 
-## 7. Queue-Backed Execution Mode
+## 8. Model Manager (GUI V2)
+
+- Model selection lives in `ModelManagerPanelV2` (model + optional VAE) and must not perform direct filesystem scans.
+- Names flow GUI → `GuiOverrides` → `PipelineConfigAssembler`; assembler maps `model_name` to the main `PipelineConfig.model` and stores `vae_name` in metadata for downstream consumers.
+- Defaults come from `app_config` (env overrides allowed); refresh uses existing WebUI client APIs via a thin adapter.
+
+---
+
+
+
+## 10. WebUI Connection & Run Gating
+
+- WebUI connectivity is managed by `WebUIConnectionController`; GUI startup is non-blocking.
+- Pipeline runs are gated on WebUIConnectionState.READY; runs bail early otherwise.
+- GUI exposes reconnect controls/status; autostart/health timeouts live in app_config (env overridable).
+
+---
+
+## 9. Queue-Backed Execution Mode
 
 - Controlled by configuration (`queue_execution_enabled`, default False).
 - When enabled, PipelineController submits jobs via QueueExecutionController using `PipelineConfig` as the job payload.

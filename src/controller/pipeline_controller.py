@@ -14,6 +14,8 @@ from src.gui.state import GUIState
 from src.config.app_config import is_queue_execution_enabled
 from src.controller.job_history_service import JobHistoryService
 from src.controller.pipeline_config_assembler import PipelineConfigAssembler, GuiOverrides
+from src.controller.webui_connection_controller import WebUIConnectionController, WebUIConnectionState
+from src.config import app_config
 
 
 class PipelineController(_GUIPipelineController):
@@ -24,11 +26,20 @@ class PipelineController(_GUIPipelineController):
             return GuiOverrides(
                 prompt=str(overrides.get("prompt", "")),
                 model=str(overrides.get("model", "")),
+                model_name=str(overrides.get("model_name", overrides.get("model", ""))),
+                vae_name=str(overrides.get("vae_name", "")),
                 sampler=str(overrides.get("sampler", "")),
                 width=int(overrides.get("width", 512) or 512),
                 height=int(overrides.get("height", 512) or 512),
                 steps=int(overrides.get("steps", 20) or 20),
                 cfg_scale=float(overrides.get("cfg_scale", 7.0) or 7.0),
+                resolution_preset=str(overrides.get("resolution_preset", "")),
+                negative_prompt=str(overrides.get("negative_prompt", "")),
+                output_dir=str(overrides.get("output_dir", "")),
+                filename_pattern=str(overrides.get("filename_pattern", "")),
+                image_format=str(overrides.get("image_format", "")),
+                batch_size=int(overrides.get("batch_size", 1) or 1),
+                seed_mode=str(overrides.get("seed_mode", "")),
                 metadata=dict(overrides.get("metadata") or {}),
             )
         return GuiOverrides()
@@ -55,6 +66,12 @@ class PipelineController(_GUIPipelineController):
                 pass
 
         return GuiOverrides()
+
+    def get_webui_connection_state(self):
+        if hasattr(self, "_webui_connection") and self._webui_connection is not None:
+            return self._webui_connection.get_state()
+        return None
+
 
     def _extract_metadata(self, attr_name: str) -> dict[str, Any] | None:
         value = None
@@ -156,6 +173,7 @@ class PipelineController(_GUIPipelineController):
         **kwargs,
     ):
         queue_execution_controller = kwargs.pop("queue_execution_controller", None)
+        webui_conn = kwargs.pop("webui_connection_controller", None)
         super().__init__(state_manager or StateManager(), **kwargs)
         self._learning_runner = None
         self._learning_record_writer = learning_record_writer
@@ -169,6 +187,7 @@ class PipelineController(_GUIPipelineController):
         self._queue_execution_controller: QueueExecutionController | None = queue_execution_controller or QueueExecutionController(job_controller=self._job_controller)
         self._queue_execution_enabled: bool = is_queue_execution_enabled()
         self._config_assembler = config_assembler if config_assembler is not None else PipelineConfigAssembler()
+        self._webui_connection = webui_conn if webui_conn is not None else WebUIConnectionController()
         if self._queue_execution_controller:
             try:
                 self._queue_execution_controller.observe("pipeline_ctrl", self._on_queue_status)
@@ -268,6 +287,15 @@ class PipelineController(_GUIPipelineController):
         """Submit a pipeline job using assembler-enforced config."""
         if not self.state_manager.can_run():
             return False
+
+        if hasattr(self, "_webui_connection"):
+            state = self._webui_connection.ensure_connected(autostart=True)
+            if state is not None and state is not WebUIConnectionState.READY:
+                try:
+                    self.state_manager.transition_to(GUIState.ERROR)
+                except Exception:
+                    pass
+                return False
 
         try:
             config = self._build_pipeline_config_from_state()

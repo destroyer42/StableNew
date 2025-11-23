@@ -54,6 +54,7 @@ from src.utils.randomizer import (
 from src.utils.state import CancellationError
 from src.utils.webui_discovery import WebUIDiscovery
 from src.utils.webui_launcher import launch_webui_safely
+from src.controller.webui_connection_controller import WebUIConnectionState
 from src.config.app_config import (
     learning_enabled_default,
     get_learning_enabled,
@@ -779,6 +780,32 @@ class StableNewGUI:
             pass
         self._apply_run_button_state()
 
+    def _update_webui_state(self, state) -> None:
+        panel = getattr(self, "api_status_panel", None)
+        if panel and hasattr(panel, "set_webui_state"):
+            try:
+                panel.set_webui_state(state)
+            except Exception:
+                pass
+        if state == WebUIConnectionState.READY:
+            self.api_connected = True
+        elif state in {WebUIConnectionState.ERROR, WebUIConnectionState.DISCONNECTED, WebUIConnectionState.DISABLED}:
+            self.api_connected = False
+        self._apply_run_button_state()
+
+    def _on_webui_reconnect(self):
+        state = None
+        ctrl = getattr(self, "controller", None)
+        if ctrl is not None and hasattr(ctrl, "_webui_connection"):
+            try:
+                state = ctrl._webui_connection.reconnect()
+            except Exception:
+                state = WebUIConnectionState.ERROR
+        if state is None:
+            state = WebUIConnectionState.ERROR
+        self._update_webui_state(state)
+
+
     def _build_api_status_frame(self, parent):
         """Build the API status frame using APIStatusPanel."""
         frame = ttk.Frame(parent, style="Dark.TFrame", relief=tk.SUNKEN)
@@ -788,11 +815,25 @@ class StableNewGUI:
 
         self.api_status_panel = APIStatusPanel(frame, coordinator=self, style="Dark.TFrame")
         self.api_status_panel.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        try:
+            self.api_status_panel.set_reconnect_callback(self._on_webui_reconnect)
+        except Exception:
+            pass
+        try:
+            state = None
+            ctrl = getattr(self, "controller", None)
+            if ctrl and hasattr(ctrl, "get_webui_connection_state"):
+                state = ctrl.get_webui_connection_state()
+            if state is None:
+                state = WebUIConnectionState.DISCONNECTED
+            self._update_webui_state(state)
+        except Exception:
+            pass
 
         self.check_api_btn = ttk.Button(
             frame,
-            text="Check API",
-            command=self._check_api_connection,
+            text="Reconnect",
+            command=self._on_webui_reconnect,
             style="Accent.TButton",
         )
         self.check_api_btn.pack(side=tk.RIGHT, padx=(6, 0))
@@ -999,6 +1040,42 @@ class StableNewGUI:
             upscale_overrides=delta.get("upscale"),
             pipeline_overrides=delta.get("pipeline"),
         )
+
+    def get_gui_overrides(self) -> dict[str, object]:
+        """Expose current GUI core overrides for the controller/assembler path."""
+        overrides: dict[str, object] = {}
+        panel = getattr(self, "pipeline_panel_v2", None)
+        if panel:
+            try:
+                overrides["prompt"] = panel.get_prompt()
+            except Exception:
+                overrides["prompt"] = ""
+        sidebar = getattr(self, "sidebar_panel_v2", None)
+        if sidebar:
+            try:
+                overrides.update(sidebar.get_model_overrides())
+            except Exception:
+                pass
+            try:
+                overrides.update(sidebar.get_core_overrides())
+            except Exception:
+                pass
+            try:
+                overrides["negative_prompt"] = sidebar.get_negative_prompt()
+            except Exception:
+                pass
+            try:
+                width, height = sidebar.get_resolution()
+                overrides["width"] = width
+                overrides["height"] = height
+                overrides["resolution_preset"] = sidebar.get_resolution_preset()
+            except Exception:
+                pass
+            try:
+                overrides.update(sidebar.get_output_overrides())
+            except Exception:
+                pass
+        return overrides
 
     def _build_randomizer_plan_result(self, config_snapshot: dict):
         panel = getattr(self, "randomizer_panel_v2", None)

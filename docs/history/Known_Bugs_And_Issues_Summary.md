@@ -311,3 +311,9 @@ Each issue is described in terms of:
 ---
 
 This document should be updated whenever a significant bug is fixed, a new class of issue is discovered, or the architecture shifts in a way that changes the risk profile.
+
+### 4.4 Prompt pack visibility gap between legacy and V2 (addressed)
+
+- Legacy GUI exposed prompt packs prominently; V2 layout hid them, forcing users back to legacy for pack workflows.
+- PR-50 adds a PromptPackPanelV2 + adapter in the V2 sidebar so packs can be browsed and applied without touching controller/pipeline logic.
+- Continue to keep pack discovery/parsing unchanged; only the GUI surface moved.

@@ -113,6 +113,20 @@ Must NOT:
     - ETA display.
   - Responds to controller callbacks to keep UI and pipeline lifecycle aligned.
 
+
+### 2.3 Output Settings Panel (V2)
+
+- `OutputSettingsPanelV2` (sidebar) captures output directory/profile, filename pattern, image format, batch size, and seed mode.
+- Values flow panel → `GuiOverrides` → `PipelineConfigAssembler` where they land in `config.metadata["output"]`; GUI does not perform filesystem writes.
+- Defaults stay in `app_config`; keep widgets/assembler free of hard-coded paths so pipeline/runner own IO behavior.
+
+
+### 2.4 Model Manager Panel (V2)
+
+- `ModelManagerPanelV2` (sidebar) surfaces model/checkpoint and VAE selection plus a Refresh hook that reuses existing WebUI client list APIs via `ModelListAdapterV2`.
+- Selections propagate through `GuiOverrides` as `model_name`/`vae_name`; assembler maps model into `PipelineConfig.model` and stores VAE (and model name) in metadata for downstream consumers.
+- Defaults come from `app_config` (env overridable); no direct model loading/IO occurs in the GUI.
+
 ---
 
 ## 3. Controller Layer

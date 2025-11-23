@@ -64,6 +64,30 @@
 
 ---
 
+## 2025-11-22 (Prompt pack manager V2)
+
+> **PR-#50-GUI-V2-PromptPackManager-Integration-001** - Added a PromptPackPanelV2 and supporting adapter to surface existing prompt packs in the GUI V2 sidebar. Users can browse packs and apply a selected pack's base prompt directly into the V2 pipeline prompt field, without changing pack formats or pipeline behavior. New GUI V2 tests cover prompt pack listing and "apply pack to prompt" roundtrips.
+
+---
+
+## 2025-11-22 (Core config panel V2)
+
+> **PR-#51-GUI-V2-CoreConfigPanel-001** - Added a CoreConfigPanelV2 in the V2 sidebar to expose model, sampler, steps, CFG, and resolution presets. GuiOverrides and the PipelineConfigAssembler now carry these fields (including resolution presets -> width/height) without altering pipeline semantics. Controller/GUI tests cover the panel roundtrip and assembler mapping.
+
+---
+
+## 2025-11-22 (Negative prompt panel V2)
+
+> **PR-#52-GUI-V2-NegativePromptPanel-001** - Added a NegativePromptPanelV2 in the V2 sidebar with clear/reset controls. GuiOverrides and the PipelineConfigAssembler now carry `negative_prompt` (stored in config metadata) so the negative prompt path is explicit without touching pipeline logic.
+
+---
+
+## 2025-11-22 (Advanced resolution controls V2)
+
+> **PR-#53-GUI-V2-ResolutionAdvancedControls-001** - Added a ResolutionPanelV2 with width/height inputs, presets, ratios, and MP hints, integrated into the V2 sidebar/core config. GuiOverrides and PipelineConfigAssembler accept explicit resolution values and clamp via existing megapixel rules without changing pipeline semantics.
+
+---
+
 ## How To Update
 
 After each major PR or refactor, add 3-6 bullets:
@@ -72,3 +96,15 @@ After each major PR or refactor, add 3-6 bullets:
 - Any new invariants or rules
 
 Keep old snapshots in `docs/codex_context/ARCHIVE/` when this file grows too large.
+
+## 2025-11-23 (Output settings panel V2)
+
+> **PR-#54-GUI-V2-OutputSettingsPanel-001** - Added OutputSettingsPanelV2 to the V2 sidebar with output directory/profile, filename pattern, image format, batch size, and seed mode controls. GuiOverrides and PipelineConfigAssembler carry these fields into `metadata["output"]`, keeping GUI file IO out of scope while making output configuration explicit. New GUI/controller tests cover the panel roundtrip and assembler mapping.
+
+## 2025-11-23 (Model manager panel V2)
+
+> **PR-#55-GUI-V2-ModelManagerPanel-001** - Added a ModelManagerPanelV2 in the V2 sidebar with model/checkpoint and VAE selectors plus refresh via ModelListAdapterV2. GuiOverrides and the assembler now carry model_name/vae_name, mapping the model into PipelineConfig.model and storing VAE/model metadata for downstream consumers. Tests cover the panel refresh/selection and assembler mapping.
+
+## 2025-11-23 (WebUI bootstrap & gating)
+
+> **PR-#56-CTRL-WEBUI-BOOTSTRAP-GUIHEALTH-001** - Made WebUI bootstrap non-blocking, added WebUIConnectionController with autostart+health retries, gated pipeline runs on WebUI readiness, and exposed WebUI status/reconnect in the GUI status panel. New controller/GUI tests cover connection workflow and run gating.
