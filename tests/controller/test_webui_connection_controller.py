@@ -20,7 +20,8 @@ def make_controller(monkeypatch, results):
     fake_pm = mock.Mock()
     fake_pm.return_value.start.return_value = True
     monkeypatch.setattr("src.controller.webui_connection_controller.WebUIProcessManager", fake_pm)
-    monkeypatch.setattr("src.controller.webui_connection_controller.app_config.is_webui_autostart_enabled", lambda: True)
+    monkeypatch.setattr("src.controller.webui_connection_controller.build_default_webui_process_config", lambda: mock.Mock())
+    monkeypatch.setattr("src.controller.webui_connection_controller.app_config.get_webui_autostart_enabled", lambda: True)
     monkeypatch.setattr("src.controller.webui_connection_controller.time.sleep", lambda *args, **kwargs: None)
     ctrl = WebUIConnectionController(base_url_provider=lambda: "http://x")
     return ctrl, calls, fake_pm

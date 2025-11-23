@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Callable
 
 from src.api.healthcheck import wait_for_webui_ready, WebUIHealthCheckTimeout
-from src.api.webui_process_manager import WebUIProcessConfig, WebUIProcessManager
+from src.api.webui_process_manager import WebUIProcessConfig, WebUIProcessManager, build_default_webui_process_config
 from src.config import app_config
 
 
@@ -38,7 +38,7 @@ class WebUIConnectionController:
         retry_count = app_config.get_webui_health_retry_count()
         retry_interval = app_config.get_webui_health_retry_interval_seconds()
         total_timeout = app_config.get_webui_health_total_timeout_seconds()
-        autostart_enabled = app_config.is_webui_autostart_enabled()
+        autostart_enabled = app_config.get_webui_autostart_enabled()
 
         # fast probe
         self._set_state(WebUIConnectionState.CONNECTING)
@@ -55,7 +55,9 @@ class WebUIConnectionController:
 
         # attempt autostart
         try:
-            proc_cfg = WebUIProcessConfig(command=["python", "webui.py"], working_dir=None)
+            proc_cfg = build_default_webui_process_config()
+            if proc_cfg is None:
+                raise RuntimeError("No WebUI process config available")
             WebUIProcessManager(proc_cfg).start()
         except Exception as exc:  # pragma: no cover - surface as error state
             self._logger.warning("WebUI autostart failed: %s", exc)

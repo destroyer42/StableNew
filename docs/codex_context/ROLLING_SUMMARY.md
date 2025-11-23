@@ -108,3 +108,11 @@ Keep old snapshots in `docs/codex_context/ARCHIVE/` when this file grows too lar
 ## 2025-11-23 (WebUI bootstrap & gating)
 
 > **PR-#56-CTRL-WEBUI-BOOTSTRAP-GUIHEALTH-001** - Made WebUI bootstrap non-blocking, added WebUIConnectionController with autostart+health retries, gated pipeline runs on WebUI readiness, and exposed WebUI status/reconnect in the GUI status panel. New controller/GUI tests cover connection workflow and run gating.
+
+## 2025-11-23 (WebUI auto-detect & GUI controls)
+
+> **PR-#57-CTRL-API-WEBUI-AUTODETECT-AUTOLAUNCH-001** - WebUI autostart now uses detection/config (no env var dependency) with defaults for workdir/command, plus controller-driven health checks. GUI status panel gains Launch/Retry buttons and runs remain gated on WebUI READY.
+
+## 2025-11-23 (WebUI startup alignment)
+
+> **PR-#58-MAIN-GUI-WEBUI-BOOTSTRAP-ALIGN-001** - main.py now uses app_config-driven WebUI autostart and schedules background connection via the controller. The V2 status panel with Launch/Retry is wired into the layout, and run controls reflect WebUI readiness.

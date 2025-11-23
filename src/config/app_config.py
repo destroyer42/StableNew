@@ -19,6 +19,9 @@ _filename_pattern: str | None = None
 _image_format: str | None = None
 _batch_size: int | None = None
 _seed_mode: str | None = None
+_webui_workdir: str | None = None
+_webui_command: list[str] | None = None
+_webui_autostart_enabled: bool | None = None
 _webui_health_initial_timeout: float | None = None
 _webui_health_retry_count: int | None = None
 _webui_health_retry_interval: float | None = None
@@ -330,6 +333,62 @@ def set_seed_mode(value: str) -> None:
     _seed_mode = value or ""
 
 
+# --- WebUI process config defaults -----------------------------------------------------------
+
+def webui_workdir_default() -> str | None:
+    """Best-effort detection of WebUI working directory (non-fatal)."""
+
+    global _webui_workdir
+    if _webui_workdir is None:
+        try:
+            from src.api.webui_process_manager import detect_default_webui_workdir
+            _webui_workdir = detect_default_webui_workdir()
+        except Exception:
+            _webui_workdir = None
+    return _webui_workdir
+
+def get_webui_workdir() -> str | None:
+    global _webui_workdir
+    return _webui_workdir if _webui_workdir is not None else webui_workdir_default()
+
+def set_webui_workdir(path: str | None) -> None:
+    global _webui_workdir
+    _webui_workdir = path
+
+def webui_command_default() -> list[str]:
+    """Default WebUI launch command based on platform."""
+    if os.name == "nt":
+        return ["webui-user.bat", "--api", "--xformers"]
+    return ["bash", "webui.sh", "--api"]
+
+def get_webui_command() -> list[str]:
+    global _webui_command
+    if _webui_command is None:
+        return list(webui_command_default())
+    return list(_webui_command)
+
+def set_webui_command(cmd: list[str]) -> None:
+    global _webui_command
+    _webui_command = list(cmd) if cmd is not None else list(webui_command_default())
+
+def webui_autostart_enabled_default() -> bool:
+    """Default autostart: env override else enabled when detection succeeds."""
+    env_flag = os.environ.get("STABLENEW_WEBUI_AUTOSTART")
+    if env_flag is not None:
+        return env_flag.lower() in {"1", "true", "yes", "on"}
+    return webui_workdir_default() is not None
+
+def get_webui_autostart_enabled() -> bool:
+    global _webui_autostart_enabled
+    if _webui_autostart_enabled is None:
+        _webui_autostart_enabled = webui_autostart_enabled_default()
+    return bool(_webui_autostart_enabled)
+
+def set_webui_autostart_enabled(value: bool) -> None:
+    global _webui_autostart_enabled
+    _webui_autostart_enabled = bool(value)
+
+
 # --- WebUI health / connection defaults -------------------------------------------------------
 
 
@@ -367,7 +426,7 @@ def webui_health_total_timeout_seconds_default() -> float:
 
 
 def is_webui_autostart_enabled() -> bool:
-    return webui_autostart_enabled_default()
+    return get_webui_autostart_enabled()
 
 
 def get_webui_health_initial_timeout_seconds() -> float:

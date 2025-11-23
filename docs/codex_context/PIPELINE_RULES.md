@@ -119,3 +119,13 @@ Stages must be **composable** and individually testable where possible.
 - When enabled, PipelineController submits jobs via QueueExecutionController using `PipelineConfig` as the job payload.
 - Cancellation in queue mode must use queue semantics (`cancel_job` on the queued/running job) rather than direct thread cancellation.
 - When disabled, execution follows the existing direct path without queue indirection.
+
+
+## 10. WebUI readiness and launch
+
+- WebUI availability is a precondition for pipeline runs; controllers gate runs on `WebUIConnectionState.READY`.
+- WebUI autostart uses detection/config (no hard-coded paths); defaults come from `app_config` + detection of `stable-diffusion-webui`.
+- GUI exposes launch/retry controls but never blocks startup if WebUI is offline.
+
+---
+

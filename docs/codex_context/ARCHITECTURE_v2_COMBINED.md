@@ -121,11 +121,11 @@ Must NOT:
 - Defaults stay in `app_config`; keep widgets/assembler free of hard-coded paths so pipeline/runner own IO behavior.
 
 
-### 2.4 Model Manager Panel (V2)
+### 2.5 WebUI Orchestration (V2)
 
-- `ModelManagerPanelV2` (sidebar) surfaces model/checkpoint and VAE selection plus a Refresh hook that reuses existing WebUI client list APIs via `ModelListAdapterV2`.
-- Selections propagate through `GuiOverrides` as `model_name`/`vae_name`; assembler maps model into `PipelineConfig.model` and stores VAE (and model name) in metadata for downstream consumers.
-- Defaults come from `app_config` (env overridable); no direct model loading/IO occurs in the GUI.
+- WebUI connection is handled by `WebUIConnectionController` + `WebUIProcessManager`: probe WebUI, autostart via detection/config (no hard-coded paths), retry health until READY.
+- GUI status panel shows WebUI state and exposes Launch/Retry actions; startup never blocks on WebUI availability.
+- Pipeline runs are gated on `READY`; errors surface to GUI instead of raising during startup.
 
 ---
 

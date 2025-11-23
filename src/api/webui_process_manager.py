@@ -4,6 +4,7 @@ import os
 import subprocess
 from dataclasses import dataclass, field
 from typing import Mapping
+from pathlib import Path
 
 
 class WebUIStartupError(RuntimeError):
@@ -68,3 +69,40 @@ class WebUIProcessManager:
 
     def is_running(self) -> bool:
         return self._process is not None and self._process.poll() is None
+
+
+def detect_default_webui_workdir(base_dir: str | None = None) -> str | None:
+    """Attempt to locate a stable-diffusion-webui folder near the repo."""
+
+    root = Path(base_dir or os.getcwd()).resolve()
+    candidates = [root, root.parent, root.parent.parent]
+    for candidate in candidates:
+        target = candidate / "stable-diffusion-webui"
+        if not target.exists() or not target.is_dir():
+            continue
+        if os.name == "nt":
+            if (target / "webui-user.bat").exists():
+                return str(target)
+        else:
+            if (target / "webui.sh").exists():
+                return str(target)
+    return None
+
+
+def build_default_webui_process_config() -> WebUIProcessConfig | None:
+    """Build a WebUIProcessConfig using app_config defaults and detection."""
+
+    try:
+        from src.config import app_config
+    except Exception:
+        return None
+
+    workdir = app_config.get_webui_workdir()
+    if workdir is None:
+        workdir = detect_default_webui_workdir()
+
+    command = app_config.get_webui_command()
+    if not command:
+        return None
+
+    return WebUIProcessConfig(command=command, working_dir=workdir)

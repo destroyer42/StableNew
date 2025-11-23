@@ -793,17 +793,27 @@ class StableNewGUI:
             self.api_connected = False
         self._apply_run_button_state()
 
-    def _on_webui_reconnect(self):
+    def _ensure_webui_connection(self, autostart: bool) -> WebUIConnectionState:
         state = None
         ctrl = getattr(self, "controller", None)
         if ctrl is not None and hasattr(ctrl, "_webui_connection"):
             try:
-                state = ctrl._webui_connection.reconnect()
+                state = ctrl._webui_connection.ensure_connected(autostart=autostart)
             except Exception:
                 state = WebUIConnectionState.ERROR
         if state is None:
             state = WebUIConnectionState.ERROR
         self._update_webui_state(state)
+        return state
+
+    def _on_webui_launch(self):
+        self._ensure_webui_connection(autostart=True)
+
+    def _on_webui_retry(self):
+        self._ensure_webui_connection(autostart=False)
+
+    def _on_webui_reconnect(self):
+        self._ensure_webui_connection(autostart=True)
 
 
     def _build_api_status_frame(self, parent):
@@ -816,7 +826,8 @@ class StableNewGUI:
         self.api_status_panel = APIStatusPanel(frame, coordinator=self, style="Dark.TFrame")
         self.api_status_panel.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
         try:
-            self.api_status_panel.set_reconnect_callback(self._on_webui_reconnect)
+            self.api_status_panel.set_launch_callback(self._on_webui_launch)
+            self.api_status_panel.set_retry_callback(self._on_webui_retry)
         except Exception:
             pass
         try:
@@ -829,17 +840,6 @@ class StableNewGUI:
             self._update_webui_state(state)
         except Exception:
             pass
-
-        self.check_api_btn = ttk.Button(
-            frame,
-            text="Reconnect",
-            command=self._on_webui_reconnect,
-            style="Accent.TButton",
-        )
-        self.check_api_btn.pack(side=tk.RIGHT, padx=(6, 0))
-        self._attach_tooltip(
-            self.check_api_btn, "Manually retry connecting to the Stable Diffusion WebUI API."
-        )
 
     def _build_prompt_pack_panel(self, parent):
         """Build the prompt pack selection panel."""

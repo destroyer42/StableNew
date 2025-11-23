@@ -1,7 +1,7 @@
 """
 APIStatusPanel - UI component for displaying API connection status.
 
-Shows current WebUI/API connection health and exposes a reconnect hook.
+Shows current WebUI/API connection health and exposes launch/retry hooks.
 """
 
 from __future__ import annotations
@@ -23,6 +23,8 @@ class APIStatusPanel(ttk.Frame):
         self.parent = parent
         self.coordinator = coordinator
         self._reconnect_callback = None
+        self._launch_callback = None
+        self._retry_callback = None
         self._build_ui()
 
     def _build_ui(self):
@@ -43,8 +45,12 @@ class APIStatusPanel(ttk.Frame):
         )
         self.status_label.pack(side=tk.LEFT, padx=(2, 5))
 
-        self.reconnect_button = ttk.Button(status_frame, text="Reconnect", command=self._on_reconnect_clicked)
-        self.reconnect_button.pack(side=tk.RIGHT, padx=(6, 4))
+        button_frame = ttk.Frame(status_frame, style="Dark.TFrame")
+        button_frame.pack(side=tk.RIGHT, padx=(6, 4))
+        self.launch_button = ttk.Button(button_frame, text="Launch WebUI", command=self._on_launch_clicked)
+        self.launch_button.pack(side=tk.LEFT, padx=(0, 4))
+        self.retry_button = ttk.Button(button_frame, text="Retry", command=self._on_retry_clicked)
+        self.retry_button.pack(side=tk.LEFT, padx=(0, 0))
 
     def set_status(self, text: str, color: str = "gray") -> None:
         color_map = {
@@ -78,12 +84,32 @@ class APIStatusPanel(ttk.Frame):
     def set_reconnect_callback(self, callback):
         self._reconnect_callback = callback
 
+    def set_launch_callback(self, callback):
+        self._launch_callback = callback
+
+    def set_retry_callback(self, callback):
+        self._retry_callback = callback
+
     def _on_reconnect_clicked(self):
         if callable(self._reconnect_callback):
             try:
                 self._reconnect_callback()
             except Exception:
                 logger.debug("Reconnect callback failed", exc_info=True)
+
+    def _on_launch_clicked(self):
+        if callable(self._launch_callback):
+            try:
+                self._launch_callback()
+            except Exception:
+                logger.debug("Launch callback failed", exc_info=True)
+
+    def _on_retry_clicked(self):
+        if callable(self._retry_callback):
+            try:
+                self._retry_callback()
+            except Exception:
+                logger.debug("Retry callback failed", exc_info=True)
 
 
 __all__ = ["APIStatusPanel"]
