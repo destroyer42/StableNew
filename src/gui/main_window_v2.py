@@ -55,12 +55,18 @@ class HeaderZone(ttk.Frame):
 
 class LeftZone(ttk.Frame):
     def __init__(self, master: tk.Misc) -> None:
-        super().__init__(master, padding=theme.PADDING_MD)
+        super().__init__(
+            master, padding=theme.PADDING_MD, style=theme.SURFACE_FRAME_STYLE
+        )
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
 
-        self.load_pack_button = ttk.Button(self, text="Load Pack")
-        self.edit_pack_button = ttk.Button(self, text="Edit Pack")
+        self.load_pack_button = ttk.Button(
+            self, text="Load Pack", style=theme.GHOST_BUTTON_STYLE
+        )
+        self.edit_pack_button = ttk.Button(
+            self, text="Edit Pack", style=theme.GHOST_BUTTON_STYLE
+        )
         self.load_pack_button.grid(row=0, column=0, sticky="ew")
         self.edit_pack_button.grid(
             row=1,
@@ -69,13 +75,40 @@ class LeftZone(ttk.Frame):
             pady=(theme.PADDING_SM, theme.PADDING_MD),
         )
 
-        self.packs_list = tk.Listbox(self, height=10, width=34)
-        self.packs_list.grid(
+        self.packs_card = ttk.Frame(
+            self,
+            padding=theme.PADDING_MD,
+            style=theme.SURFACE_FRAME_STYLE,
+        )
+        self.packs_card.grid(
             row=2,
             column=0,
             sticky="nsew",
             pady=(0, theme.PADDING_MD),
         )
+        self.packs_card.columnconfigure(0, weight=1)
+        self.packs_card.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            self.packs_card, text="Packs", style=theme.STATUS_STRONG_LABEL_STYLE
+        ).grid(row=0, column=0, sticky="w", pady=(0, theme.PADDING_SM))
+
+        self.packs_list = tk.Listbox(
+            self.packs_card,
+            height=10,
+            width=34,
+            relief="flat",
+            borderwidth=0,
+            background=theme.COLOR_SURFACE_ALT,
+            foreground=theme.COLOR_TEXT,
+            highlightthickness=1,
+            highlightcolor=theme.COLOR_BORDER_SUBTLE,
+            highlightbackground=theme.COLOR_BORDER_SUBTLE,
+            selectbackground=theme.COLOR_ACCENT,
+            selectforeground=theme.ASWF_BLACK,
+            activestyle="none",
+        )
+        self.packs_list.grid(row=1, column=0, sticky="nsew")
 
         self.preset_card = ttk.Frame(
             self,
@@ -85,7 +118,9 @@ class LeftZone(ttk.Frame):
         self.preset_card.grid(row=3, column=0, sticky="ew")
         self.preset_card.columnconfigure(0, weight=1)
 
-        self.preset_label = ttk.Label(self.preset_card, text="Preset")
+        self.preset_label = ttk.Label(
+            self.preset_card, text="Preset", style=theme.STATUS_STRONG_LABEL_STYLE
+        )
         self.preset_label.grid(row=0, column=0, sticky="w")
         self.preset_combo = ttk.Combobox(self.preset_card, values=[])
         self.preset_combo.grid(
@@ -132,14 +167,42 @@ class BottomZone(ttk.Frame):
         self.log_text.pack(fill="both", expand=True)
 
 
+class RightZone(ttk.Frame):
+    def __init__(self, master: tk.Misc) -> None:
+        super().__init__(master, padding=theme.PADDING_MD, style=theme.SURFACE_FRAME_STYLE)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            self, text="Preview", style=theme.STATUS_STRONG_LABEL_STYLE
+        ).grid(row=0, column=0, sticky="w")
+
+        self.preview_placeholder = ttk.Frame(
+            self,
+            style=theme.SURFACE_FRAME_STYLE,
+            padding=theme.PADDING_MD,
+        )
+        self.preview_placeholder.grid(
+            row=1,
+            column=0,
+            sticky="nsew",
+            pady=(theme.PADDING_SM, 0),
+        )
+        ttk.Label(
+            self.preview_placeholder,
+            text="Preview area coming soon",
+            style=theme.STATUS_LABEL_STYLE,
+        ).pack(anchor="center", expand=True)
+
+
 class MainWindow:
     """Lightweight window used by the PR-0 controller tests."""
 
     def __init__(self, root: tk.Misc | None = None) -> None:
         self.root = root or tk.Tk()
         self.root.title("StableNew")
-        self.root.geometry("1200x800")
-        self.root.minsize(1000, 600)
+        self.root.geometry("960x680")
+        self.root.minsize(840, 560)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
         self.style = theme.configure_style(self.root)
@@ -168,6 +231,9 @@ class MainWindow:
         self.center_zone.rowconfigure(0, weight=1)
         self.config_panel = ConfigPanel(self.center_zone, self.on_config_field_changed)
         self.config_panel.grid(row=0, column=0, sticky="nsew")
+
+        self.right_zone = RightZone(body)
+        self.right_zone.grid(row=0, column=2, sticky="nsew", padx=(theme.PADDING_MD, 0))
 
         self.bottom_zone = BottomZone(
             self.root,
