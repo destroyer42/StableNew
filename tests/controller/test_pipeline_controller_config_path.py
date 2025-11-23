@@ -9,7 +9,7 @@ def test_controller_uses_assembler_for_runs(monkeypatch):
     sm = StateManager()
     assembler = PipelineConfigAssembler()
     monkeypatch.setattr("src.controller.pipeline_controller.PipelineConfigAssembler", lambda *args, **kwargs: assembler)
-    controller = PipelineController(state_manager=sm)
+    controller = PipelineController(state_manager=sm, config_assembler=assembler)
 
     assembler.build_from_gui_input = mock.Mock(
         return_value=assembler.build_from_gui_input(overrides=GuiOverrides(prompt="p"))

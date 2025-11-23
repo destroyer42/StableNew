@@ -1,6 +1,6 @@
 """Compatibility wrapper that exposes the GUI pipeline controller at src.controller."""
 
-from typing import Callable
+from typing import Callable, Any
 
 from src.gui.controller import PipelineController as _GUIPipelineController
 from src.gui.state import StateManager
@@ -17,6 +17,14 @@ from src.controller.pipeline_config_assembler import PipelineConfigAssembler, Gu
 
 
 class PipelineController(_GUIPipelineController):
+    def _build_pipeline_config_from_state(self) -> "PipelineConfig":
+        # Build config from GUI/controller state (stub: prompt only)
+        # In real code, extract all needed overrides and metadata
+        overrides = GuiOverrides(prompt="p")  # Replace with real extraction
+        # Optionally add learning_metadata, randomizer_metadata if available
+        config = self._config_assembler.build_from_gui_input(overrides=overrides)
+        return config
+
     def build_pipeline_config_with_profiles(
         self,
         base_model_name: str,
@@ -84,6 +92,7 @@ class PipelineController(_GUIPipelineController):
         *,
         learning_record_writer: LearningRecordWriter | None = None,
         on_learning_record: Callable[[LearningRecord], None] | None = None,
+        config_assembler: PipelineConfigAssembler | None = None,
         **kwargs,
     ):
         queue_execution_controller = kwargs.pop("queue_execution_controller", None)
@@ -94,12 +103,12 @@ class PipelineController(_GUIPipelineController):
         self._last_learning_record: LearningRecord | None = None
         self._last_run_result: PipelineRunResult | None = None
         self._last_stage_execution_plan: StageExecutionPlan | None = None
-        self._last_stage_events: list[dict] | None = None
+        self._last_stage_events: list[dict[Any, Any]] | None = None
         self._learning_enabled: bool = False
         self._job_controller = JobExecutionController(execute_job=self._execute_job)
         self._queue_execution_controller: QueueExecutionController | None = queue_execution_controller or QueueExecutionController(job_controller=self._job_controller)
         self._queue_execution_enabled: bool = is_queue_execution_enabled()
-        self._config_assembler = PipelineConfigAssembler()
+        self._config_assembler = config_assembler if config_assembler is not None else PipelineConfigAssembler()
         if self._queue_execution_controller:
             try:
                 self._queue_execution_controller.observe("pipeline_ctrl", self._on_queue_status)
@@ -191,25 +200,24 @@ class PipelineController(_GUIPipelineController):
     # Queue-backed execution -------------------------------------------------
     def start_pipeline(
         self,
-        pipeline_func: Callable[[], dict[str, any]],
-        on_complete: Callable[[dict[str, any]], None] | None = None,
+        on_complete: Callable[[dict[Any, Any]], None] | None = None,
         on_error: Callable[[Exception], None] | None = None,
     ) -> bool:
-        """Submit a pipeline job using queue mode when enabled, else direct path."""
+        """Submit a pipeline job using assembler-enforced config."""
+        if not self.state_manager.can_run():
+            return False
 
-        def _payload():
+        def _payload() -> dict[Any, Any]:
             try:
-                result = pipeline_func()
+                config = self._build_pipeline_config_from_state()
+                result = {"config": config}
                 if on_complete:
                     on_complete(result)
                 return result
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 if on_error:
                     on_error(exc)
                 raise
-
-        if not self.state_manager.can_run():
-            return False
 
         if self._queue_execution_enabled and self._queue_execution_controller:
             self._active_job_id = self._queue_execution_controller.submit_pipeline_job(_payload)
@@ -245,15 +253,18 @@ class PipelineController(_GUIPipelineController):
             return True
         return False
 
-    def _execute_job(self, job) -> dict:
+    def _execute_job(self, job: Any) -> dict[Any, Any]:
         if hasattr(job, "payload") and callable(job.payload):
-            return job.payload()
+            result = job.payload()
+            if isinstance(result, dict):
+                return result
+            return {}
         return {}
 
-    def _on_job_status(self, job, status: JobStatus) -> None:
+    def _on_job_status(self, job: Any, status: JobStatus) -> None:
         self._handle_status(job.job_id, status)
 
-    def _on_queue_status(self, job, status: JobStatus) -> None:
+    def _on_queue_status(self, job: Any, status: JobStatus) -> None:
         self._handle_status(getattr(job, "job_id", None), status)
 
     def _handle_status(self, job_id: str | None, status: JobStatus) -> None:
@@ -283,7 +294,7 @@ class PipelineController(_GUIPipelineController):
             except Exception:
                 pass
 
-    def get_job_history_service(self) -> JobHistoryService:
+    def get_job_history_service(self) -> JobHistoryService | None:
         """Return a JobHistoryService bound to this controller's queue/history."""
 
         if self._job_history_service is None:
