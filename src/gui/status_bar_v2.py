@@ -6,6 +6,8 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import theme as theme_mod
+from .api_status_panel import APIStatusPanel
+from src.controller.webui_connection_controller import WebUIConnectionState
 
 
 class StatusBarV2(ttk.Frame):
@@ -26,15 +28,18 @@ class StatusBarV2(ttk.Frame):
         self.body = ttk.Frame(self, style=body_style)
         self.body.pack(fill=tk.BOTH, expand=True)
 
+        self.body_left = ttk.Frame(self.body, style=body_style)
+        self.body_left.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
         self.status_label = ttk.Label(
-            self.body,
+            self.body_left,
             text="Idle",
             style=getattr(theme, "STATUS_STRONG_LABEL_STYLE", theme_mod.STATUS_STRONG_LABEL_STYLE),
         )
         self.status_label.pack(side=tk.LEFT, padx=(0, 10))
 
         self.progress_bar = ttk.Progressbar(
-            self.body,
+            self.body_left,
             orient=tk.HORIZONTAL,
             mode="determinate",
             maximum=100,
@@ -43,11 +48,15 @@ class StatusBarV2(ttk.Frame):
         self.progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         self.eta_label = ttk.Label(
-            self.body,
+            self.body_left,
             text="",
             style=getattr(theme, "STATUS_LABEL_STYLE", theme_mod.STATUS_LABEL_STYLE),
         )
         self.eta_label.pack(side=tk.LEFT, padx=10)
+
+        # WebUI status/controls on the right side of the same bar
+        self.webui_panel = APIStatusPanel(self.body, style=body_style)
+        self.webui_panel.pack(side=tk.RIGHT, padx=(8, 0))
 
         self.set_idle()
 
@@ -116,3 +125,24 @@ class StatusBarV2(ttk.Frame):
             return
         self._has_validation_error = False
         self.set_idle()
+
+    def set_webui_state(self, state: WebUIConnectionState) -> None:
+        if getattr(self, "webui_panel", None):
+            try:
+                self.webui_panel.set_webui_state(state)
+            except Exception:
+                pass
+
+    def set_webui_launch_callback(self, callback) -> None:
+        if getattr(self, "webui_panel", None):
+            try:
+                self.webui_panel.set_launch_callback(callback)
+            except Exception:
+                pass
+
+    def set_webui_retry_callback(self, callback) -> None:
+        if getattr(self, "webui_panel", None):
+            try:
+                self.webui_panel.set_retry_callback(callback)
+            except Exception:
+                pass
