@@ -9,7 +9,7 @@ from src.controller.job_execution_controller import JobExecutionController
 from src.controller.queue_execution_controller import QueueExecutionController
 from src.queue.job_model import JobStatus
 from src.pipeline.stage_sequencer import StageExecutionPlan, build_stage_execution_plan
-from src.pipeline.pipeline_runner import PipelineRunResult
+from src.pipeline.pipeline_runner import PipelineRunResult, PipelineConfig
 from src.gui.state import GUIState
 from src.config.app_config import is_queue_execution_enabled
 from src.controller.job_history_service import JobHistoryService
@@ -17,13 +17,73 @@ from src.controller.pipeline_config_assembler import PipelineConfigAssembler, Gu
 
 
 class PipelineController(_GUIPipelineController):
-    def _build_pipeline_config_from_state(self) -> "PipelineConfig":
-        # Build config from GUI/controller state (stub: prompt only)
-        # In real code, extract all needed overrides and metadata
-        overrides = GuiOverrides(prompt="p")  # Replace with real extraction
-        # Optionally add learning_metadata, randomizer_metadata if available
-        config = self._config_assembler.build_from_gui_input(overrides=overrides)
-        return config
+    def _coerce_overrides(self, overrides: GuiOverrides | dict[str, Any] | None) -> GuiOverrides:
+        if isinstance(overrides, GuiOverrides):
+            return overrides
+        if isinstance(overrides, dict):
+            return GuiOverrides(
+                prompt=str(overrides.get("prompt", "")),
+                model=str(overrides.get("model", "")),
+                sampler=str(overrides.get("sampler", "")),
+                width=int(overrides.get("width", 512) or 512),
+                height=int(overrides.get("height", 512) or 512),
+                steps=int(overrides.get("steps", 20) or 20),
+                cfg_scale=float(overrides.get("cfg_scale", 7.0) or 7.0),
+                metadata=dict(overrides.get("metadata") or {}),
+            )
+        return GuiOverrides()
+
+    def _extract_state_overrides(self) -> GuiOverrides:
+        extractor = getattr(self.state_manager, "get_pipeline_overrides", None)
+        if callable(extractor):
+            try:
+                return self._coerce_overrides(extractor())
+            except Exception:
+                pass
+
+        if hasattr(self.state_manager, "pipeline_overrides"):
+            try:
+                return self._coerce_overrides(getattr(self.state_manager, "pipeline_overrides"))
+            except Exception:
+                pass
+
+        fallback = getattr(self, "get_gui_overrides", None)
+        if callable(fallback):
+            try:
+                return self._coerce_overrides(fallback())
+            except Exception:
+                pass
+
+        return GuiOverrides()
+
+    def _extract_metadata(self, attr_name: str) -> dict[str, Any] | None:
+        value = None
+        accessor = getattr(self.state_manager, attr_name, None)
+        if callable(accessor):
+            try:
+                value = accessor()
+            except Exception:
+                value = None
+        elif accessor is not None:
+            value = accessor
+
+        if isinstance(value, dict):
+            return dict(value)
+        return None
+
+    def _build_pipeline_config_from_state(self) -> PipelineConfig:
+        overrides = self._extract_state_overrides()
+        learning_metadata = self._extract_metadata("learning_metadata")
+        randomizer_metadata = self._extract_metadata("randomizer_metadata")
+
+        if learning_metadata is None and self._learning_enabled:
+            learning_metadata = {"learning_enabled": True}
+
+        return self._config_assembler.build_from_gui_input(
+            overrides=overrides,
+            learning_metadata=learning_metadata,
+            randomizer_metadata=randomizer_metadata,
+        )
 
     def build_pipeline_config_with_profiles(
         self,
@@ -200,6 +260,8 @@ class PipelineController(_GUIPipelineController):
     # Queue-backed execution -------------------------------------------------
     def start_pipeline(
         self,
+        pipeline_func: Callable[[], dict[Any, Any]] | None = None,
+        *,
         on_complete: Callable[[dict[Any, Any]], None] | None = None,
         on_error: Callable[[Exception], None] | None = None,
     ) -> bool:
@@ -207,14 +269,23 @@ class PipelineController(_GUIPipelineController):
         if not self.state_manager.can_run():
             return False
 
+        try:
+            config = self._build_pipeline_config_from_state()
+        except Exception as exc:  # noqa: BLE001
+            if on_error:
+                on_error(exc)
+            raise
+
         def _payload() -> dict[Any, Any]:
             try:
-                config = self._build_pipeline_config_from_state()
-                result = {"config": config}
+                result: dict[str, Any] = {"config": config}
+                run_result = self._run_pipeline_job(config, pipeline_func=pipeline_func)
+                if isinstance(run_result, dict):
+                    result.update(run_result)
                 if on_complete:
                     on_complete(result)
                 return result
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 if on_error:
                     on_error(exc)
                 raise
@@ -233,6 +304,27 @@ class PipelineController(_GUIPipelineController):
         except Exception:
             pass
         return True
+
+    def _run_pipeline_job(
+        self,
+        config: PipelineConfig,
+        *,
+        pipeline_func: Callable[[], dict[Any, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Run a pipeline job using the assembled config or a compatibility callable."""
+
+        runner = getattr(self, "run_full_pipeline", None)
+        if callable(runner):
+            maybe_result = runner(config)
+            if isinstance(maybe_result, dict):
+                return maybe_result
+
+        if pipeline_func:
+            maybe_result = pipeline_func()
+            if isinstance(maybe_result, dict):
+                return maybe_result
+
+        return {}
 
     def stop_pipeline(self) -> bool:
         """Cancel the active job."""
