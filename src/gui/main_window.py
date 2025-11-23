@@ -54,7 +54,12 @@ from src.utils.randomizer import (
 from src.utils.state import CancellationError
 from src.utils.webui_discovery import WebUIDiscovery
 from src.utils.webui_launcher import launch_webui_safely
-from src.config.app_config import learning_enabled_default, get_learning_enabled
+from src.config.app_config import (
+    learning_enabled_default,
+    get_learning_enabled,
+    is_queue_execution_enabled,
+    set_queue_execution_enabled,
+)
 
 
 # Config source state machine
@@ -694,6 +699,8 @@ class StableNewGUI:
         self._layout_v2 = AppLayoutV2(self, theme=self.theme)
         self._layout_v2.build_layout(getattr(self, "root", None))
 
+        self._wire_pipeline_command_bar()
+
         # Bottom frame - Compact log and action buttons (resizable split)
         bottom_shell = ttk.Frame(vertical_split, style="Dark.TFrame")
         vertical_split.add(bottom_shell, weight=3)
@@ -733,6 +740,44 @@ class StableNewGUI:
             self.root.after(1500, self._check_api_connection)
         except Exception:
             logger.warning("Unable to schedule API connection check")
+
+    def _wire_pipeline_command_bar(self) -> None:
+        """Route run/stop/queue controls through the new command bar."""
+
+        panel = getattr(self, "pipeline_panel_v2", None)
+        command_bar = getattr(panel, "command_bar", None)
+        if command_bar is None:
+            return
+
+        try:
+            command_bar.run_button.configure(command=self._run_full_pipeline)
+        except Exception:
+            pass
+        try:
+            command_bar.stop_button.configure(command=self._on_cancel_clicked)
+        except Exception:
+            pass
+
+        try:
+            command_bar.set_queue_mode(is_queue_execution_enabled())
+        except Exception:
+            pass
+        try:
+            command_bar.set_queue_toggle_callback(self._on_queue_mode_toggled)
+        except Exception:
+            pass
+
+        self.run_pipeline_btn = command_bar.run_button
+        self.run_button = self.run_pipeline_btn
+        self.stop_button = command_bar.stop_button
+        try:
+            self._attach_tooltip(
+                self.run_pipeline_btn,
+                "Process every highlighted pack sequentially using the current configuration. Override mode applies when enabled.",
+            )
+        except Exception:
+            pass
+        self._apply_run_button_state()
 
     def _build_api_status_frame(self, parent):
         """Build the API status frame using APIStatusPanel."""
@@ -1058,6 +1103,22 @@ class StableNewGUI:
         connected = getattr(self, "api_connected", False)
         enabled = state_allows and connected and not self._run_button_validation_locked
         button.config(state=tk.NORMAL if enabled else tk.DISABLED)
+
+    def _on_queue_mode_toggled(self, enabled: bool | None = None) -> None:
+        try:
+            value = bool(enabled) if enabled is not None else False
+        except Exception:
+            value = False
+        try:
+            set_queue_execution_enabled(value)
+        except Exception:
+            pass
+        controller = getattr(self, "controller", None)
+        if controller is not None:
+            try:
+                setattr(controller, "_queue_execution_enabled", value)
+            except Exception:
+                pass
 
     def _on_learning_toggle(self, enabled: bool) -> None:
         try:
@@ -3012,18 +3073,19 @@ class StableNewGUI:
         main_buttons = ttk.Frame(actions_frame, style="Dark.TFrame")
         main_buttons.pack(side=tk.LEFT)
 
-        self.run_pipeline_btn = ttk.Button(
-            main_buttons,
-            text="Run Full Pipeline",
-            command=self._run_full_pipeline,
-            style="Success.TButton",
-        )  # Green for success/primary action
-        self.run_pipeline_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self._attach_tooltip(
-            self.run_pipeline_btn,
-            "Process every highlighted pack sequentially using the current configuration. Override mode applies when enabled.",
-        )
-        self.run_button = self.run_pipeline_btn
+        if getattr(self, "run_pipeline_btn", None) is None:
+            self.run_pipeline_btn = ttk.Button(
+                main_buttons,
+                text="Run Full Pipeline",
+                command=self._run_full_pipeline,
+                style="Success.TButton",
+            )
+            self.run_pipeline_btn.pack(side=tk.LEFT, padx=(0, 10))
+            self._attach_tooltip(
+                self.run_pipeline_btn,
+                "Process every highlighted pack sequentially using the current configuration. Override mode applies when enabled.",
+            )
+            self.run_button = self.run_pipeline_btn
 
         txt2img_only_btn = ttk.Button(
             main_buttons,
@@ -3070,14 +3132,16 @@ class StableNewGUI:
             open_output_btn, "Open the output directory in your system file browser."
         )
 
-        stop_btn = ttk.Button(
-            util_buttons, text="Stop", command=self._on_cancel_clicked, style="Danger.TButton"
-        )
-        stop_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self._attach_tooltip(
-            stop_btn,
-            "Request cancellation of the pipeline run. The current stage finishes before stopping.",
-        )
+        if getattr(self, "stop_button", None) is None:
+            stop_btn = ttk.Button(
+                util_buttons, text="Stop", command=self._on_cancel_clicked, style="Danger.TButton"
+            )
+            stop_btn.pack(side=tk.LEFT, padx=(0, 10))
+            self._attach_tooltip(
+                stop_btn,
+                "Request cancellation of the pipeline run. The current stage finishes before stopping.",
+            )
+            self.stop_button = stop_btn
 
         exit_btn = ttk.Button(
             util_buttons, text="Exit", command=self._graceful_exit, style="Danger.TButton"

@@ -52,6 +52,18 @@
 
 ---
 
+## 2025-11-22 (Pipeline command bar)
+
+> **PR-#48-GUI-V2-CommandBar-RunStopQueue-001** – Introduced a dedicated PipelineCommandBarV2 widget to host Run, Stop, and Queue mode controls inside PipelinePanelV2. StableNewGUI still exposes `run_button` for tests, but the primary pipeline actions are now grouped into a single command bar, aligning with the GUI V2 layout plan and button-placement guidance. Queue mode toggle is surfaced via the command bar using existing app_config/controller plumbing; no pipeline or controller semantics changed. New GUI V2 tests cover command bar existence and queue toggle behavior.
+
+---
+
+## 2025-11-22 (Advanced prompt editor overlay)
+
+> **PR-#49-GUI-V2-AdvancedPromptEditor-001** – Added an AdvancedPromptEditorV2 widget and integrated it with the GUI V2 pipeline panel so users can edit prompts in a larger, focused text area. Opening the editor pre-fills from the current prompt input; applying changes feeds updated text back into the main pipeline prompt field(s) without changing pipeline or controller behavior. New GUI V2 tests cover editor callback behavior and prompt roundtrip between the pipeline panel and the advanced editor.
+
+---
+
 ## How To Update
 
 After each major PR or refactor, add 3-6 bullets:

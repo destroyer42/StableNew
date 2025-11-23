@@ -231,6 +231,29 @@ Each issue is described in terms of:
   - Define a clear “command bar” pattern for primary pipeline actions.
   - Group related actions (Run/Stop/Preview/Queue) together.
   - Use progressive disclosure for advanced features.
+- Current status: Run / Stop / Queue controls are now grouped in a dedicated command bar on the V2 pipeline panel; remaining UX
+  work should focus on preview and advanced controls.
+
+---
+
+### 4.3 Cramped Prompt Editing (Partially Addressed)
+
+**Symptom**
+
+- Main prompt input is small and hard to use for long-form prompts.
+- No obvious way to review or edit prompt text without losing context.
+
+**Status**
+
+- V2 now exposes an Advanced Prompt Editor overlay for long-form prompt editing without changing pipeline semantics.
+- Negative prompt editing and deeper validation are future follow-ups.
+
+**Suggested Approach**
+
+- Continue refining the advanced editor UX (negative prompt area, validation hints, shortcut to open from prompt field).
+- Keep edits flowing back to the existing prompt field to avoid changing pipeline/controller behavior.
+- Add guardrail tests that opening the editor pre-fills from the main prompt and applying updates the main field while cancel
+  leaves it unchanged.
 
 ---
 

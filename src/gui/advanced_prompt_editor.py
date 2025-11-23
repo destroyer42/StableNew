@@ -7,6 +7,7 @@ import re
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
+from typing import Callable, Optional
 
 from ..utils.config import DEFAULT_GLOBAL_NEGATIVE_PROMPT
 from .scrolling import make_scrollable
@@ -1547,3 +1548,92 @@ neg: malformed, bad anatomy, low quality"""
         if self._check_unsaved_changes():
             self.window.destroy()
             self.window = None
+
+
+class AdvancedPromptEditorV2(ttk.Frame):
+    """Lightweight advanced prompt editor for GUI V2."""
+
+    def __init__(
+        self,
+        parent: tk.Misc,
+        *,
+        initial_prompt: str = "",
+        initial_negative_prompt: Optional[str] = None,
+        on_apply: Optional[Callable[[str, Optional[str]], None]] = None,
+        on_cancel: Optional[Callable[[], None]] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.on_apply = on_apply
+        self.on_cancel = on_cancel
+
+        self.prompt_text = tk.Text(self, height=10, wrap="word")
+        self.prompt_text.pack(fill=tk.BOTH, expand=True, padx=6, pady=(6, 3))
+        if initial_prompt:
+            self.prompt_text.insert("1.0", initial_prompt)
+
+        self.negative_prompt_text: Optional[tk.Text]
+        if initial_negative_prompt is not None:
+            self.negative_prompt_text = tk.Text(self, height=6, wrap="word")
+            self.negative_prompt_text.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 3))
+            if initial_negative_prompt:
+                self.negative_prompt_text.insert("1.0", initial_negative_prompt)
+        else:
+            self.negative_prompt_text = None
+
+        controls = ttk.Frame(self)
+        controls.pack(fill=tk.X, pady=(0, 6), padx=6)
+
+        self.apply_button = ttk.Button(controls, text="Apply", command=self._handle_apply)
+        self.apply_button.pack(side=tk.LEFT, padx=(0, 4))
+
+        self.cancel_button = ttk.Button(controls, text="Cancel", command=self._handle_cancel)
+        self.cancel_button.pack(side=tk.LEFT, padx=(0, 4))
+
+        self.clear_button = ttk.Button(controls, text="Clear", command=self._handle_clear)
+        self.clear_button.pack(side=tk.LEFT)
+
+        self.status_var = tk.StringVar(value=self._build_status_text())
+        ttk.Label(self, textvariable=self.status_var).pack(anchor=tk.E, padx=6, pady=(0, 6))
+
+        self.prompt_text.bind("<<Modified>>", self._handle_prompt_modified)
+        if self.negative_prompt_text is not None:
+            self.negative_prompt_text.bind("<<Modified>>", self._handle_prompt_modified)
+
+    def _build_status_text(self) -> str:
+        prompt_len = len(self.prompt_text.get("1.0", tk.END).strip())
+        if self.negative_prompt_text is not None:
+            neg_len = len(self.negative_prompt_text.get("1.0", tk.END).strip())
+            return f"Prompt: {prompt_len} chars • Negative: {neg_len} chars"
+        return f"Prompt: {prompt_len} chars"
+
+    def _handle_prompt_modified(self, event) -> None:
+        widget = event.widget
+        try:
+            widget.edit_modified(False)
+        except Exception:
+            pass
+        self.status_var.set(self._build_status_text())
+
+    def _handle_apply(self) -> None:
+        if self.on_apply:
+            prompt_value = self.prompt_text.get("1.0", tk.END).strip()
+            negative_value = None
+            if self.negative_prompt_text is not None:
+                negative_value = self.negative_prompt_text.get("1.0", tk.END).strip()
+            try:
+                self.on_apply(prompt_value, negative_value)
+            except Exception:
+                pass
+
+    def _handle_cancel(self) -> None:
+        if self.on_cancel:
+            try:
+                self.on_cancel()
+            except Exception:
+                pass
+
+    def _handle_clear(self) -> None:
+        self.prompt_text.delete("1.0", tk.END)
+        if self.negative_prompt_text is not None:
+            self.negative_prompt_text.delete("1.0", tk.END)
+        self.status_var.set(self._build_status_text())
