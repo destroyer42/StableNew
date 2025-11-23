@@ -1,28 +1,13 @@
-import pytest
-
-from src.gui.main_window_v2 import MainWindow
-from src.controller.app_controller import AppController
+from src.config import app_config
 
 
-def test_run_button_calls_controller(monkeypatch):
-    calls = []
+def test_queue_toggle_updates_app_config(gui_app_factory, dummy_controller, dummy_config_manager):
+    """Queue toggle should update the shared queue execution flag."""
 
-    class FakeRunner:
-        def run(self, *_args, **_kwargs):
-            calls.append("direct")
+    app_config.set_queue_execution_enabled(False)
+    app = gui_app_factory(controller=dummy_controller, config_manager=dummy_config_manager)
 
-    root = None
-    try:
-        import tkinter as tk
-        root = tk.Tk()
-        root.withdraw()
-    except Exception as exc:  # pragma: no cover - Tk unavailable
-        pytest.skip(f"Tkinter not available: {exc}")
+    command_bar = app.pipeline_panel_v2.command_bar
+    command_bar.queue_toggle.invoke()
 
-    window = MainWindow(root)
-    controller = AppController(window, pipeline_runner=FakeRunner(), threaded=False)
-
-    window.header_zone.run_button.invoke()
-    assert calls == ["direct"]
-
-    root.destroy()
+    assert app_config.is_queue_execution_enabled() is True

@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import theme as theme_mod
+from .pipeline_command_bar_v2 import PipelineCommandBarV2
 from src.gui.stage_cards_v2.advanced_txt2img_stage_card_v2 import AdvancedTxt2ImgStageCardV2
 from src.gui.stage_cards_v2.advanced_img2img_stage_card_v2 import AdvancedImg2ImgStageCardV2
 from src.gui.stage_cards_v2.advanced_upscale_stage_card_v2 import AdvancedUpscaleStageCardV2
@@ -32,6 +33,11 @@ class PipelinePanelV2(ttk.Frame):
 
         header_style = getattr(theme, "STATUS_STRONG_LABEL_STYLE", theme_mod.STATUS_STRONG_LABEL_STYLE)
         ttk.Label(self, text="Pipeline", style=header_style).pack(anchor=tk.W, pady=(0, 4))
+
+        self.command_bar = PipelineCommandBarV2(self, theme=theme)
+        self.command_bar.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
+        self.run_button = self.command_bar.run_button
+        self.stop_button = self.command_bar.stop_button
 
         body_style = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
         self.body = ttk.Frame(self, style=body_style)

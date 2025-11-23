@@ -231,6 +231,8 @@ Each issue is described in terms of:
   - Define a clear “command bar” pattern for primary pipeline actions.
   - Group related actions (Run/Stop/Preview/Queue) together.
   - Use progressive disclosure for advanced features.
+- Current status: Run / Stop / Queue controls are now grouped in a dedicated command bar on the V2 pipeline panel; remaining UX
+  work should focus on preview and advanced controls.
 
 ---
 
