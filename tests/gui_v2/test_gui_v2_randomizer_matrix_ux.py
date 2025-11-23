@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import tkinter as tk
+import pytest
 
 from src.gui.randomizer_panel_v2 import RandomizerPanelV2
 
 
 def test_matrix_rows_add_clone_delete_and_enabled(monkeypatch):
-    root = tk.Tk()
+    try:
+        root = tk.Tk()
+    except Exception:
+        pytest.skip("Tkinter/Tcl not available")
     panel = RandomizerPanelV2(root)
 
     # disable first row, add values to second

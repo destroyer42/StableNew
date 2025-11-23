@@ -29,7 +29,8 @@ Stages must be **composable** and individually testable where possible.
 ## 2. Core Invariants
 
 1. **Single source of truth for config**
-   - Pipeline config is a structured object, not ad-hoc dicts spread across layers.
+ - Pipeline config is a structured object, not ad-hoc dicts spread across layers.
+  - Controllers must route all run submissions through `PipelineConfigAssembler` before queueing or executing work (no direct `pipeline_func` shortcuts).
 
 2. **No hard-coded paths**
    - Use config/env; never bake in user-specific paths.

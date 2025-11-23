@@ -127,7 +127,8 @@ Responsibilities:
   - Default config (ConfigManager).
   - GUI overrides (PipelinePanelV2 stage cards).
   - Randomizer-selected variant config (via RandomizerAdapter).
-- Invoke  
+- Build configs via **PipelineConfigAssembler** before submitting runs (queue or direct); avoid legacy `pipeline_func` callables.
+- Invoke
   `PipelineRunner.run(config, cancel_token, log_fn, optional_learning_hooks)`.
 - Bridge **Learning**:
   - Provide the LearningRunner/adapter stubs and later production integrations.

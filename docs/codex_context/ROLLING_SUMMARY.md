@@ -44,6 +44,14 @@
 
 ---
 
+## 2025-11-22 (Assembler enforcement)
+
+- `PipelineController.start_pipeline` now builds `PipelineConfig` immediately through `PipelineConfigAssembler`, eliminating the legacy `pipeline_func` shortcut and submitting the assembled config to queue/direct runners.
+- State-driven overrides plus learning/randomizer metadata are extracted (when present) before assembly so tests can monkeypatch the assembler and observe calls.
+- Architecture/Rule docs highlight the assembler as the required entry point for production runs.
+
+---
+
 ## How To Update
 
 After each major PR or refactor, add 3-6 bullets:
