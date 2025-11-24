@@ -24,8 +24,7 @@ except Exception:  # pragma: no cover - Tk not ready
     messagebox = None
 
 from .api.webui_process_manager import WebUIProcessConfig, WebUIProcessManager
-from .controller.app_controller import AppController
-from .gui.main_window_v2 import MainWindow
+from .gui.main_window import ENTRYPOINT_GUI_CLASS, StableNewGUI
 from .utils import setup_logging
 
 _INSTANCE_PORT = 47631
@@ -105,8 +104,7 @@ def main() -> None:
         return
 
     root = tk.Tk()
-    window = MainWindow(root)
-    AppController(window, threaded=True)
+    app: StableNewGUI = ENTRYPOINT_GUI_CLASS(root=root)
     root.mainloop()
 
 

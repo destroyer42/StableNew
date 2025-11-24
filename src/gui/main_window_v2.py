@@ -1,4 +1,7 @@
-"""Minimal MainWindow implementation for Architecture_v2 controller wiring."""
+"""Deprecated legacy MainWindow skeleton kept for Architecture_v2-era tests.
+
+Prefer StableNewGUI from src.gui.main_window for all new entrypoints.
+"""
 
 from __future__ import annotations
 
@@ -196,7 +199,7 @@ class RightZone(ttk.Frame):
 
 
 class MainWindow:
-    """Lightweight window used by the PR-0 controller tests."""
+    """Lightweight window used by the PR-0 controller tests (deprecated)."""
 
     def __init__(self, root: tk.Misc | None = None) -> None:
         self.root = root or tk.Tk()

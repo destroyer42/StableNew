@@ -7301,3 +7301,5 @@ class StableNewGUI:
         self._randomize_seed("img2img")
 
 
+# Public alias for entrypoint wiring to the V2 GUI.
+ENTRYPOINT_GUI_CLASS = StableNewGUI

@@ -26,7 +26,8 @@ _webui_health_initial_timeout: float | None = None
 _webui_health_retry_count: int | None = None
 _webui_health_retry_interval: float | None = None
 _webui_health_total_timeout: float | None = None
-
+STABLENEW_WEBUI_ROOT=r"C:\Users\rob\stable-diffusion-webui"
+STABLENEW_WEBUI_COMMAND=r"C:\Users\rob\stable-diffusion-webui\webui-user.bat"
 
 def learning_enabled_default() -> bool:
     """Return default for learning toggle (opt-in by default)."""

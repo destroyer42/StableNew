@@ -1,8 +1,8 @@
 """
 StableNew - App Controller (Skeleton + CancelToken + Worker Thread Stub)
 
-This controller is designed to work with the new GUI skeleton
-in src/gui/main_window_v2.py and the Architecture_v2 design.
+Deprecated: kept only for legacy GUI skeleton in src/gui/main_window_v2.py.
+Use PipelineController + StableNewGUI for the active V2 application.
 
 It provides:
 - Lifecycle state management (IDLE, RUNNING, STOPPING, ERROR).
