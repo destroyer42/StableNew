@@ -13,12 +13,13 @@ from src.controller.webui_connection_controller import WebUIConnectionState
 class StatusBarV2(ttk.Frame):
     """Status/ETA/progress container."""
 
-    def __init__(self, master: tk.Misc, *, controller=None, theme=None, **kwargs) -> None:
+    def __init__(self, master: tk.Misc, *, controller=None, theme=None, app_state=None, **kwargs) -> None:
         style_name = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
         super().__init__(master, style=style_name, padding=theme_mod.PADDING_SM, **kwargs)
         self.controller = controller
         self.theme = theme
         self._has_validation_error = False
+        self.app_state = app_state
 
         header_style = getattr(theme, "STATUS_LABEL_STYLE", theme_mod.STATUS_LABEL_STYLE)
         self.header_label = ttk.Label(self, text="Status", style=header_style)
@@ -60,6 +61,11 @@ class StatusBarV2(ttk.Frame):
         self.webui_panel.pack(side=tk.RIGHT, padx=(8, 0))
 
         self.set_idle()
+        if app_state is not None:
+            try:
+                app_state.subscribe("status_text", self._sync_status_text)
+            except Exception:
+                pass
 
     # Status helpers -------------------------------------------------
 
@@ -147,3 +153,13 @@ class StatusBarV2(ttk.Frame):
                 self.webui_panel.set_retry_callback(callback)
             except Exception:
                 pass
+
+    def _sync_status_text(self) -> None:
+        if self.app_state is None:
+            return
+        try:
+            text = getattr(self.app_state, "status_text", "")
+            if text:
+                self.status_label.config(text=text)
+        except Exception:
+            pass

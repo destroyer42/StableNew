@@ -6,44 +6,38 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
+from src.gui.stage_cards_v2.base_stage_card_v2 import BaseStageCardV2
 from src.gui.stage_cards_v2.validation_result import ValidationResult
 
 
-class AdvancedUpscaleStageCardV2(ttk.LabelFrame):
+class AdvancedUpscaleStageCardV2(BaseStageCardV2):
     panel_header = "Upscale Configuration"
 
     def __init__(self, master: tk.Misc, *, controller=None, theme=None, **kwargs: Any) -> None:
-        super().__init__(master, text=self.panel_header, padding=6, **kwargs)
         self.controller = controller
         self.theme = theme
+        super().__init__(master, title=self.panel_header, **kwargs)
 
+    def _build_body(self, parent: ttk.Frame) -> None:
         self.upscaler_var = tk.StringVar()
         self.factor_var = tk.StringVar(value="2")
         self.tile_size_var = tk.StringVar(value="0")
         self.face_restore_var = tk.BooleanVar(value=False)
 
-        self._build()
+        ttk.Label(parent, text="Upscaler", style="Muted.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 4))
+        ttk.Entry(parent, textvariable=self.upscaler_var, width=18).grid(row=0, column=1, sticky="ew", pady=(0, 4))
 
-    def _build(self) -> None:
-        ttk.Label(self, text="Upscaler").grid(row=0, column=0, sticky=tk.W, pady=1, padx=2)
-        ttk.Entry(self, textvariable=self.upscaler_var, width=18).grid(
-            row=0, column=1, sticky=tk.EW, pady=1, padx=2
+        ttk.Label(parent, text="Factor", style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(0, 4))
+        ttk.Entry(parent, textvariable=self.factor_var, width=8).grid(row=1, column=1, sticky="w", pady=(0, 4))
+
+        ttk.Label(parent, text="Tile size", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 4))
+        ttk.Entry(parent, textvariable=self.tile_size_var, width=8).grid(row=2, column=1, sticky="w", pady=(0, 4))
+
+        ttk.Checkbutton(parent, text="Face restore", variable=self.face_restore_var).grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=(2, 4)
         )
 
-        ttk.Label(self, text="Factor").grid(row=1, column=0, sticky=tk.W, pady=1, padx=2)
-        ttk.Entry(self, textvariable=self.factor_var, width=8).grid(
-            row=1, column=1, sticky=tk.W, pady=1, padx=2
-        )
-
-        ttk.Label(self, text="Tile size").grid(row=2, column=0, sticky=tk.W, pady=1, padx=2)
-        ttk.Entry(self, textvariable=self.tile_size_var, width=8).grid(
-            row=2, column=1, sticky=tk.W, pady=1, padx=2
-        )
-
-        ttk.Checkbutton(self, text="Face restore", variable=self.face_restore_var).grid(
-            row=3, column=0, columnspan=2, sticky=tk.W, pady=1, padx=2
-        )
-        self.columnconfigure(1, weight=1)
+        parent.columnconfigure(1, weight=1)
 
     def load_from_config(self, cfg: dict[str, Any]) -> None:
         section = (cfg or {}).get("upscale", {}) or {}

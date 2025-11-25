@@ -14,6 +14,7 @@ from .negative_prompt_panel_v2 import NegativePromptPanelV2
 from .output_settings_panel_v2 import OutputSettingsPanelV2
 from .prompt_pack_adapter_v2 import PromptPackAdapterV2, PromptPackSummary
 from .prompt_pack_panel_v2 import PromptPackPanelV2
+from .widgets.scrollable_frame_v2 import ScrollableFrame
 
 
 class SidebarPanelV2(ttk.Frame):
@@ -24,6 +25,7 @@ class SidebarPanelV2(ttk.Frame):
         master: tk.Misc,
         *,
         controller=None,
+        app_state=None,
         theme=None,
         prompt_pack_adapter: PromptPackAdapterV2 | None = None,
         on_apply_pack: Callable[[str, PromptPackSummary | None], None] | None = None,
@@ -32,6 +34,7 @@ class SidebarPanelV2(ttk.Frame):
         style_name = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
         super().__init__(master, style=style_name, padding=theme_mod.PADDING_MD, **kwargs)
         self.controller = controller
+        self.app_state = app_state
         self.theme = theme
         self.prompt_pack_adapter = prompt_pack_adapter or PromptPackAdapterV2()
         self._on_apply_pack = on_apply_pack
@@ -41,29 +44,43 @@ class SidebarPanelV2(ttk.Frame):
         self.header_label.pack(anchor=tk.W, pady=(0, 4))
 
         body_style = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
-        self.body = ttk.Frame(self, style=body_style)
-        self.body.pack(fill=tk.BOTH, expand=True)
+
+        # Compatibility toolbar used by legacy AppController wiring.
+        toolbar = ttk.Frame(self, style=body_style)
+        toolbar.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
+        self.load_pack_button = ttk.Button(toolbar, text="Load Pack")
+        self.load_pack_button.pack(side=tk.LEFT, padx=(0, theme_mod.PADDING_XS))
+        self.edit_pack_button = ttk.Button(toolbar, text="Edit Pack")
+        self.edit_pack_button.pack(side=tk.LEFT, padx=(0, theme_mod.PADDING_XS))
+        self.preset_combo = ttk.Combobox(toolbar, values=[])
+        self.preset_combo.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+
+        self._scroll = ScrollableFrame(self, style=body_style)
+        self._scroll.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        body_parent = self._scroll.inner
+        self.body = body_parent  # backward-compat hook for existing wiring
 
         adapter = ModelListAdapterV2(lambda: getattr(self.controller, "client", None))
-        self.model_manager_panel = ModelManagerPanelV2(self.body, theme=theme, adapter=adapter)
+        self.model_manager_panel = ModelManagerPanelV2(body_parent, theme=theme, adapter=adapter)
         self.model_manager_panel.pack(fill=tk.X, pady=(0, theme_mod.PADDING_MD))
 
-        self.core_config_panel = CoreConfigPanelV2(self.body, theme=theme)
+        self.core_config_panel = CoreConfigPanelV2(body_parent, theme=theme)
         self.core_config_panel.pack(fill=tk.X, pady=(0, theme_mod.PADDING_MD))
 
-        self.negative_prompt_panel = NegativePromptPanelV2(self.body, theme=theme)
+        self.negative_prompt_panel = NegativePromptPanelV2(body_parent, theme=theme)
         self.negative_prompt_panel.pack(fill=tk.X, pady=(0, theme_mod.PADDING_MD))
 
-        self.output_settings_panel = OutputSettingsPanelV2(self.body, theme=theme)
+        self.output_settings_panel = OutputSettingsPanelV2(body_parent, theme=theme)
         self.output_settings_panel.pack(fill=tk.X, pady=(0, theme_mod.PADDING_MD))
 
         self.prompt_pack_panel = PromptPackPanelV2(
-            self.body,
+            body_parent,
             theme=theme,
             packs=[],
             on_apply=self._handle_apply_pack,
         )
         self.prompt_pack_panel.pack(fill=tk.BOTH, expand=True)
+        self.packs_list = self.prompt_pack_panel.listbox  # legacy compatibility
 
         self.refresh_prompt_packs()
 
@@ -75,6 +92,19 @@ class SidebarPanelV2(ttk.Frame):
         except Exception:
             summaries = []
         self.prompt_pack_panel.set_packs(summaries)
+        # Keep the legacy list view in sync for AppController-based flows.
+        if getattr(self, "packs_list", None):
+            self.packs_list.delete(0, tk.END)
+            for summary in summaries:
+                self.packs_list.insert(tk.END, summary.name)
+
+    def set_pack_names(self, names: list[str]) -> None:
+        """Best-effort helper for simple string lists (used by AppController)."""
+        if not getattr(self, "packs_list", None):
+            return
+        self.packs_list.delete(0, tk.END)
+        for name in names:
+            self.packs_list.insert(tk.END, name)
 
     def _handle_apply_pack(self, summary: PromptPackSummary) -> None:
         prompt_text = ""

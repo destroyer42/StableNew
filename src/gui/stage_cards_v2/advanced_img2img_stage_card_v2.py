@@ -6,17 +6,21 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
+from src.gui.stage_cards_v2.base_stage_card_v2 import BaseStageCardV2
+from src.gui.stage_cards_v2.components import SamplerSection, SeedSection
 from src.gui.stage_cards_v2.validation_result import ValidationResult
 
 
-class AdvancedImg2ImgStageCardV2(ttk.LabelFrame):
+class AdvancedImg2ImgStageCardV2(BaseStageCardV2):
     panel_header = "Img2Img Configuration"
 
     def __init__(self, master: tk.Misc, *, controller=None, theme=None, **kwargs: Any) -> None:
-        super().__init__(master, text=self.panel_header, padding=6, **kwargs)
         self.controller = controller
         self.theme = theme
+        super().__init__(master, title=self.panel_header, **kwargs)
 
+    def _build_body(self, parent: ttk.Frame) -> None:
+        # Core vars
         self.sampler_var = tk.StringVar()
         self.cfg_var = tk.StringVar(value="7.0")
         self.denoise_var = tk.StringVar(value="0.3")
@@ -24,22 +28,40 @@ class AdvancedImg2ImgStageCardV2(ttk.LabelFrame):
         self.height_var = tk.StringVar(value="")
         self.mask_mode_var = tk.StringVar(value="none")
 
-        self._build()
+        # Sampler/steps/cfg shared section (reuse cfg var)
+        self.sampler_section = SamplerSection(parent)
+        self.sampler_section.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        self.sampler_section.sampler_var = self.sampler_var  # type: ignore[assignment]
+        self.sampler_section.cfg_var = self.cfg_var  # type: ignore[assignment]
+        # Keep steps_var but we don't persist it; still watchable for consistency
 
-    def _build(self) -> None:
-        fields = [
-            ("Sampler", self.sampler_var),
-            ("CFG", self.cfg_var),
-            ("Denoise", self.denoise_var),
-            ("Width", self.width_var),
-            ("Height", self.height_var),
-            ("Mask mode", self.mask_mode_var),
-        ]
-        for idx, (label, var) in enumerate(fields):
-            ttk.Label(self, text=label).grid(row=idx, column=0, sticky=tk.W, pady=1, padx=2)
-            entry = ttk.Entry(self, textvariable=var, width=18)
-            entry.grid(row=idx, column=1, sticky=tk.EW, pady=1, padx=2)
-        self.columnconfigure(1, weight=1)
+        meta = ttk.Frame(parent, style="Panel.TFrame")
+        meta.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+
+        ttk.Label(meta, text="Denoise", style="Muted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 4))
+        ttk.Entry(meta, textvariable=self.denoise_var, width=10).grid(row=0, column=1, sticky="ew", padx=(0, 8))
+
+        ttk.Label(meta, text="Mask mode", style="Muted.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 4))
+        ttk.Entry(meta, textvariable=self.mask_mode_var, width=12).grid(row=0, column=3, sticky="ew")
+
+        ttk.Label(meta, text="Width", style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 2))
+        ttk.Entry(meta, textvariable=self.width_var, width=8).grid(row=1, column=1, sticky="ew", padx=(0, 8))
+        ttk.Label(meta, text="Height", style="Muted.TLabel").grid(row=1, column=2, sticky="w", pady=(6, 2))
+        ttk.Entry(meta, textvariable=self.height_var, width=8).grid(row=1, column=3, sticky="ew")
+        for col in range(4):
+            meta.columnconfigure(col, weight=1 if col in (1, 3) else 0)
+
+        self.seed_section = SeedSection(parent)
+        self.seed_section.grid(row=2, column=0, sticky="ew")
+        self.seed_var = self.seed_section.seed_var  # compatibility exposure
+
+        for var in self.watchable_vars():
+            try:
+                var.trace_add("write", lambda *_: None)
+            except Exception:
+                pass
+
+        parent.columnconfigure(0, weight=1)
 
     def load_from_config(self, cfg: dict[str, Any]) -> None:
         section = (cfg or {}).get("img2img", {}) or {}
@@ -72,6 +94,16 @@ class AdvancedImg2ImgStageCardV2(ttk.LabelFrame):
         if not 0.0 <= denoise <= 1.0:
             return ValidationResult(False, "Denoise must be between 0 and 1")
         return ValidationResult(True, None)
+
+    def watchable_vars(self) -> list[tk.Variable]:
+        return [
+            self.sampler_var,
+            self.cfg_var,
+            self.denoise_var,
+            self.width_var,
+            self.height_var,
+            self.mask_mode_var,
+        ]
 
     @staticmethod
     def _safe_int(value: Any, default: int) -> int:

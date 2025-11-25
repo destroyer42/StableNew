@@ -1,275 +1,339 @@
-"""Deprecated legacy MainWindow skeleton kept for Architecture_v2-era tests.
-
-Prefer StableNewGUI from src.gui.main_window for all new entrypoints.
-"""
-
 from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Callable, Optional, TYPE_CHECKING
+from typing import Optional
 
-from .config_panel import ConfigPanel
-from . import theme
-
-if TYPE_CHECKING:  # pragma: no cover
-    from src.controller.app_controller import AppController
+from src.api.webui_process_manager import WebUIProcessManager, build_default_webui_process_config
+from src.gui.app_state_v2 import AppStateV2
+from src.gui.layout_v2 import configure_root_grid
+from src.gui.theme_v2 import apply_theme, BACKGROUND_ELEVATED, TEXT_PRIMARY, ACCENT_GOLD
+from src.gui.sidebar_panel_v2 import SidebarPanelV2
+from src.gui.pipeline_panel_v2 import PipelinePanelV2
+from src.gui.preview_panel_v2 import PreviewPanelV2
+from src.gui.status_bar_v2 import StatusBarV2
 
 
 class HeaderZone(ttk.Frame):
-    def __init__(self, master: tk.Misc, *, frame_style: Optional[str] = None) -> None:
-        style_kwargs = {"style": frame_style} if frame_style else {}
-        super().__init__(master, padding=theme.PADDING_MD, **style_kwargs)
-        self.run_button = ttk.Button(
-            self,
-            text="Run",
-            style=theme.PRIMARY_BUTTON_STYLE,
-        )
-        self.stop_button = ttk.Button(
-            self,
-            text="Stop",
-            style=theme.DANGER_BUTTON_STYLE,
-        )
-        self.preview_button = ttk.Button(
-            self,
-            text="Preview",
-            style=theme.GHOST_BUTTON_STYLE,
-        )
-        self.settings_button = ttk.Button(
-            self,
-            text="Settings",
-            style=theme.GHOST_BUTTON_STYLE,
-        )
-        self.help_button = ttk.Button(
-            self,
-            text="Help",
-            style=theme.GHOST_BUTTON_STYLE,
-        )
+    def __init__(self, master: tk.Misc):
+        super().__init__(master, style="Panel.TFrame")
+        self.run_button = ttk.Button(self, text="Run", style="Primary.TButton")
+        self.stop_button = ttk.Button(self, text="Stop", style="Secondary.TButton")
+        self.preview_button = ttk.Button(self, text="Preview", style="Secondary.TButton")
+        self.settings_button = ttk.Button(self, text="Settings", style="Secondary.TButton")
+        self.help_button = ttk.Button(self, text="Help", style="Secondary.TButton")
 
-        for btn in (
-            self.run_button,
-            self.stop_button,
-            self.preview_button,
-            self.settings_button,
-            self.help_button,
+        for idx, btn in enumerate(
+            [
+                self.run_button,
+                self.stop_button,
+                self.preview_button,
+                self.settings_button,
+                self.help_button,
+            ]
         ):
-            btn.pack(side="left", padx=theme.PADDING_SM)
+            btn.grid(row=0, column=idx, padx=4, pady=4)
 
 
 class LeftZone(ttk.Frame):
-    def __init__(self, master: tk.Misc) -> None:
-        super().__init__(
-            master, padding=theme.PADDING_MD, style=theme.SURFACE_FRAME_STYLE
-        )
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
+    def __init__(self, master: tk.Misc):
+        super().__init__(master, style="Panel.TFrame")
+        self.load_pack_button = ttk.Button(self, text="Load Pack")
+        self.edit_pack_button = ttk.Button(self, text="Edit Pack")
+        self.packs_list = tk.Listbox(self, exportselection=False)
+        self.preset_combo = ttk.Combobox(self, values=[])
 
-        self.load_pack_button = ttk.Button(
-            self, text="Load Pack", style=theme.GHOST_BUTTON_STYLE
-        )
-        self.edit_pack_button = ttk.Button(
-            self, text="Edit Pack", style=theme.GHOST_BUTTON_STYLE
-        )
-        self.load_pack_button.grid(row=0, column=0, sticky="ew")
-        self.edit_pack_button.grid(
-            row=1,
-            column=0,
-            sticky="ew",
-            pady=(theme.PADDING_SM, theme.PADDING_MD),
-        )
-
-        self.packs_card = ttk.Frame(
-            self,
-            padding=theme.PADDING_MD,
-            style=theme.SURFACE_FRAME_STYLE,
-        )
-        self.packs_card.grid(
-            row=2,
-            column=0,
-            sticky="nsew",
-            pady=(0, theme.PADDING_MD),
-        )
-        self.packs_card.columnconfigure(0, weight=1)
-        self.packs_card.rowconfigure(1, weight=1)
-
-        ttk.Label(
-            self.packs_card, text="Packs", style=theme.STATUS_STRONG_LABEL_STYLE
-        ).grid(row=0, column=0, sticky="w", pady=(0, theme.PADDING_SM))
-
-        self.packs_list = tk.Listbox(
-            self.packs_card,
-            height=10,
-            width=34,
-            relief="flat",
-            borderwidth=0,
-            background=theme.COLOR_SURFACE_ALT,
-            foreground=theme.COLOR_TEXT,
-            highlightthickness=1,
-            highlightcolor=theme.COLOR_BORDER_SUBTLE,
-            highlightbackground=theme.COLOR_BORDER_SUBTLE,
-            selectbackground=theme.COLOR_ACCENT,
-            selectforeground=theme.ASWF_BLACK,
-            activestyle="none",
-        )
-        self.packs_list.grid(row=1, column=0, sticky="nsew")
-
-        self.preset_card = ttk.Frame(
-            self,
-            padding=theme.PADDING_MD,
-            style=theme.SURFACE_FRAME_STYLE,
-        )
-        self.preset_card.grid(row=3, column=0, sticky="ew")
-        self.preset_card.columnconfigure(0, weight=1)
-
-        self.preset_label = ttk.Label(
-            self.preset_card, text="Preset", style=theme.STATUS_STRONG_LABEL_STYLE
-        )
-        self.preset_label.grid(row=0, column=0, sticky="w")
-        self.preset_combo = ttk.Combobox(self.preset_card, values=[])
-        self.preset_combo.grid(
-            row=1,
-            column=0,
-            sticky="ew",
-            pady=(theme.PADDING_XS, 0),
-        )
-
-    def update_pack_list(self, pack_names: list[str]) -> None:
-        self.packs_list.delete(0, "end")
-        for name in pack_names:
-            self.packs_list.insert("end", name)
+        self.load_pack_button.pack(fill="x", padx=4, pady=2)
+        self.edit_pack_button.pack(fill="x", padx=4, pady=2)
+        self.packs_list.pack(fill="both", expand=True, padx=4, pady=4)
+        ttk.Label(self, text="Preset").pack(anchor="w", padx=4)
+        self.preset_combo.pack(fill="x", padx=4, pady=2)
 
 
 class BottomZone(ttk.Frame):
-    def __init__(self, master: tk.Misc, *, frame_style: Optional[str] = None) -> None:
-        style_kwargs = {"style": frame_style} if frame_style else {}
-        super().__init__(master, padding=theme.PADDING_MD, **style_kwargs)
-        self.status_label = ttk.Label(
-            self,
-            text="Status: Idle",
-            style=theme.STATUS_STRONG_LABEL_STYLE,
+    def __init__(self, master: tk.Misc, *, controller=None, app_state=None):
+        super().__init__(master, style="StatusBar.TFrame")
+        self.status_bar_v2 = StatusBarV2(self, controller=controller, app_state=app_state)
+        self.status_bar_v2.pack(side=tk.TOP, fill="x", padx=4, pady=(4, 2))
+
+        # Compatibility aliases expected by AppController-based tests.
+        self.api_status_label = getattr(getattr(self.status_bar_v2, "webui_panel", None), "status_label", None)
+        if self.api_status_label is None:
+            self.api_status_label = ttk.Label(self, text="API: Unknown", style="StatusBar.TLabel")
+        self.status_label = getattr(self.status_bar_v2, "status_label", ttk.Label(self, text="Status: Idle"))
+
+        log_style_kwargs = {"bg": BACKGROUND_ELEVATED, "fg": TEXT_PRIMARY, "insertbackground": TEXT_PRIMARY}
+        self.log_text = tk.Text(self, height=6, **log_style_kwargs)
+        self.log_text.pack(fill="both", expand=True, padx=4, pady=(2, 4))
+
+
+class MainWindowV2:
+    """Minimal V2 spine used by legacy controllers and new app entrypoint."""
+
+    def __init__(
+        self,
+        root: tk.Tk,
+        app_state: AppStateV2 | None = None,
+        webui_manager: WebUIProcessManager | None = None,
+        app_controller=None,
+        packs_controller=None,
+        pipeline_controller=None,
+    ) -> None:
+        self.root = root
+        self.app_state = app_state or AppStateV2()
+        self.webui_process_manager = webui_manager
+        self.app_controller = app_controller
+        self.packs_controller = packs_controller
+        self.pipeline_controller = pipeline_controller
+
+        self.root.title("StableNew V2 (Spine)")
+        self.root.geometry("1400x850")
+        self.root.minsize(1024, 700)
+        apply_theme(self.root)
+        configure_root_grid(self.root)
+
+        self.sidebar_frame = ttk.Frame(self.root, style="Panel.TFrame")
+        self.pipeline_frame = ttk.Frame(self.root, style="Panel.TFrame")
+        self.preview_frame = ttk.Frame(self.root, style="Panel.TFrame")
+        self.status_frame = ttk.Frame(self.root, style="StatusBar.TFrame")
+
+        self.header_zone = HeaderZone(self.pipeline_frame)
+        self.left_zone = SidebarPanelV2(
+            self.sidebar_frame,
+            controller=self.packs_controller,
+            app_state=self.app_state,
+            on_apply_pack=self._handle_apply_pack,
         )
-        self.status_label.pack(anchor="w")
-
-        self.api_status_label = ttk.Label(
-            self,
-            text="API: Unknown",
-            style=theme.STATUS_LABEL_STYLE,
+        self.pipeline_panel = PipelinePanelV2(
+            self.pipeline_frame,
+            controller=self.pipeline_controller,
+            app_state=self.app_state,
         )
-        self.api_status_label.pack(anchor="w", pady=(0, theme.PADDING_SM))
-
-        self.log_text = tk.Text(self, height=10, width=60, relief="flat", borderwidth=0)
-        self.log_text.configure(
-            state="normal",
-            background=theme.COLOR_SURFACE_ALT,
-            foreground=theme.COLOR_TEXT,
-            insertbackground=theme.COLOR_TEXT,
-            highlightthickness=1,
-            highlightcolor=theme.COLOR_BORDER_SUBTLE,
-            highlightbackground=theme.COLOR_BORDER_SUBTLE,
+        self.preview_panel = PreviewPanelV2(
+            self.preview_frame,
+            controller=self.pipeline_controller,
+            theme=None,
         )
-        self.log_text.pack(fill="both", expand=True)
+        self.bottom_zone = BottomZone(self.status_frame, controller=self.app_controller, app_state=self.app_state)
+        # Keep a handle to the v2 status bar for styling/updates.
+        self.status_bar_v2 = self.bottom_zone.status_bar_v2
+        try:
+            self.status_bar_v2.app_state = self.app_state
+        except Exception:
+            pass
 
+        # Place top-level frames with breathing room
+        self.sidebar_frame.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=(8, 4))
+        self.pipeline_frame.grid(row=0, column=1, sticky="nsew", padx=4, pady=(8, 4))
+        self.preview_frame.grid(row=0, column=2, sticky="nsew", padx=(4, 8), pady=(8, 4))
+        self.status_frame.grid(row=1, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 8))
 
-class RightZone(ttk.Frame):
-    def __init__(self, master: tk.Misc) -> None:
-        super().__init__(master, padding=theme.PADDING_MD, style=theme.SURFACE_FRAME_STYLE)
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        # Internal layout/weights
+        self.sidebar_frame.rowconfigure(0, weight=1)
+        self.sidebar_frame.columnconfigure(0, weight=1)
+        self.pipeline_frame.rowconfigure(1, weight=1)
+        self.pipeline_frame.columnconfigure(0, weight=1)
+        self.preview_frame.rowconfigure(0, weight=1)
+        self.preview_frame.columnconfigure(0, weight=1)
 
-        ttk.Label(
-            self, text="Preview", style=theme.STATUS_STRONG_LABEL_STYLE
-        ).grid(row=0, column=0, sticky="w")
+        # Header at top of pipeline, pipeline content below
+        self.header_zone.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 8))
 
-        self.preview_placeholder = ttk.Frame(
-            self,
-            style=theme.SURFACE_FRAME_STYLE,
-            padding=theme.PADDING_MD,
-        )
-        self.preview_placeholder.grid(
-            row=1,
-            column=0,
-            sticky="nsew",
-            pady=(theme.PADDING_SM, 0),
-        )
-        ttk.Label(
-            self.preview_placeholder,
-            text="Preview area coming soon",
-            style=theme.STATUS_LABEL_STYLE,
-        ).pack(anchor="center", expand=True)
+        # Sidebar + preview content fill
+        self.left_zone.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        self.pipeline_panel.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
+        self.preview_panel.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
 
+        # Status/log area at bottom
+        self.bottom_zone.pack(fill="both", expand=True, padx=4, pady=4)
 
-class MainWindow:
-    """Lightweight window used by the PR-0 controller tests (deprecated)."""
+        # Provide delegation helpers expected by controllers/tests
+        self.after = self.root.after  # type: ignore[attr-defined]
 
-    def __init__(self, root: tk.Misc | None = None) -> None:
-        self.root = root or tk.Tk()
-        self.root.title("StableNew")
-        self.root.geometry("960x680")
-        self.root.minsize(840, 560)
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(1, weight=1)
-        self.style = theme.configure_style(self.root)
-        self.controller: Optional["AppController"] = None
+        self._wire_toolbar_callbacks()
+        self._wire_left_zone_callbacks()
+        self._wire_status_bar()
 
-        self.header_zone = HeaderZone(self.root, frame_style=theme.HEADER_FRAME_STYLE)
-        self.header_zone.pack(fill="x", side="top")
+        # Make main content row stretch
+        self.root.rowconfigure(0, weight=1)
+        self.root.rowconfigure(1, weight=0)
 
-        body = ttk.Frame(self.root, style=theme.SURFACE_FRAME_STYLE, padding=theme.PADDING_MD)
-        body.pack(fill="both", expand=True)
-        body.columnconfigure(0, weight=0)
-        body.columnconfigure(1, weight=1)
-        body.columnconfigure(2, weight=1)
-        body.rowconfigure(0, weight=1)
-
-        self.left_zone = LeftZone(body)
-        self.left_zone.grid(row=0, column=0, sticky="nsew", padx=(0, theme.PADDING_MD))
-
-        self.center_zone = ttk.Frame(
-            body,
-            style=theme.SURFACE_FRAME_STYLE,
-            padding=theme.PADDING_MD,
-        )
-        self.center_zone.grid(row=0, column=1, sticky="nsew")
-        self.center_zone.columnconfigure(0, weight=1)
-        self.center_zone.rowconfigure(0, weight=1)
-        self.config_panel = ConfigPanel(self.center_zone, self.on_config_field_changed)
-        self.config_panel.grid(row=0, column=0, sticky="nsew")
-
-        self.right_zone = RightZone(body)
-        self.right_zone.grid(row=0, column=2, sticky="nsew", padx=(theme.PADDING_MD, 0))
-
-        self.bottom_zone = BottomZone(
-            self.root,
-            frame_style=theme.SURFACE_FRAME_STYLE,
-        )
-        self.bottom_zone.pack(fill="both", expand=True, side="bottom")
-
-    def after(self, delay_ms: int, callback: Callable[[], None]):
-        return self.root.after(delay_ms, callback)
-
-    def withdraw(self) -> None:
-        self.root.withdraw()
-
-    def destroy(self) -> None:
-        self.root.destroy()
-
-    def update_pack_list(self, pack_names: list[str]) -> None:
-        self.left_zone.update_pack_list(pack_names)
-
-    def connect_controller(self, controller: "AppController") -> None:
+    # Compatibility hook for controllers
+    def connect_controller(self, controller) -> None:
         self.controller = controller
-        self.refresh_config_panel()
+        if self.app_controller is None:
+            self.app_controller = controller
+            self._wire_toolbar_callbacks()
+            self._wire_left_zone_callbacks()
+        if getattr(self, "status_bar_v2", None):
+            try:
+                self.status_bar_v2.controller = controller
+            except Exception:
+                pass
 
-    def refresh_config_panel(self) -> None:
-        if not self.controller:
+    def update_pack_list(self, packs: list[str]) -> None:
+        if hasattr(self.left_zone, "set_pack_names"):
+            try:
+                self.left_zone.set_pack_names(packs)
+                return
+            except Exception:
+                pass
+        lb = getattr(self.left_zone, "packs_list", None)
+        if lb is None:
             return
-        config = self.controller.get_current_config()
-        models = self.controller.get_available_models()
-        samplers = self.controller.get_available_samplers()
-        self.config_panel.refresh_from_controller(config, models, samplers)
+        lb.delete(0, "end")
+        for name in packs:
+            lb.insert("end", name)
 
-    def on_config_field_changed(self, field: str, value) -> None:
-        if not self.controller:
+    def _wire_toolbar_callbacks(self) -> None:
+        header = getattr(self, "header_zone", None)
+        if header is None:
             return
-        self.controller.update_config(**{field: value})
-        self.refresh_config_panel()
+        # Prefer the lightweight AppController wiring if provided
+        ctrl = self.app_controller
+        if ctrl:
+            for attr, btn in [
+                ("on_run_clicked", header.run_button),
+                ("on_stop_clicked", header.stop_button),
+                ("on_preview_clicked", header.preview_button),
+                ("on_open_settings", header.settings_button),
+                ("on_help_clicked", header.help_button),
+            ]:
+                callback = getattr(ctrl, attr, None)
+                if callable(callback):
+                    try:
+                        btn.configure(command=callback)
+                    except Exception:
+                        pass
+            return
+
+        # Best-effort fallback wiring using pipeline/pack controllers
+        if self.pipeline_controller:
+            start_cb = getattr(self.pipeline_controller, "start_pipeline", None) or getattr(
+                self.pipeline_controller, "start", None
+            )
+            stop_cb = getattr(self.pipeline_controller, "stop_pipeline", None) or getattr(
+                self.pipeline_controller, "stop", None
+            )
+            if callable(start_cb):
+                header.run_button.configure(command=start_cb)
+            if callable(stop_cb):
+                header.stop_button.configure(command=stop_cb)
+
+    def _wire_left_zone_callbacks(self) -> None:
+        left = getattr(self, "left_zone", None)
+        if left is None:
+            return
+
+        ctrl = self.packs_controller or self.app_controller
+        if not ctrl:
+            return
+
+        if hasattr(left, "load_pack_button"):
+            cb = getattr(ctrl, "on_load_pack", None) or getattr(ctrl, "load_pack", None)
+            if callable(cb):
+                try:
+                    left.load_pack_button.configure(command=cb)
+                except Exception:
+                    pass
+
+        if hasattr(left, "edit_pack_button"):
+            cb = getattr(ctrl, "on_edit_pack", None) or getattr(ctrl, "edit_pack", None)
+            if callable(cb):
+                try:
+                    left.edit_pack_button.configure(command=cb)
+                except Exception:
+                    pass
+
+        if hasattr(left, "packs_list") and callable(getattr(ctrl, "on_pack_selected", None)):
+            try:
+                left.packs_list.bind("<<ListboxSelect>>", lambda _e: self._handle_pack_selection(ctrl))
+            except Exception:
+                pass
+
+        if hasattr(left, "preset_combo") and callable(getattr(ctrl, "on_preset_selected", None)):
+            try:
+                left.preset_combo.bind(
+                    "<<ComboboxSelected>>", lambda _e: ctrl.on_preset_selected(left.preset_combo.get())
+                )
+            except Exception:
+                pass
+
+    def _handle_pack_selection(self, ctrl) -> None:
+        lb = getattr(self.left_zone, "packs_list", None)
+        if lb is None:
+            return
+        try:
+            selection = lb.curselection()
+            if selection:
+                ctrl.on_pack_selected(int(selection[0]))
+        except Exception:
+            pass
+
+    def _wire_status_bar(self) -> None:
+        if not getattr(self, "status_bar_v2", None):
+            return
+        try:
+            self.status_bar_v2.app_state = self.app_state
+            if hasattr(self.app_state, "subscribe"):
+                self.app_state.subscribe("status_text", self.status_bar_v2._sync_status_text)
+            try:
+                self.status_bar_v2._sync_status_text()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _handle_apply_pack(self, prompt_text: str, summary) -> None:
+        if getattr(self, "pipeline_panel", None) and hasattr(self.pipeline_panel, "set_prompt"):
+            try:
+                self.pipeline_panel.set_prompt(prompt_text or "")
+            except Exception:
+                pass
+        if getattr(self, "app_state", None):
+            try:
+                pack_name = getattr(summary, "name", None)
+                if pack_name:
+                    self.app_state.set_current_pack(pack_name)
+                    self.app_state.set_status_text(f"Pack applied: {pack_name}")
+            except Exception:
+                pass
+
+
+
+def run_app(
+    root: Optional[tk.Tk] = None,
+    webui_manager: Optional[WebUIProcessManager] = None,
+    app_controller=None,
+    packs_controller=None,
+    pipeline_controller=None,
+) -> None:
+    """Launch the V2 application shell."""
+
+    if root is None:
+        root = tk.Tk()
+
+    if webui_manager is None:
+        proc_config = build_default_webui_process_config()
+        if proc_config:
+            webui_manager = WebUIProcessManager(proc_config)
+            if proc_config.autostart_enabled:
+                try:
+                    webui_manager.start()
+                except Exception:
+                    pass
+
+    app_state = AppStateV2()
+    MainWindowV2(
+        root=root,
+        app_state=app_state,
+        webui_manager=webui_manager,
+        app_controller=app_controller,
+        packs_controller=packs_controller,
+        pipeline_controller=pipeline_controller,
+    )
+    root.mainloop()
+
+
+# Backward-compatible alias expected by controllers/tests
+MainWindow = MainWindowV2

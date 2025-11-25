@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import theme as theme_mod
+from .widgets.scrollable_frame_v2 import ScrollableFrame
 
 
 class PreviewPanelV2(ttk.Frame):
@@ -22,5 +23,7 @@ class PreviewPanelV2(ttk.Frame):
         self.header_label.pack(anchor=tk.W, pady=(0, 4))
 
         body_style = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
-        self.body = ttk.Frame(self, style=body_style)
+        self._scroll = ScrollableFrame(self, style=body_style)
+        self._scroll.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        self.body = ttk.Frame(self._scroll.inner, style=body_style)
         self.body.pack(fill=tk.BOTH, expand=True)

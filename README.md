@@ -23,6 +23,18 @@ V2 is what V1 should have been.
 - Pipeline Runner with structured I/O
 - Future cluster-ready design
 
+## Repository Inventory
+Generate a machine-readable snapshot of active modules and likely legacy files:
+
+```
+python -m tools.inventory_repo
+```
+
+Outputs:
+- `repo_inventory.json`
+- `docs/ACTIVE_MODULES.md`
+- `docs/LEGACY_CANDIDATES.md`
+
 ## Contributing
 Follow PR templates under `docs/pr-templates/`.
 Do not modify multiple subsystems in a single PR.

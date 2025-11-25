@@ -23,8 +23,13 @@ except Exception:  # pragma: no cover - Tk not ready
     tk = None
     messagebox = None
 
-from .api.webui_process_manager import WebUIProcessConfig, WebUIProcessManager
+from .api.webui_process_manager import (
+    WebUIProcessConfig,
+    WebUIProcessManager,
+    build_default_webui_process_config,
+)
 from .gui.main_window import ENTRYPOINT_GUI_CLASS, StableNewGUI
+from .gui.main_window_v2 import run_app as run_app_v2
 from .utils import setup_logging
 
 _INSTANCE_PORT = 47631
@@ -44,37 +49,50 @@ def _acquire_single_instance_lock() -> socket.socket | None:
         return None
     return sock
 
-def bootstrap_webui(config: dict[str, Any]) -> None:
+def bootstrap_webui(config: dict[str, Any]) -> WebUIProcessManager | None:
     """Best-effort WebUI bootstrap that never blocks GUI startup."""
 
-    timeout = float(config.get("webui_startup_timeout_seconds", 30))
-    if config.get("webui_autostart_enabled"):
+    proc_config: WebUIProcessConfig | None = config.get("process_config")
+    if proc_config is None:
+        logging.info("WebUI autostart is disabled; GUI will launch without waiting.")
+        return None
+
+    manager = WebUIProcessManager(proc_config)
+    if proc_config.autostart_enabled:
         try:
-            manager = WebUIProcessManager(
-                WebUIProcessConfig(
-                    command=list(config.get("webui_command") or []),
-                    working_dir=config.get("webui_working_dir"),
-                    startup_timeout_seconds=timeout,
-                )
-            )
             manager.start()
             logging.info("WebUI autostart requested (non-blocking)")
         except Exception as exc:
             logging.warning("WebUI autostart failed (non-fatal): %s", exc)
     else:
         logging.info("WebUI autostart is disabled; GUI will launch without waiting.")
+    return manager
 
 
 def _load_webui_config() -> dict[str, Any]:
-    command = os.getenv("STABLENEW_WEBUI_COMMAND", "").split()
-    return {
-        "webui_autostart_enabled": os.getenv("STABLENEW_WEBUI_AUTOSTART", "false").lower()
-        in {"1", "true", "yes"},
-        "webui_command": command or ["python", "webui.py"],
-        "webui_working_dir": os.getenv("STABLENEW_WEBUI_WORKDIR"),
+    cfg = {
         "webui_base_url": os.getenv("STABLENEW_WEBUI_BASE_URL", "http://127.0.0.1:7860"),
-        "webui_startup_timeout_seconds": float(os.getenv("STABLENEW_WEBUI_TIMEOUT", "30")),
     }
+
+    proc_config = build_default_webui_process_config()
+    if proc_config:
+        env_override_cmd = os.getenv("STABLENEW_WEBUI_COMMAND", "").split()
+        if env_override_cmd:
+            proc_config.command = env_override_cmd
+        workdir_override = os.getenv("STABLENEW_WEBUI_WORKDIR")
+        if workdir_override:
+            proc_config.working_dir = workdir_override
+        autostart_env = os.getenv("STABLENEW_WEBUI_AUTOSTART")
+        if autostart_env is not None:
+            proc_config.autostart_enabled = autostart_env.lower() in {"1", "true", "yes"}
+        timeout_override = os.getenv("STABLENEW_WEBUI_TIMEOUT")
+        if timeout_override:
+            try:
+                proc_config.startup_timeout_seconds = float(timeout_override)
+            except Exception:
+                pass
+        cfg["process_config"] = proc_config
+    return cfg
 
 
 
@@ -82,7 +100,8 @@ def main() -> None:
     """Main function"""
     setup_logging("INFO")
 
-    bootstrap_webui(_load_webui_config())
+    logging.info("Starting StableNew V2 GUI (MainWindowV2)")
+    webui_manager = bootstrap_webui(_load_webui_config())
 
     lock_sock = _acquire_single_instance_lock()
     if lock_sock is None:
@@ -104,8 +123,7 @@ def main() -> None:
         return
 
     root = tk.Tk()
-    app: StableNewGUI = ENTRYPOINT_GUI_CLASS(root=root)
-    root.mainloop()
+    run_app_v2(root=root, webui_manager=webui_manager)
 
 
 if __name__ == "__main__":

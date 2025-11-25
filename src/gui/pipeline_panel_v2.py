@@ -12,6 +12,7 @@ from src.gui.stage_cards_v2.advanced_txt2img_stage_card_v2 import AdvancedTxt2Im
 from src.gui.stage_cards_v2.advanced_img2img_stage_card_v2 import AdvancedImg2ImgStageCardV2
 from src.gui.stage_cards_v2.advanced_upscale_stage_card_v2 import AdvancedUpscaleStageCardV2
 from src.gui.stage_cards_v2.validation_result import ValidationResult
+from .widgets.scrollable_frame_v2 import ScrollableFrame
 
 
 class PipelinePanelV2(ttk.Frame):
@@ -22,6 +23,7 @@ class PipelinePanelV2(ttk.Frame):
         master: tk.Misc,
         *,
         controller=None,
+        app_state=None,
         theme=None,
         config_manager=None,
         **kwargs,
@@ -29,19 +31,24 @@ class PipelinePanelV2(ttk.Frame):
         style_name = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
         super().__init__(master, style=style_name, padding=theme_mod.PADDING_MD, **kwargs)
         self.controller = controller
+        self.app_state = app_state
         self.theme = theme
         self.config_manager = config_manager
 
         header_style = getattr(theme, "STATUS_STRONG_LABEL_STYLE", theme_mod.STATUS_STRONG_LABEL_STYLE)
         ttk.Label(self, text="Pipeline", style=header_style).pack(anchor=tk.W, pady=(0, 4))
 
-        self.command_bar = PipelineCommandBarV2(self, theme=theme)
+        self._scroll = ScrollableFrame(self, style=style_name)
+        self._scroll.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        container = self._scroll.inner
+
+        self.command_bar = PipelineCommandBarV2(container, theme=theme)
         self.command_bar.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
         self.run_button = self.command_bar.run_button
         self.stop_button = self.command_bar.stop_button
 
         prompt_style = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
-        prompt_frame = ttk.Frame(self, style=prompt_style)
+        prompt_frame = ttk.Frame(container, style=prompt_style)
         prompt_frame.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
 
         ttk.Label(prompt_frame, text="Prompt", style=header_style).pack(anchor=tk.W, pady=(0, 2))
@@ -66,7 +73,7 @@ class PipelinePanelV2(ttk.Frame):
         self._editor: AdvancedPromptEditorV2 | None = None
 
         body_style = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
-        self.body = ttk.Frame(self, style=body_style)
+        self.body = ttk.Frame(container, style=body_style)
         self.body.pack(fill=tk.BOTH, expand=True)
 
         self._txt2img_change_callback = None

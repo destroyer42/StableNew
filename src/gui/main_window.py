@@ -38,6 +38,7 @@ from src.gui.scrolling import enable_mousewheel, make_scrollable
 from src.gui.state import GUIState, StateManager
 from src.gui.theme import Theme
 from src.gui.tooltip import Tooltip
+from src.api.webui_process_manager import WebUIProcessManager
 from src.pipeline.executor import Pipeline
 from src.services.config_service import ConfigService
 from src.utils import StructuredLogger
@@ -60,8 +61,6 @@ from src.config.app_config import (
     get_learning_enabled,
     is_queue_execution_enabled,
     set_queue_execution_enabled,
-    get_webui_workdir,
-    get_webui_command,
 )
 
 
@@ -139,6 +138,7 @@ class StableNewGUI:
         state_manager: StateManager | None = None,
         controller: PipelineController | None = None,
         webui_discovery: WebUIDiscovery | None = None,
+        webui_process_manager: WebUIProcessManager | None = None,
         title: str = "StableNew",
         geometry: str = "1360x900",
         default_preset_name: str | None = None,
@@ -172,6 +172,7 @@ class StableNewGUI:
                 self.job_history_service = None
         self.settings_suggestion_controller = SettingsSuggestionController()
         self.webui = webui_discovery or WebUIDiscovery()
+        self.webui_process_manager = webui_process_manager
         self._refreshing_config = False
         self.learning_execution_controller = LearningExecutionController()
         try:
@@ -586,21 +587,11 @@ class StableNewGUI:
     # Duplicate _setup_theme and other duplicate/unused methods removed for linter/ruff compliance
 
     def _launch_webui(self):
-        """Auto-launch Stable Diffusion WebUI with improved detection (non-blocking)."""
-        # Allow disabling auto-launch in headless/CI environments
+        """Request WebUI startup via the configured process manager (non-blocking)."""
         if os.environ.get("STABLENEW_NO_WEBUI", "").lower() in {"1", "true", "yes"}:
             logger.info("Auto-launch of WebUI disabled by STABLENEW_NO_WEBUI")
             return
 
-        # Resolve WebUI path from config/env defaults
-        configured_workdir = get_webui_workdir()
-        configured_cmd = get_webui_command()
-        if configured_workdir:
-            webui_path = Path(configured_workdir) / Path(configured_cmd[0])
-        else:
-            webui_path = Path(configured_cmd[0])
-
-        # Run discovery/launch with safe Tk scheduling
         def discovery_and_launch():
             def safe_after(delay_ms: int, func):
                 try:
@@ -608,61 +599,45 @@ class StableNewGUI:
                 except RuntimeError:
                     logger.debug("Tk not ready for after() in discovery_and_launch", exc_info=True)
 
-            def schedule_retry_sequence():
-                """Attempt two delayed API checks after launching WebUI."""
-
-                safe_after(10_000, self._check_api_connection)
-                safe_after(13_000, self._check_api_connection)
-
-                def final_notice():
-                    if not getattr(self, "api_connected", False):
-                        self.log_message(
-                            "? Unable to connect to WebUI after auto-start attempts. Please start WebUI manually.",
-                            "ERROR",
-                        )
-                        suppress = is_gui_test_mode() or os.environ.get("STABLENEW_NO_DIALOGS") in {
-                            "1",
-                            "true",
-                            "TRUE",
-                        }
-                        if not suppress:
-                            try:
-                                messagebox.showerror(
-                                    "WebUI Connection",
-                                    "Unable to connect to Stable Diffusion WebUI after auto-start attempts.\n"
-                                    "Please start WebUI manually and click 'Check API'.",
-                                )
-                            except Exception:
-                                logger.debug("Failed to display WebUI connection error dialog", exc_info=True)
-                safe_after(14_500, final_notice)
-
-            # 1) Check if WebUI is already running (may take a few seconds)
-            existing_url = find_webui_api_port()
-            if existing_url:
-                logger.info(f"WebUI already running at {existing_url}")
-                safe_after(0, lambda: self._set_api_url_var(existing_url))
-                safe_after(1000, self._check_api_connection)
+            manager = getattr(self, "webui_process_manager", None)
+            if manager is None:
+                logger.info("No WebUI process manager configured; skipping autostart")
+                safe_after(0, self._check_api_connection)
                 return
 
-            # 2) Attempt to launch WebUI if path exists
-            if webui_path.exists():
-                safe_after(0, lambda: self.log_message("?? Launching Stable Diffusion WebUI...", "INFO"))
-                success = launch_webui_safely(webui_path, timeout=15)
-                if success:
-                    api_url = find_webui_api_port()
-                    if api_url:
-                        safe_after(0, lambda: self._set_api_url_var(api_url))
-                        safe_after(1000, self._check_api_connection)
-                    else:
-                        safe_after(0, lambda: self.log_message("?? WebUI launched but API not found", "WARNING"))
-                    schedule_retry_sequence()
-                else:
-                    safe_after(0, lambda: self.log_message("? WebUI launch failed", "ERROR"))
-            else:
-                logger.warning("WebUI not found at expected location")
-                safe_after(0, lambda: self.log_message("?? WebUI not found - please start manually", "WARNING"))
-                safe_after(0, lambda: messagebox.showinfo("WebUI Not Found", f"WebUI not found at: {webui_path}\nPlease start Stable Diffusion WebUI manually with --api flag and click 'Check API'"))
+            try:
+                manager.start()
+                self.log_message("?? Launching Stable Diffusion WebUI via process manager...", "INFO")
+            except Exception as exc:
+                self.log_message(f"? WebUI launch failed: {exc}", "ERROR")
+                return
 
+            safe_after(1000, self._check_api_connection)
+            safe_after(10_000, self._check_api_connection)
+            safe_after(13_000, self._check_api_connection)
+
+            def final_notice():
+                if not getattr(self, "api_connected", False):
+                    self.log_message(
+                        "? Unable to connect to WebUI after auto-start attempts. Please start WebUI manually.",
+                        "ERROR",
+                    )
+                    suppress = is_gui_test_mode() or os.environ.get("STABLENEW_NO_DIALOGS") in {
+                        "1",
+                        "true",
+                        "TRUE",
+                    }
+                    if not suppress:
+                        try:
+                            messagebox.showerror(
+                                "WebUI Connection",
+                                "Unable to connect to Stable Diffusion WebUI after auto-start attempts.\n"
+                                "Please start WebUI manually and click 'Check API'.",
+                            )
+                        except Exception:
+                            logger.debug("Failed to display WebUI connection error dialog", exc_info=True)
+
+            safe_after(14_500, final_notice)
 
         try:
             self.root.after(50, discovery_and_launch)
@@ -779,7 +754,7 @@ class StableNewGUI:
         # Setup state callbacks
         self._setup_state_callbacks()
 
-        # Attempt to auto-launch WebUI / discover API on startup
+        # Attempt to auto-launch WebUI / discover API on startup via process manager
         try:
             self._launch_webui()
         except Exception:
@@ -855,6 +830,12 @@ class StableNewGUI:
         return state
 
     def _on_webui_launch(self):
+        manager = getattr(self, "webui_process_manager", None)
+        if manager is not None:
+            try:
+                manager.start()
+            except Exception as exc:
+                self.log_message(f"? Failed to start WebUI: {exc}", "ERROR")
         self._ensure_webui_connection(autostart=True)
 
     def _on_webui_retry(self):

@@ -6,17 +6,22 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
+from src.gui.stage_cards_v2.base_stage_card_v2 import BaseStageCardV2
+from src.gui.stage_cards_v2.components import SamplerSection, SeedSection
 from src.gui.stage_cards_v2.validation_result import ValidationResult
 
 
-class AdvancedTxt2ImgStageCardV2(ttk.LabelFrame):
+class AdvancedTxt2ImgStageCardV2(BaseStageCardV2):
     panel_header = "Txt2Img Configuration"
 
     def __init__(self, master: tk.Misc, *, controller=None, theme=None, **kwargs: Any) -> None:
-        super().__init__(master, text=self.panel_header, padding=6, **kwargs)
         self.controller = controller
         self.theme = theme
+        self._on_change = None
+        super().__init__(master, title=self.panel_header, **kwargs)
 
+    def _build_body(self, parent: ttk.Frame) -> None:
+        # Core vars
         self.model_var = tk.StringVar()
         self.vae_var = tk.StringVar()
         self.sampler_var = tk.StringVar()
@@ -27,27 +32,46 @@ class AdvancedTxt2ImgStageCardV2(ttk.LabelFrame):
         self.height_var = tk.StringVar(value="512")
         self.clip_skip_var = tk.StringVar(value="2")
 
-        self._build()
-        self._on_change = None
+        # Sampler/steps/cfg
+        self.sampler_section = SamplerSection(parent)
+        self.sampler_section.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        # Link primary sampler vars to section vars to preserve API
+        self.sampler_section.sampler_var = self.sampler_var  # type: ignore[assignment]
+        self.sampler_section.steps_var = self.steps_var  # type: ignore[assignment]
+        self.sampler_section.cfg_var = self.cfg_var  # type: ignore[assignment]
 
-    def _build(self) -> None:
-        labels = [
-            ("Model", self.model_var),
-            ("VAE", self.vae_var),
-            ("Sampler", self.sampler_var),
-            ("Scheduler", self.scheduler_var),
-            ("Steps", self.steps_var),
-            ("CFG", self.cfg_var),
-            ("Width", self.width_var),
-            ("Height", self.height_var),
-            ("Clip skip", self.clip_skip_var),
-        ]
-        for idx, (label, var) in enumerate(labels):
-            ttk.Label(self, text=label).grid(row=idx, column=0, sticky=tk.W, pady=1, padx=2)
-            entry = ttk.Entry(self, textvariable=var, width=18)
-            entry.grid(row=idx, column=1, sticky=tk.EW, pady=1, padx=2)
-            var.trace_add("write", lambda *_: self._notify_change())
-        self.columnconfigure(1, weight=1)
+        # Model/vae/scheduler/clip/size
+        meta = ttk.Frame(parent, style="Panel.TFrame")
+        meta.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(meta, text="Model", style="Muted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 4))
+        ttk.Entry(meta, textvariable=self.model_var, width=18).grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        ttk.Label(meta, text="VAE", style="Muted.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 4))
+        ttk.Entry(meta, textvariable=self.vae_var, width=18).grid(row=0, column=3, sticky="ew")
+
+        ttk.Label(meta, text="Scheduler", style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 2))
+        ttk.Entry(meta, textvariable=self.scheduler_var, width=14).grid(row=1, column=1, sticky="ew", padx=(0, 8))
+        ttk.Label(meta, text="Clip skip", style="Muted.TLabel").grid(row=1, column=2, sticky="w", pady=(6, 2))
+        ttk.Entry(meta, textvariable=self.clip_skip_var, width=6).grid(row=1, column=3, sticky="ew")
+
+        ttk.Label(meta, text="Width", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(6, 2))
+        ttk.Entry(meta, textvariable=self.width_var, width=8).grid(row=2, column=1, sticky="ew", padx=(0, 8))
+        ttk.Label(meta, text="Height", style="Muted.TLabel").grid(row=2, column=2, sticky="w", pady=(6, 2))
+        ttk.Entry(meta, textvariable=self.height_var, width=8).grid(row=2, column=3, sticky="ew")
+        for col in range(4):
+            meta.columnconfigure(col, weight=1 if col in (1, 3) else 0)
+
+        # Seed/randomize
+        self.seed_section = SeedSection(parent)
+        self.seed_section.grid(row=2, column=0, sticky="ew")
+        self.seed_var = self.seed_section.seed_var  # exposed for compatibility
+
+        for var in self.watchable_vars():
+            try:
+                var.trace_add("write", lambda *_: self._notify_change())
+            except Exception:
+                pass
+
+        parent.columnconfigure(0, weight=1)
 
     def set_on_change(self, callback) -> None:
         self._on_change = callback
