@@ -339,3 +339,14 @@ class PipelineController:
     def is_stopping(self) -> bool:
         """Check if pipeline is stopping."""
         return self.state_manager.is_state(GUIState.STOPPING)
+
+    def stop_all(self) -> None:
+        """Best-effort shutdown for background workers during teardown."""
+        try:
+            self.stop_pipeline()
+        except Exception:
+            pass
+        try:
+            self.cancel_token.cancel()
+        except Exception:
+            pass

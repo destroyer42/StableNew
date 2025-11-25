@@ -28,6 +28,7 @@ from .api.webui_process_manager import (
     WebUIProcessManager,
     build_default_webui_process_config,
 )
+from .api.healthcheck import wait_for_webui_ready
 from .gui.main_window import ENTRYPOINT_GUI_CLASS, StableNewGUI
 from .gui.main_window_v2 import run_app as run_app_v2
 from .utils import setup_logging
@@ -53,8 +54,22 @@ def bootstrap_webui(config: dict[str, Any]) -> WebUIProcessManager | None:
     """Best-effort WebUI bootstrap that never blocks GUI startup."""
 
     proc_config: WebUIProcessConfig | None = config.get("process_config")
+    if proc_config is None and config.get("webui_command"):
+        proc_config = WebUIProcessConfig(
+            command=list(config.get("webui_command") or []),
+            working_dir=config.get("webui_workdir"),
+            startup_timeout_seconds=float(config.get("webui_startup_timeout_seconds") or 60.0),
+            autostart_enabled=bool(config.get("webui_autostart_enabled")),
+            base_url=config.get("webui_base_url"),
+        )
     if proc_config is None:
         logging.info("WebUI autostart is disabled; GUI will launch without waiting.")
+        # Even when disabled, sanity-check health if requested
+        if config.get("webui_base_url"):
+            try:
+                wait_for_webui_ready(config["webui_base_url"], timeout=0.5, poll_interval=0.1)
+            except Exception:
+                pass
         return None
 
     manager = WebUIProcessManager(proc_config)
@@ -62,10 +77,25 @@ def bootstrap_webui(config: dict[str, Any]) -> WebUIProcessManager | None:
         try:
             manager.start()
             logging.info("WebUI autostart requested (non-blocking)")
+            try:
+                base_url = proc_config.base_url or config.get("webui_base_url") or "http://127.0.0.1:7860"
+                wait_for_webui_ready(
+                    base_url,
+                    timeout=proc_config.startup_timeout_seconds,
+                    poll_interval=proc_config.poll_interval_seconds,
+                )
+            except Exception:
+                pass
         except Exception as exc:
             logging.warning("WebUI autostart failed (non-fatal): %s", exc)
     else:
         logging.info("WebUI autostart is disabled; GUI will launch without waiting.")
+        try:
+            base_url = proc_config.base_url or config.get("webui_base_url")
+            if base_url:
+                wait_for_webui_ready(base_url, timeout=proc_config.startup_timeout_seconds, poll_interval=0.25)
+        except Exception:
+            pass
     return manager
 
 

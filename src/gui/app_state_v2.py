@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
+from src.gui.gui_invoker import GuiInvoker
+
 Listener = Callable[[], None]
 
 
@@ -11,6 +13,8 @@ class AppStateV2:
     """Central GUI-facing state container for the V2 application."""
 
     _listeners: Dict[str, List[Listener]] = field(default_factory=dict)
+    _invoker: Optional[GuiInvoker] = None
+    _notifications_enabled: bool = True
 
     prompt: str = ""
     negative_prompt: str = ""
@@ -19,17 +23,40 @@ class AppStateV2:
     status_text: str = "Idle"
     last_error: Optional[str] = None
 
+    def set_invoker(self, invoker: GuiInvoker) -> None:
+        """Set an invoker used to marshal notifications onto the GUI thread."""
+        self._invoker = invoker
+
+    def disable_notifications(self) -> None:
+        """Stop delivering listener callbacks (used during teardown)."""
+        self._notifications_enabled = False
+
     def subscribe(self, key: str, listener: Listener) -> None:
         listeners = self._listeners.setdefault(key, [])
         if listener not in listeners:
             listeners.append(listener)
 
     def _notify(self, key: str) -> None:
-        for listener in self._listeners.get(key, []):
+        if not self._notifications_enabled:
+            return
+
+        listeners = list(self._listeners.get(key, []))
+        if not listeners:
+            return
+
+        # If no invoker is set (e.g., unit tests), invoke inline.
+        if self._invoker is None:
+            for listener in listeners:
+                try:
+                    listener()
+                except Exception:
+                    continue
+            return
+
+        for listener in listeners:
             try:
-                listener()
+                self._invoker.invoke(listener)
             except Exception:
-                # Keep notifications resilient; individual listeners should be lightweight
                 continue
 
     def set_prompt(self, value: str) -> None:

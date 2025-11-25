@@ -332,6 +332,24 @@ class AppController:
         self._append_log("[controller] Help clicked (stub).")
         # TODO: open docs/README in browser or show help overlay.
 
+    def stop_all_background_work(self) -> None:
+        """Best-effort shutdown used by GUI teardown to avoid late Tk calls."""
+        try:
+            if self._cancel_token is not None:
+                self._cancel_token.cancel()
+        except Exception:
+            pass
+        worker_alive = self._worker_thread is not None and self._worker_thread.is_alive()
+        if worker_alive:
+            try:
+                self._worker_thread = None
+            except Exception:
+                pass
+        try:
+            self.state.lifecycle = LifecycleState.IDLE
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Packs / Presets
     # ------------------------------------------------------------------

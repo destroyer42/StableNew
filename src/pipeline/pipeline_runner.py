@@ -124,7 +124,8 @@ class PipelineRunner:
                 )
                 if current_stage == StageTypeEnum.TXT2IMG:
                     negative = executor_config.get("txt2img", {}).get("negative_prompt", "")
-                    last_image_meta = self._pipeline.run_txt2img_stage(
+                    last_image_meta = self._call_stage(
+                        self._pipeline.run_txt2img_stage,
                         prompt,
                         negative,
                         executor_config,
@@ -135,7 +136,8 @@ class PipelineRunner:
                 elif current_stage == StageTypeEnum.IMG2IMG:
                     if not last_image_meta or not last_image_meta.get("path"):
                         raise ValueError("img2img requires input image from previous stage")
-                    last_image_meta = self._pipeline.run_img2img_stage(
+                    last_image_meta = self._call_stage(
+                        self._pipeline.run_img2img_stage,
                         Path(last_image_meta["path"]),
                         prompt,
                         executor_config.get("img2img", {}),
@@ -145,7 +147,8 @@ class PipelineRunner:
                 elif current_stage == StageTypeEnum.UPSCALE:
                     if not last_image_meta or not last_image_meta.get("path"):
                         raise ValueError("upscale requires input image from previous stage")
-                    last_image_meta = self._pipeline.run_upscale_stage(
+                    last_image_meta = self._call_stage(
+                        self._pipeline.run_upscale_stage,
                         Path(last_image_meta["path"]),
                         executor_config.get("upscale", {}),
                         run_dir,
@@ -157,7 +160,8 @@ class PipelineRunner:
                         raise ValueError("adetailer requires input image from previous stage")
                     adetailer_cfg = dict(executor_config.get("adetailer", {}))
                     adetailer_cfg.setdefault("pipeline", executor_config.get("pipeline", {}))
-                    last_image_meta = self._pipeline.run_adetailer_stage(
+                    last_image_meta = self._call_stage(
+                        self._pipeline.run_adetailer_stage,
                         Path(last_image_meta["path"]),
                         adetailer_cfg,
                         run_dir,
@@ -226,6 +230,14 @@ class PipelineRunner:
                 result.learning_records = [record]
         self._last_run_result = result
         return result
+
+    def _call_stage(self, fn: Callable, *args, **kwargs):
+        """Invoke a stage function, tolerating implementations without cancel_token."""
+        try:
+            return fn(*args, **kwargs)
+        except TypeError:
+            kwargs.pop("cancel_token", None)
+            return fn(*args, **kwargs)
 
     def _build_executor_config(self, config: PipelineConfig) -> dict[str, Any]:
         """Prepare the executor configuration dict from PipelineConfig."""

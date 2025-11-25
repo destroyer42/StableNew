@@ -6,6 +6,7 @@ from typing import Optional
 
 from src.api.webui_process_manager import WebUIProcessManager, build_default_webui_process_config
 from src.gui.app_state_v2 import AppStateV2
+from src.gui.gui_invoker import GuiInvoker
 from src.gui.layout_v2 import configure_root_grid
 from src.gui.theme_v2 import apply_theme, BACKGROUND_ELEVATED, TEXT_PRIMARY, ACCENT_GOLD
 from src.gui.sidebar_panel_v2 import SidebarPanelV2
@@ -80,11 +81,14 @@ class MainWindowV2:
         pipeline_controller=None,
     ) -> None:
         self.root = root
+        self._disposed = False
         self.app_state = app_state or AppStateV2()
         self.webui_process_manager = webui_manager
         self.app_controller = app_controller
         self.packs_controller = packs_controller
         self.pipeline_controller = pipeline_controller
+        self._invoker = GuiInvoker(self.root)
+        self.app_state.set_invoker(self._invoker)
 
         self.root.title("StableNew V2 (Spine)")
         self.root.geometry("1400x850")
@@ -157,6 +161,11 @@ class MainWindowV2:
         # Make main content row stretch
         self.root.rowconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=0)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        try:
+            self.root.bind("<Destroy>", self._on_destroy, add="+")
+        except Exception:
+            pass
 
     # Compatibility hook for controllers
     def connect_controller(self, controller) -> None:
@@ -267,6 +276,66 @@ class MainWindowV2:
             selection = lb.curselection()
             if selection:
                 ctrl.on_pack_selected(int(selection[0]))
+        except Exception:
+            pass
+
+    def _on_close(self) -> None:
+        self.cleanup()
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+
+    def _on_destroy(self, event) -> None:
+        if event is not None and getattr(event, "widget", None) not in {None, self.root}:
+            return
+        self.cleanup()
+
+    def cleanup(self) -> None:
+        """Best-effort shutdown to make Tk teardown safe for tests and runtime."""
+        if self._disposed:
+            return
+        self._disposed = True
+
+        try:
+            self.app_state.disable_notifications()
+        except Exception:
+            pass
+
+        try:
+            if self._invoker:
+                self._invoker.dispose()
+        except Exception:
+            pass
+
+        # Stop background work if controllers expose hooks.
+        try:
+            if self.pipeline_controller:
+                stop = getattr(self.pipeline_controller, "stop_all", None) or getattr(
+                    self.pipeline_controller, "shutdown", None
+                )
+                if callable(stop):
+                    stop()
+        except Exception:
+            pass
+
+        try:
+            if self.app_controller:
+                stop = getattr(self.app_controller, "stop_all_background_work", None) or getattr(
+                    self.app_controller, "stop_all", None
+                )
+                if callable(stop):
+                    stop()
+        except Exception:
+            pass
+
+        try:
+            if self.webui_process_manager:
+                stop = getattr(self.webui_process_manager, "shutdown", None) or getattr(
+                    self.webui_process_manager, "stop", None
+                )
+                if callable(stop):
+                    stop()
         except Exception:
             pass
 

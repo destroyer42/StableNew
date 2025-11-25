@@ -54,6 +54,7 @@ class LogPanel(ttk.Frame):
 
         # Message queue for thread-safe logging
         self.log_queue: queue.Queue[tuple[str, str]] = queue.Queue()
+        self._disposed = False
 
         # Buffer to support filtering and clipboard operations
         self.log_records: list[tuple[str, str]] = []
@@ -130,6 +131,8 @@ class LogPanel(ttk.Frame):
             message: Log message text
             level: Log level (INFO, WARNING, ERROR, SUCCESS, DEBUG)
         """
+        if self._disposed:
+            return
         # Add to queue for processing on main thread
         self.log_queue.put((message, level))
         try:
@@ -151,6 +154,8 @@ class LogPanel(ttk.Frame):
 
     def _process_queue(self):
         """Process pending log messages from queue."""
+        if self._disposed:
+            return
         # Process all pending messages
         while not self.log_queue.empty():
             try:
@@ -164,7 +169,10 @@ class LogPanel(ttk.Frame):
                 break
 
         # Schedule next processing
-        self.after(100, self._process_queue)
+        try:
+            self.after(100, self._process_queue)
+        except Exception:
+            pass
 
     # Test/utility: process queued log messages synchronously (no scheduling)
     def _flush_queue_sync(self) -> None:
@@ -184,6 +192,8 @@ class LogPanel(ttk.Frame):
             message: Log message text
             level: Log level for coloring
         """
+        if self._disposed:
+            return
         normalized_level = level.upper()
         if normalized_level not in LEVEL_STYLES:
             logger.debug(
@@ -317,6 +327,14 @@ class LogPanel(ttk.Frame):
             return super().clipboard_get(**kw)
         except tk.TclError:
             return getattr(self, "_clipboard_cache", "")
+
+    def dispose(self) -> None:
+        """Stop processing and scheduling log updates."""
+        self._disposed = True
+        try:
+            self.log_queue.queue.clear()  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
 
 class TkinterLogHandler(logging.Handler):
