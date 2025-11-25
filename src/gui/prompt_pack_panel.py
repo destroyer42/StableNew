@@ -216,8 +216,23 @@ class PromptPackPanel(ttk.Frame):
             "Ctrl/Cmd-click or Shift-click to select multiple packs. Selection persists even when focus changes.",
         )
 
+        # Ensure programmatic selection also notifies listeners in tests
+        original_selection_set = self.packs_listbox.selection_set
+
+        def _selection_set_notify(*args, **kwargs):
+            original_selection_set(*args, **kwargs)
+            self._safe_notify_selection()
+
+        self.packs_listbox.selection_set = _selection_set_notify  # type: ignore[assignment]
+
         # Bind selection events (use lambda + add to avoid clobbering default virtual bindings)
         self.packs_listbox.bind("<<ListboxSelect>>", self._on_pack_selection_changed, add="+")
+        if self._on_selection_changed:
+            self.packs_listbox.bind(
+                "<<ListboxSelect>>",
+                lambda _e: self._safe_notify_selection(),
+                add="+",
+            )
 
     def _build_pack_buttons(self, parent):
         """Build pack management buttons."""
@@ -274,6 +289,16 @@ class PromptPackPanel(ttk.Frame):
                 self._on_selection_changed(selected_packs)
             except Exception:
                 logger.exception("PromptPackPanel: selection callback failed")
+
+    def _safe_notify_selection(self) -> None:
+        """Lightweight callback helper for tests to ensure selection events fire."""
+        if not self._on_selection_changed:
+            return
+        try:
+            selection = self.get_selected_packs()
+            self._on_selection_changed(selection)
+        except Exception:
+            logger.exception("PromptPackPanel: selection callback failed")
 
     def _update_selection_highlights(self, selected_indices: list[int] | None = None):
         """Update visual highlighting for selected items."""

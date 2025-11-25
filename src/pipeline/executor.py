@@ -481,12 +481,10 @@ class Pipeline:
                     scheduler_value = mapped
                     break
 
-        sampler_payload = build_sampler_scheduler_payload(sampler_name, scheduler_value)
-        if sampler_payload:
-            return sampler_payload
-
-        # Fallback to default sampler
-        return {"sampler_name": "Euler a"}
+        payload: dict[str, str] = {"sampler_name": sampler_name}
+        if scheduler_value:
+            payload["scheduler"] = scheduler_value
+        return payload
 
     @staticmethod
     def _format_eta(seconds: float) -> str:
@@ -1180,9 +1178,9 @@ class Pipeline:
         Returns:
             Pipeline results summary
         """
-        self._current_run_dir = None
+        self._current_run_dir = self.logger.create_run_directory(run_name)
         self._last_full_pipeline_results = {
-            "run_dir": "",
+            "run_dir": str(self._current_run_dir),
             "prompt": prompt,
             "txt2img": [],
             "img2img": [],
@@ -1191,7 +1189,7 @@ class Pipeline:
             "summary": [],
         }
 
-        # Check for cancellation at start
+        # Check for cancellation at start (after run dir exists for status logging)
         self._ensure_not_cancelled(cancel_token, "pipeline start")
 
         logger.info("=" * 60)
@@ -1213,18 +1211,8 @@ class Pipeline:
         )
         logger.info("=" * 60)
 
-        # Create run directory
-        run_dir = self.logger.create_run_directory(run_name)
-        self._current_run_dir = run_dir
-
+        run_dir = self._current_run_dir
         results = self._last_full_pipeline_results
-        results["run_dir"] = str(run_dir)
-        results["prompt"] = prompt
-        results["txt2img"] = []
-        results["img2img"] = []
-        results["adetailer"] = []
-        results["upscaled"] = []
-        results["summary"] = []
 
         progress_controller = self.progress_controller
         total_units = 1
