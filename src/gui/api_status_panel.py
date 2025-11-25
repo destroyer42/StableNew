@@ -10,6 +10,7 @@ import logging
 import tkinter as tk
 from tkinter import ttk
 
+from . import theme as theme_mod
 from src.controller.webui_connection_controller import WebUIConnectionState
 
 logger = logging.getLogger(__name__)
@@ -28,28 +29,42 @@ class APIStatusPanel(ttk.Frame):
         self._build_ui()
 
     def _build_ui(self):
-        status_frame = ttk.Frame(self, style="Dark.TFrame", relief=tk.SUNKEN)
+        surface_style = getattr(theme_mod, "SURFACE_FRAME_STYLE", "Dark.TFrame")
+        status_frame = ttk.Frame(self, style=surface_style, relief=tk.SUNKEN)
         status_frame.pack(fill=tk.X, expand=True)
 
         self.status_indicator = ttk.Label(
             status_frame,
             text="?",
-            style="Dark.TLabel",
+            style=getattr(theme_mod, "STATUS_STRONG_LABEL_STYLE", "Dark.TLabel"),
             foreground="#888888",
             font=("Segoe UI", 12, "bold"),
         )
         self.status_indicator.pack(side=tk.LEFT, padx=(5, 2))
 
         self.status_label = ttk.Label(
-            status_frame, text="Not connected", style="Dark.TLabel", font=("Segoe UI", 9)
+            status_frame,
+            text="Not connected",
+            style=getattr(theme_mod, "STATUS_LABEL_STYLE", "Dark.TLabel"),
+            font=("Segoe UI", 9),
         )
         self.status_label.pack(side=tk.LEFT, padx=(2, 5))
 
-        button_frame = ttk.Frame(status_frame, style="Dark.TFrame")
+        button_frame = ttk.Frame(status_frame, style=surface_style)
         button_frame.pack(side=tk.RIGHT, padx=(6, 4))
-        self.launch_button = ttk.Button(button_frame, text="Launch WebUI", command=self._on_launch_clicked)
+        self.launch_button = ttk.Button(
+            button_frame,
+            text="Launch WebUI",
+            command=self._on_launch_clicked,
+            style=getattr(theme_mod, "PRIMARY_BUTTON_STYLE", "TButton"),
+        )
         self.launch_button.pack(side=tk.LEFT, padx=(0, 4))
-        self.retry_button = ttk.Button(button_frame, text="Retry", command=self._on_retry_clicked)
+        self.retry_button = ttk.Button(
+            button_frame,
+            text="Retry",
+            command=self._on_retry_clicked,
+            style=getattr(theme_mod, "GHOST_BUTTON_STYLE", "TButton"),
+        )
         self.retry_button.pack(side=tk.LEFT, padx=(0, 0))
 
     def set_status(self, text: str, color: str = "gray") -> None:

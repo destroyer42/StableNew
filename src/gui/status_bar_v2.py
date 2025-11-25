@@ -44,6 +44,7 @@ class StatusBarV2(ttk.Frame):
             mode="determinate",
             maximum=100,
             length=150,
+            style="Horizontal.TProgressbar",
         )
         self.progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
 

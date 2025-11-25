@@ -60,6 +60,8 @@ from src.config.app_config import (
     get_learning_enabled,
     is_queue_execution_enabled,
     set_queue_execution_enabled,
+    get_webui_workdir,
+    get_webui_command,
 )
 
 
@@ -138,12 +140,13 @@ class StableNewGUI:
         controller: PipelineController | None = None,
         webui_discovery: WebUIDiscovery | None = None,
         title: str = "StableNew",
-        geometry: str = "1280x820",
+        geometry: str = "1360x900",
         default_preset_name: str | None = None,
     ) -> None:
         self.config_manager = config_manager or ConfigManager()
         self.preferences_manager = preferences or PreferencesManager()
         self.state_manager = state_manager or StateManager(initial_state=GUIState.IDLE)
+        self.layout_version = "v2"
         self._run_button_validation_locked = False
         self._last_txt2img_validation_result = None
         self.api_connected = False
@@ -186,7 +189,7 @@ class StableNewGUI:
         self.learning_enabled_var = tk.BooleanVar(master=self.root, value=self._learning_enabled_flag)
         self.root.title(title)
         self.root.geometry(geometry)
-        self.window_min_size = (1024, 720)
+        self.window_min_size = (1200, 780)
         self.root.minsize(*self.window_min_size)
         self._build_menu_bar()
 
@@ -263,12 +266,10 @@ class StableNewGUI:
             self._handle_preferences_load_failure(exc)
 
         # Build the user interface
-        self._build_ui()
-        # Ensure V2 layout panels are attached via helper (idempotent)
-        try:
-            AppLayoutV2(self, theme=self.theme).build_layout(getattr(self, "root", None))
-        except Exception:
-            logger.debug("AppLayoutV2 build_layout skipped", exc_info=True)
+        if self.layout_version == "v2":
+            self._build_ui_v2()
+        else:
+            self._build_ui()
         self._wire_progress_callbacks()
         try:
             self.root.bind("<Configure>", self._on_root_resize, add="+")
@@ -591,7 +592,13 @@ class StableNewGUI:
             logger.info("Auto-launch of WebUI disabled by STABLENEW_NO_WEBUI")
             return
 
-        webui_path = Path("C:/Users/rober/stable-diffusion-webui/webui-user.bat")
+        # Resolve WebUI path from config/env defaults
+        configured_workdir = get_webui_workdir()
+        configured_cmd = get_webui_command()
+        if configured_workdir:
+            webui_path = Path(configured_workdir) / Path(configured_cmd[0])
+        else:
+            webui_path = Path(configured_cmd[0])
 
         # Run discovery/launch with safe Tk scheduling
         def discovery_and_launch():
@@ -600,6 +607,34 @@ class StableNewGUI:
                     self.root.after(delay_ms, func)
                 except RuntimeError:
                     logger.debug("Tk not ready for after() in discovery_and_launch", exc_info=True)
+
+            def schedule_retry_sequence():
+                """Attempt two delayed API checks after launching WebUI."""
+
+                safe_after(10_000, self._check_api_connection)
+                safe_after(13_000, self._check_api_connection)
+
+                def final_notice():
+                    if not getattr(self, "api_connected", False):
+                        self.log_message(
+                            "? Unable to connect to WebUI after auto-start attempts. Please start WebUI manually.",
+                            "ERROR",
+                        )
+                        suppress = is_gui_test_mode() or os.environ.get("STABLENEW_NO_DIALOGS") in {
+                            "1",
+                            "true",
+                            "TRUE",
+                        }
+                        if not suppress:
+                            try:
+                                messagebox.showerror(
+                                    "WebUI Connection",
+                                    "Unable to connect to Stable Diffusion WebUI after auto-start attempts.\n"
+                                    "Please start WebUI manually and click 'Check API'.",
+                                )
+                            except Exception:
+                                logger.debug("Failed to display WebUI connection error dialog", exc_info=True)
+                safe_after(14_500, final_notice)
 
             # 1) Check if WebUI is already running (may take a few seconds)
             existing_url = find_webui_api_port()
@@ -620,6 +655,7 @@ class StableNewGUI:
                         safe_after(1000, self._check_api_connection)
                     else:
                         safe_after(0, lambda: self.log_message("?? WebUI launched but API not found", "WARNING"))
+                    schedule_retry_sequence()
                 else:
                     safe_after(0, lambda: self.log_message("? WebUI launch failed", "ERROR"))
             else:
@@ -652,6 +688,10 @@ class StableNewGUI:
             else:
                 logger.warning(f"Failed to load default preset '{default_preset_name}'")
 
+    def _build_ui_v2(self) -> None:
+        """Explicit V2 entrypoint (currently delegates to the unified builder)."""
+        self._build_ui()
+
     def _build_ui(self):
         """Build the modern user interface"""
         # Create main container with minimal padding for space efficiency
@@ -668,18 +708,25 @@ class StableNewGUI:
         self._build_action_bar(main_frame)
 
         # Main content + log splitter so the bottom panel stays visible
-        vertical_split = ttk.Panedwindow(main_frame, orient=tk.VERTICAL)
+        vertical_split = ttk.Panedwindow(main_frame, orient=tk.VERTICAL, style="Dark.TPanedwindow")
         self._vertical_split = vertical_split
         vertical_split.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
 
         # Main content frame - optimized layout
         content_frame = ttk.Frame(vertical_split, style="Dark.TFrame")
-        vertical_split.add(content_frame, weight=4)
+
+        # Bottom shell reserved for logs/status; create early so AppLayoutV2 can hook status bar
+        bottom_shell = ttk.Frame(vertical_split, style="Dark.TFrame")
+        self._bottom_pane = bottom_shell
+        self.bottom_zone = bottom_shell
+
+        vertical_split.add(content_frame, weight=5)
+        vertical_split.add(bottom_shell, weight=2)
 
         # Configure grid for better space utilization
-        content_frame.columnconfigure(0, weight=0, minsize=280)
-        content_frame.columnconfigure(1, weight=1)
-        content_frame.columnconfigure(2, weight=0, minsize=260)
+        content_frame.columnconfigure(0, weight=1, minsize=280)
+        content_frame.columnconfigure(1, weight=3)
+        content_frame.columnconfigure(2, weight=1, minsize=260)
         content_frame.rowconfigure(0, weight=1)
 
         # Define layout zones; AppLayoutV2 owns panel composition
@@ -699,14 +746,15 @@ class StableNewGUI:
         # Let AppLayoutV2 create and attach V2 panels and the run button alias
         self._layout_v2 = AppLayoutV2(self, theme=self.theme)
         self._layout_v2.build_layout(getattr(self, "root", None))
+        try:
+            # Ensure status bar created by AppLayout can be re-packed after bottom panel scaffolding
+            if hasattr(self, "status_bar_v2"):
+                self.status_bar_v2.pack_forget()
+        except Exception:
+            pass
 
         self._wire_pipeline_command_bar()
 
-        # Bottom frame - Compact log and action buttons (resizable split)
-        bottom_shell = ttk.Frame(vertical_split, style="Dark.TFrame")
-        vertical_split.add(bottom_shell, weight=3)
-        self._bottom_pane = bottom_shell
-        self.bottom_zone = bottom_shell
         self._build_bottom_panel(bottom_shell)
         if self._layout_v2:
             self._layout_v2.attach_run_button(getattr(self, "run_pipeline_btn", None))
@@ -818,12 +866,41 @@ class StableNewGUI:
 
     def _build_api_status_frame(self, parent):
         """Build the API status frame using APIStatusPanel."""
-        frame = ttk.Frame(parent, style="Dark.TFrame", relief=tk.SUNKEN)
+        # Prefer the status bar's embedded WebUI panel when available to avoid duplicates.
+        existing_panel = getattr(getattr(self, "status_bar_v2", None), "webui_panel", None)
+        if existing_panel is not None:
+            self.api_status_panel = existing_panel
+            try:
+                self.api_status_panel.set_launch_callback(self._on_webui_launch)
+                self.api_status_panel.set_retry_callback(self._on_webui_retry)
+            except Exception:
+                pass
+            try:
+                state = None
+                ctrl = getattr(self, "controller", None)
+                if ctrl and hasattr(ctrl, "get_webui_connection_state"):
+                    state = ctrl.get_webui_connection_state()
+                if state is None:
+                    state = WebUIConnectionState.DISCONNECTED
+                self._update_webui_state(state)
+            except Exception:
+                pass
+            return
+
+        frame = ttk.Frame(
+            parent,
+            style=getattr(self.theme, "SURFACE_FRAME_STYLE", "Dark.TFrame"),
+            relief=tk.SUNKEN,
+        )
         frame.pack(fill=tk.X, padx=5, pady=(4, 0))
         frame.configure(height=48)
         frame.pack_propagate(False)
 
-        self.api_status_panel = APIStatusPanel(frame, coordinator=self, style="Dark.TFrame")
+        self.api_status_panel = APIStatusPanel(
+            frame,
+            coordinator=self,
+            style=getattr(self.theme, "SURFACE_FRAME_STYLE", "Dark.TFrame"),
+        )
         self.api_status_panel.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
         try:
             self.api_status_panel.set_launch_callback(self._on_webui_launch)
@@ -3139,7 +3216,9 @@ class StableNewGUI:
 
     def _build_bottom_panel(self, parent):
         """Build bottom panel with logs and action buttons"""
-        bottom_frame = ttk.Frame(parent, style="Dark.TFrame")
+        bottom_frame = ttk.Frame(
+            parent, style=getattr(self.theme, "SURFACE_FRAME_STYLE", "Dark.TFrame")
+        )
         bottom_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
 
         # Compact action buttons frame
@@ -3297,13 +3376,27 @@ class StableNewGUI:
 
     def _build_status_bar(self, parent):
         """Build status bar showing current state"""
-        self.status_bar_v2 = StatusBarV2(parent, controller=self.controller, theme=self.theme)
-        self.status_bar_v2.pack(fill=tk.X, pady=(4, 0))
-        status_frame = self.status_bar_v2.body
+        status_bar = getattr(self, "status_bar_v2", None)
+        if status_bar is None:
+            status_bar = StatusBarV2(parent, controller=self.controller, theme=self.theme)
+            self.status_bar_v2 = status_bar
+        try:
+            status_bar.pack_forget()
+        except Exception:
+            pass
+        try:
+            status_bar.pack(fill=tk.X, pady=(4, 0))
+        except Exception:
+            pass
+
+        status_frame = getattr(status_bar, "body", status_bar)
         status_frame.configure(height=52)
         status_frame.pack_propagate(False)
-        self.status_bar_v2.set_idle()
-        self._status_adapter = StatusAdapterV2(self.status_bar_v2)
+        try:
+            status_bar.set_idle()
+        except Exception:
+            pass
+        self._status_adapter = StatusAdapterV2(status_bar)
 
         self.progress_message_var = tk.StringVar(value=self._progress_idle_message)
         self.progress_status_var = self.progress_message_var

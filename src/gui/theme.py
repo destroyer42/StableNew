@@ -173,6 +173,110 @@ def configure_style(root: tk.Misc | None) -> ttk.Style:
             pass
 
     style.configure("TFrame", background=COLOR_BG)
+    style.configure(
+        "TLabel",
+        background=COLOR_BG,
+        foreground=COLOR_TEXT,
+        font=(FONT_FAMILY, FONT_SIZE_LABEL),
+    )
+    style.configure("TNotebook", background=COLOR_BG, borderwidth=0)
+    style.configure("Dark.TFrame", background=COLOR_SURFACE, borderwidth=0)
+    style.configure(
+        "Dark.TLabel",
+        background=COLOR_SURFACE,
+        foreground=COLOR_TEXT,
+        font=(FONT_FAMILY, FONT_SIZE_LABEL),
+    )
+    style.configure(
+        "Dark.TButton",
+        padding=(PADDING_MD - 2, PADDING_SM),
+        background=COLOR_SURFACE_ALT,
+        foreground=COLOR_TEXT,
+        borderwidth=1,
+        focusthickness=0,
+        relief="flat",
+        font=(FONT_FAMILY, FONT_SIZE_BUTTON),
+        bordercolor=COLOR_BORDER_SUBTLE,
+        lightcolor=COLOR_BORDER_SUBTLE,
+        darkcolor=COLOR_BORDER_SUBTLE,
+    )
+    style.map(
+        "Dark.TButton",
+        background=[("pressed", "#35333a"), ("active", "#302e35")],
+        foreground=[("pressed", COLOR_TEXT), ("active", COLOR_TEXT)],
+        relief=[("pressed", "sunken"), ("active", "raised")],
+    )
+    style.configure(
+        "Success.TButton",
+        padding=(PADDING_MD, PADDING_SM),
+        background=ASWF_OK_GREEN,
+        foreground="#ffffff",
+        borderwidth=0,
+        focusthickness=0,
+        font=(FONT_FAMILY, FONT_SIZE_BUTTON, "bold"),
+    )
+    style.map(
+        "Success.TButton",
+        background=[("pressed", "#2f7f3d"), ("active", "#3fa34d")],
+    )
+    style.configure(
+        "Dark.TCheckbutton",
+        background=COLOR_SURFACE,
+        foreground=COLOR_TEXT,
+        font=(FONT_FAMILY, FONT_SIZE_LABEL),
+    )
+    style.configure(
+        "Dark.TEntry",
+        fieldbackground=COLOR_SURFACE_ALT,
+        background=COLOR_SURFACE_ALT,
+        foreground=COLOR_TEXT,
+        bordercolor=COLOR_BORDER_SUBTLE,
+        lightcolor=COLOR_BORDER_SUBTLE,
+        darkcolor=COLOR_BORDER_SUBTLE,
+        insertcolor=COLOR_ACCENT,
+        padding=(PADDING_SM, PADDING_XS),
+    )
+    style.map(
+        "Dark.TEntry",
+        fieldbackground=[("focus", COLOR_SURFACE_ALT)],
+        foreground=[("disabled", COLOR_TEXT_MUTED)],
+    )
+    style.configure(
+        "Dark.TLabelframe",
+        background=COLOR_SURFACE,
+        foreground=COLOR_TEXT,
+        borderwidth=1,
+        relief="solid",
+        bordercolor=COLOR_BORDER_SUBTLE,
+    )
+    style.configure(
+        "Dark.TLabelframe.Label",
+        background=COLOR_SURFACE,
+        foreground=COLOR_TEXT,
+        font=(FONT_FAMILY, FONT_SIZE_HEADING, "bold"),
+        padding=(PADDING_SM, 0),
+    )
+    style.configure(
+        "Dark.TNotebook",
+        background=COLOR_SURFACE,
+        tabmargins=(6, 4, 6, 0),
+        borderwidth=0,
+    )
+    style.configure(
+        "Dark.TNotebook.Tab",
+        background=COLOR_SURFACE_ALT,
+        foreground=COLOR_TEXT_MUTED,
+        padding=(PADDING_MD, PADDING_SM),
+        font=(FONT_FAMILY, FONT_SIZE_LABEL),
+    )
+    style.map(
+        "Dark.TNotebook.Tab",
+        background=[("selected", COLOR_SURFACE)],
+        foreground=[("selected", COLOR_TEXT)],
+    )
+    style.configure("Dark.TSeparator", background=COLOR_BORDER_SUBTLE)
+    style.configure("Dark.TPanedwindow", background=COLOR_BG, borderwidth=0)
+    style.configure("Dark.TScrollbar", background=COLOR_SURFACE, troughcolor=COLOR_SURFACE_ALT)
     style.configure(SURFACE_FRAME_STYLE, background=COLOR_SURFACE)
     style.configure(HEADER_FRAME_STYLE, background=COLOR_SURFACE_ALT)
 
@@ -223,6 +327,15 @@ def configure_style(root: tk.Misc | None) -> ttk.Style:
         foreground=[("pressed", COLOR_TEXT), ("active", COLOR_TEXT)],
         relief=[("pressed", "sunken"), ("active", "raised")],
         bordercolor=[("pressed", COLOR_ACCENT), ("active", COLOR_BORDER_SUBTLE)],
+    )
+
+    style.configure(
+        "Horizontal.TProgressbar",
+        troughcolor=COLOR_SURFACE_ALT,
+        background=COLOR_ACCENT,
+        bordercolor=COLOR_SURFACE,
+        lightcolor=COLOR_ACCENT,
+        darkcolor=COLOR_ACCENT,
     )
 
     style.configure(

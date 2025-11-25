@@ -8,6 +8,7 @@ pipeline, or learning logic.
 from __future__ import annotations
 
 from typing import Any
+from tkinter import ttk
 
 from src.gui.panels_v2 import (
     PipelinePanelV2,
@@ -26,6 +27,7 @@ class AppLayoutV2:
     def __init__(self, owner: Any, theme: Any = None) -> None:
         self.owner = owner
         self.theme = theme
+        self._frame_style = getattr(theme, "SURFACE_FRAME_STYLE", "Dark.TFrame")
         try:
             self.prompt_pack_adapter = getattr(owner, "prompt_pack_adapter_v2")
         except Exception:
@@ -41,9 +43,15 @@ class AppLayoutV2:
         """Instantiate panels and attach them to the owner if not already present."""
 
         owner = self.owner
+        root_frame = getattr(owner, "root", None)
+        self.left_zone = self._ensure_zone("left_zone", root_frame)
+        self.center_zone = self._ensure_zone("center_zone", root_frame)
+        self.center_stack = getattr(owner, "center_stack", None) or self.center_zone
+        self.right_zone = self._ensure_zone("right_zone", root_frame)
+        self.bottom_zone = self._ensure_zone("bottom_zone", getattr(owner, "_bottom_pane", root_frame))
 
         # Pipeline / center panel
-        center_parent = getattr(owner, "center_stack", None) or getattr(owner, "center_zone", None)
+        center_parent = self.center_stack or self.center_zone
         if not hasattr(owner, "pipeline_panel_v2") and center_parent is not None:
             owner.pipeline_panel_v2 = PipelinePanelV2(
                 center_parent,
@@ -57,9 +65,9 @@ class AppLayoutV2:
                 pass
 
         # Sidebar (depends on prompt pack adapter and apply callback)
-        if not hasattr(owner, "sidebar_panel_v2") and hasattr(owner, "left_zone"):
+        if not hasattr(owner, "sidebar_panel_v2") and self.left_zone is not None:
             owner.sidebar_panel_v2 = SidebarPanelV2(
-                owner.left_zone,
+                self.left_zone,
                 controller=getattr(owner, "controller", None),
                 theme=self.theme,
                 prompt_pack_adapter=self.prompt_pack_adapter,
@@ -92,9 +100,9 @@ class AppLayoutV2:
                 pass
 
         # Right-side panels: preview
-        if not hasattr(owner, "preview_panel_v2") and hasattr(owner, "right_zone"):
+        if not hasattr(owner, "preview_panel_v2") and self.right_zone is not None:
             owner.preview_panel_v2 = PreviewPanelV2(
-                owner.right_zone,
+                self.right_zone,
                 controller=getattr(owner, "controller", None),
                 theme=self.theme,
             )
@@ -104,7 +112,7 @@ class AppLayoutV2:
                 pass
 
         # Jobs / history panel (optional, read-only)
-        if not hasattr(owner, "job_history_panel_v2") and hasattr(owner, "right_zone"):
+        if not hasattr(owner, "job_history_panel_v2") and self.right_zone is not None:
             history_service = getattr(owner, "job_history_service", None)
             if history_service is None:
                 ctrl = getattr(owner, "controller", None)
@@ -131,9 +139,9 @@ class AppLayoutV2:
                     pass
 
         # Status bar
-        if not hasattr(owner, "status_bar_v2") and hasattr(owner, "bottom_zone"):
+        if not hasattr(owner, "status_bar_v2") and self.bottom_zone is not None:
             owner.status_bar_v2 = StatusBarV2(
-                owner.bottom_zone,
+                self.bottom_zone,
                 controller=getattr(owner, "controller", None),
                 theme=self.theme,
             )
@@ -162,3 +170,15 @@ class AppLayoutV2:
                     editor.prompt_text.insert("1.0", prompt_text)
             except Exception:
                 pass
+
+    def _ensure_zone(self, attr: str, parent: Any | None) -> Any | None:
+        """Guarantee a frame exists for the given zone so panels have a target."""
+        zone = getattr(self.owner, attr, None)
+        if zone is None and parent is not None:
+            try:
+                zone = ttk.Frame(parent, style=self._frame_style)
+                zone.pack(fill="both", expand=True)
+                setattr(self.owner, attr, zone)
+            except Exception:
+                zone = None
+        return zone
