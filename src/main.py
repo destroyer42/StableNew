@@ -29,6 +29,7 @@ from .api.webui_process_manager import (
     build_default_webui_process_config,
 )
 from .api.healthcheck import wait_for_webui_ready
+from .app_factory import build_v2_app
 from .gui.main_window import ENTRYPOINT_GUI_CLASS, StableNewGUI
 from .gui.main_window_v2 import run_app as run_app_v2
 from .utils import setup_logging
@@ -152,8 +153,8 @@ def main() -> None:
         print("Tkinter is not available; cannot start StableNew GUI.", file=sys.stderr)
         return
 
-    root = tk.Tk()
-    run_app_v2(root=root, webui_manager=webui_manager)
+    root, _, _, _ = build_v2_app(root=tk.Tk(), webui_manager=webui_manager)
+    root.mainloop()
 
 
 if __name__ == "__main__":

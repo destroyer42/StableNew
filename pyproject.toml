@@ -109,6 +109,7 @@ addopts = [
 ]
 norecursedirs = [
     "tests/gui_v1_legacy",
+    "tests/legacy",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

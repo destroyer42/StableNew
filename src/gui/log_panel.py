@@ -131,7 +131,8 @@ class LogPanel(ttk.Frame):
             message: Log message text
             level: Log level (INFO, WARNING, ERROR, SUCCESS, DEBUG)
         """
-        if self._disposed:
+        if self._disposed or not self.winfo_exists():
+            self._disposed = True
             return
         # Add to queue for processing on main thread
         self.log_queue.put((message, level))
@@ -154,7 +155,8 @@ class LogPanel(ttk.Frame):
 
     def _process_queue(self):
         """Process pending log messages from queue."""
-        if self._disposed:
+        if self._disposed or not self.winfo_exists():
+            self._disposed = True
             return
         # Process all pending messages
         while not self.log_queue.empty():
@@ -333,6 +335,10 @@ class LogPanel(ttk.Frame):
         self._disposed = True
         try:
             self.log_queue.queue.clear()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            self.after_cancel(self._process_queue)  # type: ignore[arg-type]
         except Exception:
             pass
 

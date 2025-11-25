@@ -116,3 +116,49 @@ Keep old snapshots in `docs/codex_context/ARCHIVE/` when this file grows too lar
 ## 2025-11-23 (WebUI startup alignment)
 
 > **PR-#58-MAIN-GUI-WEBUI-BOOTSTRAP-ALIGN-001** - main.py now uses app_config-driven WebUI autostart and schedules background connection via the controller. The V2 status panel with Launch/Retry is wired into the layout, and run controls reflect WebUI readiness.
+
+## 2025-11-23 (V2 spine hardening & journey test)
+
+- Added scrollable V2 layout with ThemeV2/LayoutV2 defaults, BaseStageCardV2 components, and migrated Txt2Img/Img2Img/Upscale V2 cards with validation helpers and smoke tests.
+- AppStateV2 gained prompt/current_pack/run/status fields; StatusBarV2 syncs state text; ThemeV2/StageCard tests added.
+- MainWindowV2 now wires real V2 panels, dark styles, and WebUI status; LayoutV2 sets sensible geometry. GuiInvoker ensures thread-safe Tk scheduling; cleanup hooks prevent teardown crashes; LogPanel is disposal-aware.
+- Added `build_v2_app` factory to construct production V2 wiring with injectable runners, plus FakePipelineRunner and a full V2 journey test that drives AppController with a fake pipeline; main.py now boots via the factory.
+
+
+## 2025-11-23 (Archive GUI-V1 Tests)
+> **PR-02a-MOVE-GUI-V1-TESTS-TO-ARCHIVE** – Legacy GUI‑V1 tests migrated into `archive/tests_v1/`; V2 harness established as primary.
+
+## 2025-11-23 (V2 App Spine)
+> **PR-03-CREATE-V2-APP-SPINE** – Implemented core V2 application spine (`AppLayoutV2`, `panels_v2`, unified wiring) and main‑window integration.
+
+## 2025-11-23 (Theme Engine V2)
+> **PR-04-THEME-ENGINE-V2** – Centralized theming across V2 UI, including palette, typography, and style propagation for all V2 panels.
+
+## 2025-11-23 (Scrollable Areas V2)
+> **PR-05A-SCROLLABLE-AREAS-V2** – Added and integrated `ScrollableFrameV2` to Pipeline, Preview, and Sidebar panels for proper scroll behavior.
+
+## 2025-11-23 (Layout & Resizing V2)
+> **PR-05-LAYOUT-AND-RESIZING-V2** – Improved V2 window/panel resizing behavior; unified panel structure ensures dynamic layout adjustments.
+
+
+## 2025-11-23 (BaseStageCardV2 foundation)
+> **PR-06A-BASESTAGECARDV2-AND-COMPONENTS** – BaseStageCardV2 and shared stage components implemented; verified across Txt2Img, Img2Img, and Upscale panels.
+
+## 2025-11-23 (Txt2Img migrated to StageCard V2)
+> **PR-06B-MIGRATE-TXT2IMG-TO-STAGECARDV2** – Txt2Img migrated onto BaseStageCardV2 with consistent field mapping and panel/assembler alignment.
+
+## 2025-11-23 (Img2Img & Upscale migrated to StageCard V2)
+> **PR-06C-MIGRATE-IMG2IMG-AND-UPSCALE-TO-STAGECARDV2** – Img2Img and Upscale V2 cards refactored to use BaseStageCardV2; confirmed consistent metadata and UI wiring.
+
+## 2025-11-23 (WebUI GUI Controls)
+> **PR-00A-WEBUI-GUI-CONTROLS** – Implemented WebUI Launch/Retry controls surfaced directly in the GUI, consistent with WebUIConnectionController semantics.
+
+## 2025-11-23 (Move Legacy V1 to Archive)
+> **PR-02-MOVE-LEGACY-V1-TO-ARCHIVE** – Legacy V1 files and GUI modules moved to `archive/`; V2 directory structure confirmed as authoritative.
+
+
+## 2025-11-23 (WebUI process manager separation)
+> **PR-00-WEBUI-PROCESS-MANAGER-AND-AUTOSTART-SEPARATION** – Split WebUI process control into a dedicated `webui_process_manager` module with detection-based defaults, isolated process startup logic, and clean controller boundaries. Autostart and retry parameters moved to `app_config`, ensuring WebUIConnectionController handles only connection state and health.
+
+## 2025-11-23 (Repo inventory & source-of-truth establishment)
+> **PR-01-REPO-INVENTORY-AND-SOURCE-OF-TRUTH** – Established authoritative repo layout: V2 modules under `src/`, legacy V1 moved to `archive/`, and `docs/codex_context/` defined as the AI-assistant source of truth. Added `repo_inventory.json` and aligned directory hierarchy with the V2 architecture plan.
