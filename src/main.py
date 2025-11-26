@@ -142,35 +142,76 @@ def _update_window_webui_manager(window, webui_manager: WebUIProcessManager) -> 
                 # Create a proper WebUI connection controller
                 from src.controller.webui_connection_controller import WebUIConnectionController
                 connection_controller = WebUIConnectionController()
+                from src.controller.webui_connection_controller import WebUIConnectionState
                 
                 # Connect the status panel to the controller
-                def update_status() -> None:
+                last_logged_state = None
+                consecutive_failures = 0
+                error_logged = False
+
+                def update_status(log_changes: bool = True) -> None:
                     """Update the status panel with current connection state."""
+                    nonlocal last_logged_state, consecutive_failures, error_logged
                     try:
                         state = connection_controller.get_state()
-                        logging.info(f"WebUI status update: state = {state}")
+                        if state != last_logged_state and log_changes:
+                            logging.info(f"WebUI status update: state = {state}")
+                            last_logged_state = state
+
+                        if state == WebUIConnectionState.DISCONNECTED:
+                            consecutive_failures += 1
+                        else:
+                            consecutive_failures = 0
+                            error_logged = False
+
+                        if consecutive_failures >= 3:
+                            try:
+                                new_state = connection_controller.ensure_connected(autostart=True)
+                                if new_state != state:
+                                    state = new_state
+                                    last_logged_state = None  # force log on change
+                            except Exception as exc:
+                                if not error_logged:
+                                    logging.warning("WebUI autostart retry failed after 3 disconnects: %s", exc)
+                                    error_logged = True
+                                state = WebUIConnectionState.ERROR
+                                consecutive_failures = 0
+
                         webui_panel.set_webui_state(state)
+                        last_logged_state = state
                     except Exception as e:
-                        logging.warning(f"Status update failed: {e}")
-                        from src.controller.webui_connection_controller import WebUIConnectionState
+                        if not error_logged:
+                            logging.warning(f"Status update failed: {e}")
+                            error_logged = True
                         webui_panel.set_webui_state(WebUIConnectionState.ERROR)
                 
                 # Set up callbacks for the buttons
                 def launch_callback() -> None:
+                    nonlocal consecutive_failures, error_logged, last_logged_state
                     try:
                         logging.info("Launch WebUI button clicked")
                         # Try to ensure connection (will start WebUI if needed)
                         new_state = connection_controller.ensure_connected(autostart=True)
                         webui_panel.set_webui_state(new_state)
+                        # reset counters on successful launch
+                        nonlocal consecutive_failures, error_logged, last_logged_state
+                        consecutive_failures = 0
+                        error_logged = False
+                        last_logged_state = None
                     except Exception as e:
                         logging.warning(f"Failed to launch WebUI: {e}")
                 
                 def retry_callback() -> None:
+                    nonlocal consecutive_failures, error_logged, last_logged_state
                     try:
                         logging.info("Retry WebUI connection button clicked")
                         # Try to reconnect
                         new_state = connection_controller.reconnect()
                         webui_panel.set_webui_state(new_state)
+                        nonlocal consecutive_failures, error_logged, last_logged_state
+                        consecutive_failures = 0
+                        error_logged = False
+                        last_logged_state = None
                     except Exception as e:
                         logging.warning(f"Failed to retry WebUI connection: {e}")
                 
@@ -182,7 +223,7 @@ def _update_window_webui_manager(window, webui_manager: WebUIProcessManager) -> 
                 
                 # Set up periodic status checking
                 def periodic_check() -> None:
-                    update_status()
+                    update_status(log_changes=True)
                     window.after(5000, periodic_check)  # Check every 5 seconds
                 
                 window.after(1000, periodic_check)  # Start checking after 1 second

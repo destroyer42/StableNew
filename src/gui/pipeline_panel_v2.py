@@ -6,8 +6,6 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import theme as theme_mod
-from .pipeline_command_bar_v2 import PipelineCommandBarV2
-from .advanced_prompt_editor import AdvancedPromptEditorV2
 from src.gui.stage_cards_v2.advanced_txt2img_stage_card_v2 import AdvancedTxt2ImgStageCardV2
 from src.gui.stage_cards_v2.advanced_img2img_stage_card_v2 import AdvancedImg2ImgStageCardV2
 from src.gui.stage_cards_v2.advanced_upscale_stage_card_v2 import AdvancedUpscaleStageCardV2
@@ -35,131 +33,13 @@ class PipelinePanelV2(ttk.Frame):
         self.theme = theme
         self.config_manager = config_manager
 
-        header_style = getattr(theme, "STATUS_STRONG_LABEL_STYLE", theme_mod.STATUS_STRONG_LABEL_STYLE)
+        header_style = getattr(theme, "PIPELINE_HEADING_STYLE", theme_mod.STATUS_STRONG_LABEL_STYLE)
         ttk.Label(self, text="Pipeline", style=header_style).pack(anchor=tk.W, pady=(0, 4))
 
-        self._scroll = ScrollableFrame(self, style=style_name)
-        self._scroll.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-        container = self._scroll.inner
-
-        self.command_bar = PipelineCommandBarV2(container, theme=theme)
-        self.command_bar.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
-        self.run_button = self.command_bar.run_button
-        self.stop_button = self.command_bar.stop_button
-
-        prompt_style = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
-        prompt_frame = ttk.Frame(container, style=prompt_style)
-        prompt_frame.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
-
-        ttk.Label(prompt_frame, text="Prompt", style=header_style).pack(anchor=tk.W, pady=(0, 2))
-        self.prompt_text = tk.Text(prompt_frame, height=3, wrap="word")
-        self.prompt_text.pack(fill=tk.X, expand=True, padx=2)
-
-        prompt_controls = ttk.Frame(prompt_frame, style=prompt_style)
-        prompt_controls.pack(fill=tk.X, pady=(4, 0))
-
-        self.prompt_status_var = tk.StringVar(value=self._build_prompt_status())
-        self.prompt_status_label = ttk.Label(prompt_controls, textvariable=self.prompt_status_var)
-        self.prompt_status_label.pack(side=tk.RIGHT)
-
-        self.open_editor_button = ttk.Button(
-            prompt_controls, text="Open Advanced Editor", command=self._open_advanced_editor
-        )
-        self.open_editor_button.pack(side=tk.LEFT)
-
-        self.prompt_text.bind("<<Modified>>", self._handle_prompt_modified)
-
-        self._editor_window: tk.Toplevel | None = None
-        self._editor: AdvancedPromptEditorV2 | None = None
-
-        body_style = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
-        self.body = ttk.Frame(container, style=body_style)
-        self.body.pack(fill=tk.BOTH, expand=True)
-
-        self._txt2img_change_callback = None
-
-        self.txt2img_card = AdvancedTxt2ImgStageCardV2(self.body, controller=controller, theme=theme)
-        self.txt2img_card.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
-        try:
-            self.txt2img_card.set_on_change(self._handle_txt2img_change)
-        except Exception:
-            pass
-        self.img2img_card = AdvancedImg2ImgStageCardV2(self.body, controller=controller, theme=theme)
-        self.img2img_card.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
-
-        self.upscale_card = AdvancedUpscaleStageCardV2(self.body, controller=controller, theme=theme)
-        self.upscale_card.pack(fill=tk.BOTH, expand=True)
-
-    def _build_prompt_status(self) -> str:
-        return f"{len(self.get_prompt())} chars"
-
-    def _handle_prompt_modified(self, event) -> None:
-        widget = event.widget
-        try:
-            widget.edit_modified(False)
-        except Exception:
-            pass
-        self.prompt_status_var.set(self._build_prompt_status())
-
-    def get_prompt(self) -> str:
-        return self.prompt_text.get("1.0", tk.END).strip()
-
-    def set_prompt(self, prompt: str) -> None:
-        self.prompt_text.delete("1.0", tk.END)
-        if prompt:
-            self.prompt_text.insert("1.0", prompt)
-        self.prompt_status_var.set(self._build_prompt_status())
-
-    def _open_advanced_editor(self) -> None:
-        if self._editor_window and self._editor_window.winfo_exists():
-            if self._editor is not None:
-                self._editor.prompt_text.delete("1.0", tk.END)
-                self._editor.prompt_text.insert("1.0", self.get_prompt())
-            try:
-                self._editor_window.lift()
-            except Exception:
-                pass
-            return
-
-        parent = self.winfo_toplevel()
-        self._editor_window = tk.Toplevel(parent)
-        self._editor_window.title("Advanced Prompt Editor")
-        self._editor = AdvancedPromptEditorV2(
-            self._editor_window,
-            initial_prompt=self.get_prompt(),
-            on_apply=self._apply_prompt_from_editor,
-            on_cancel=self._close_advanced_editor,
-        )
-        self._editor.pack(fill=tk.BOTH, expand=True)
-        try:
-            self._editor_window.transient(parent)
-            self._editor_window.grab_set()
-        except Exception:
-            pass
-        self._editor_window.protocol("WM_DELETE_WINDOW", self._close_advanced_editor)
-
-    def _apply_prompt_from_editor(self, prompt_text: str, _negative_prompt: str | None) -> None:
-        self.set_prompt(prompt_text)
-        self._close_advanced_editor()
-
-    def _close_advanced_editor(self) -> None:
-        window = self._editor_window
-        if window is None:
-            class _NullWindow:
-                @staticmethod
-                def winfo_exists():
-                    return False
-            self._editor_window = _NullWindow()
-            self._editor = None
-            return
-        if window.winfo_exists():
-            try:
-                window.destroy()
-            except Exception:
-                pass
-        # Keep the destroyed window reference so tests can safely query winfo_exists()
-        self._editor_window = window
-        self._editor = None
+        # Layout: left sidebar, center stage cards (scrollable), right preview
+        # Deprecated: use PipelineTabFrame instead of PipelinePanelV2
+        self.run_button = None
+        self.stop_button = None
 
     def load_from_config(self, config: dict | None) -> None:
         data = config or {}
@@ -196,3 +76,26 @@ class PipelinePanelV2(ttk.Frame):
             if not result.ok:
                 return result
         return ValidationResult(True, None)
+
+    def _apply_stage_visibility(self) -> None:
+        enabled = set(self.sidebar.get_enabled_stages()) if hasattr(self, "sidebar") else {"txt2img", "img2img", "upscale"}
+        if "txt2img" in enabled:
+            self.txt2img_card.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
+        else:
+            self.txt2img_card.pack_forget()
+        if "img2img" in enabled:
+            self.img2img_card.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
+        else:
+            self.img2img_card.pack_forget()
+        if "upscale" in enabled:
+            self.upscale_card.pack(fill=tk.BOTH, expand=True)
+        else:
+            self.upscale_card.pack_forget()
+
+    def _handle_sidebar_change(self) -> None:
+        self._apply_stage_visibility()
+        try:
+            if hasattr(self, "preview_panel"):
+                self.preview_panel.update_from_controls(self.sidebar)
+        except Exception:
+            pass

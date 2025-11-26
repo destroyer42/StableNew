@@ -101,5 +101,15 @@ class WebUIConnectionController:
         self._base_url_provider = lambda: url
         self._logger.info(f"WebUI base URL manually set to: {url}")
 
+    def reconnect(self) -> WebUIConnectionState:
+        """Best-effort reconnect helper used by GUI retry buttons."""
+        self._set_state(WebUIConnectionState.DISCONNECTED)
+        try:
+            return self.ensure_connected(autostart=True)
+        except Exception as exc:  # pragma: no cover - propagated to GUI
+            self._logger.warning("WebUI reconnect failed: %s", exc)
+            self._set_state(WebUIConnectionState.ERROR)
+            return self._state
+
 
 __all__ = ["WebUIConnectionController", "WebUIConnectionState"]

@@ -43,6 +43,11 @@ Must NOT:
 - Make direct HTTP calls to SD WebUI.
 - Write files except via controlled save dialogs (and even then, using helpers).
 
+Tabs:
+
+- Notebook hosts exactly **Prompt | Pipeline | Learning** in the main workspace.
+- There is **no separate Run tab** in V2; Pipeline is the single home for stage cards and execution wiring.
+
 ### 2.2 Panels and Stage Cards
 
 - **PipelinePanelV2**

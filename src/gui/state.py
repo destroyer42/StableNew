@@ -71,6 +71,7 @@ class StateManager:
         self._lock = threading.Lock()
         self._callbacks: dict[GUIState, list[Callable[[], None]]] = {state: [] for state in GUIState}
         self._transition_callbacks: list[Callable[[GUIState, GUIState], None]] = []
+        self.pipeline_overrides: dict[str, object] = {}
 
     @property
     def current(self) -> GUIState:
@@ -218,6 +219,13 @@ class StateManager:
     def reset(self) -> None:
         """Reset to IDLE state."""
         self.transition_to(GUIState.IDLE)
+
+    # ------------------------------------------------------------------
+    # Pipeline overrides (GUI -> controller bridge)
+    # ------------------------------------------------------------------
+    def get_pipeline_overrides(self) -> dict[str, object]:
+        """Return the current pipeline override dict (used by PipelineController)."""
+        return dict(self.pipeline_overrides or {})
 
 
 @dataclass

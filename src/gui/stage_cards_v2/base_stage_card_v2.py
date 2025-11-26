@@ -64,5 +64,13 @@ class BaseStageCardV2(ttk.Frame):
         message = result.message or ""
         self.validation_label.config(text=message)
 
+    def load_from_config(self, cfg):
+        """Optional config loader for subclasses."""
+        return None
+
+    def to_config_dict(self) -> dict:
+        """Optional config serializer for subclasses."""
+        return {}
+
 
 __all__ = ["BaseStageCardV2"]

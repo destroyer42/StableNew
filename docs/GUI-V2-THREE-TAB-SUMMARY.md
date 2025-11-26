@@ -14,6 +14,7 @@ The StableNewV2 GUI V2 is now organized into **three primary workspaces**, each 
 3. **Learning tab** – Experiment design and evaluation (parameter sweeps, rating, learning records).  
 
 This replaces the earlier, more monolithic GUI concept and resolves long-standing ambiguity around where prompt, LoRA, and learning responsibilities live.
+The legacy “Run” tab has been retired; Pipeline is the sole home for stage configuration and execution UX.
 
 ---
 

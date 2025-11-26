@@ -42,9 +42,22 @@ class ScrollableFrame(ttk.Frame):
         self._canvas.itemconfigure(self._inner_window, width=canvas_width)
 
     def _bind_mousewheel_events(self) -> None:
-        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self._capture_wheel = False
+        for widget in (self, self._canvas, self.inner):
+            try:
+                widget.bind("<Enter>", lambda _e: setattr(self, "_capture_wheel", True))
+                widget.bind("<Leave>", lambda _e: setattr(self, "_capture_wheel", False))
+                widget.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+            except Exception:
+                pass
 
     def _on_mousewheel(self, event: tk.Event) -> None:
+        # Avoid double-scrolling when hovering over native dropdown/list widgets
+        widget_class = str(getattr(event.widget, "winfo_class", lambda: "")()).lower()
+        if "combobox" in widget_class or "listbox" in widget_class:
+            return
+        if not getattr(self, "_capture_wheel", False):
+            return
         delta = int(-1 * (event.delta / 120))
         self._canvas.yview_scroll(delta, "units")
 

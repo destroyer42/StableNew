@@ -117,6 +117,8 @@ class MainWindowV2:
             style="Panel.TFrame",
             prompt_workspace_state=self.prompt_workspace_state,
             app_state=self.app_state,
+            pipeline_controller=self.pipeline_controller,
+            theme=getattr(self.app_state, "theme", None),
         )
         self.learning_tab = LearningTabFrame(
             self.pipeline_notebook,
@@ -152,7 +154,6 @@ class MainWindowV2:
         self.pipeline_notebook.add(self.prompt_tab, text="Prompt")
         self.pipeline_notebook.add(self.pipeline_tab, text="Pipeline")
         self.pipeline_notebook.add(self.learning_tab, text="Learning")
-        self.pipeline_notebook.add(self.pipeline_panel, text="Run")
 
         # Status/log area at bottom
         self.bottom_zone.pack(fill="both", expand=True, padx=4, pady=4)

@@ -43,6 +43,16 @@ STATUS_LABEL_STYLE = "Status.TLabel"
 STATUS_STRONG_LABEL_STYLE = "StatusStrong.TLabel"
 SURFACE_FRAME_STYLE = "Surface.TFrame"
 HEADER_FRAME_STYLE = "Header.TFrame"
+# Pipeline-specific styles
+PIPELINE_FRAME_STYLE = "Pipeline.TFrame"
+PIPELINE_LABEL_STYLE = "Pipeline.TLabel"
+PIPELINE_HEADING_STYLE = "PipelineHeading.TLabel"
+PIPELINE_BUTTON_STYLE = "Pipeline.TButton"
+# Pipeline-specific styles
+PIPELINE_FRAME_STYLE = "Pipeline.TFrame"
+PIPELINE_LABEL_STYLE = "Pipeline.TLabel"
+PIPELINE_HEADING_STYLE = "PipelineHeading.TLabel"
+PIPELINE_BUTTON_STYLE = "Pipeline.TButton"
 
 
 class Theme:
@@ -205,6 +215,34 @@ def configure_style(root: tk.Misc | None) -> ttk.Style:
         background=[("pressed", "#35333a"), ("active", "#302e35")],
         foreground=[("pressed", COLOR_TEXT), ("active", COLOR_TEXT)],
         relief=[("pressed", "sunken"), ("active", "raised")],
+    )
+    style.configure(
+        PIPELINE_FRAME_STYLE,
+        background=COLOR_SURFACE,
+        borderwidth=0,
+        relief="flat",
+        padding=PADDING_SM,
+    )
+    style.configure(
+        PIPELINE_LABEL_STYLE,
+        background=COLOR_SURFACE,
+        foreground=COLOR_TEXT,
+        font=(FONT_FAMILY, FONT_SIZE_LABEL, "bold"),
+    )
+    style.configure(
+        PIPELINE_HEADING_STYLE,
+        background=COLOR_SURFACE,
+        foreground=COLOR_TEXT,
+        font=(FONT_FAMILY, FONT_SIZE_HEADING, "bold"),
+    )
+    style.configure(
+        PIPELINE_BUTTON_STYLE,
+        background=COLOR_SURFACE_ALT,
+        foreground=COLOR_TEXT,
+        font=(FONT_FAMILY, FONT_SIZE_BUTTON, "bold"),
+        borderwidth=1,
+        relief="flat",
+        padding=(PADDING_SM, PADDING_XS),
     )
     style.configure(
         "Success.TButton",

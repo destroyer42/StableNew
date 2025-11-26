@@ -18,6 +18,7 @@ Generated: 2025-11-25T02:49:25.653740Z
 - `src/gui_v2/randomizer_adapter.py` (unreachable)
 - `src/gui_v2/validation/__init__.py` (unreachable)
 - `src/gui_v2/validation/pipeline_txt2img_validator.py` (unreachable)
+- `src/gui/advanced_prompt_editor.py` (legacy prompt builder window; no longer reachable from V2 UI)
 - `tests/controller/test_learning_execution_controller_gui_contract.py` (unreachable)
 - `tests/gui_v1_legacy/__init__.py` (unreachable)
 - `tests/gui_v1_legacy/conftest.py` (unreachable)

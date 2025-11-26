@@ -59,7 +59,7 @@ class LearningPlanTable(ttk.Frame):
         self.tree.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
 
-d        # Add selection binding
+        # Add selection binding
         self.tree.bind('<<TreeviewSelect>>', self._on_row_selected)
 
     def update_plan(self, plan: list[LearningVariant]) -> None:

@@ -9,6 +9,7 @@ from typing import Any
 from src.gui.stage_cards_v2.base_stage_card_v2 import BaseStageCardV2
 from src.gui.stage_cards_v2.components import SamplerSection, SeedSection
 from src.gui.stage_cards_v2.validation_result import ValidationResult
+from src.gui.enhanced_slider import EnhancedSlider
 
 
 class AdvancedImg2ImgStageCardV2(BaseStageCardV2):
@@ -17,37 +18,97 @@ class AdvancedImg2ImgStageCardV2(BaseStageCardV2):
     def __init__(self, master: tk.Misc, *, controller=None, theme=None, **kwargs: Any) -> None:
         self.controller = controller
         self.theme = theme
+        self._on_change = None
         super().__init__(master, title=self.panel_header, **kwargs)
 
     def _build_body(self, parent: ttk.Frame) -> None:
         # Core vars
+        self.model_var = tk.StringVar()
+        self.vae_var = tk.StringVar()
         self.sampler_var = tk.StringVar()
-        self.cfg_var = tk.StringVar(value="7.0")
-        self.denoise_var = tk.StringVar(value="0.3")
-        self.width_var = tk.StringVar(value="")
-        self.height_var = tk.StringVar(value="")
+        self.steps_var = tk.IntVar(value=20)
+        self.cfg_var = tk.DoubleVar(value=7.0)
+        self.denoise_var = tk.DoubleVar(value=0.3)
+        self.width_var = tk.IntVar(value=0)
+        self.height_var = tk.IntVar(value=0)
         self.mask_mode_var = tk.StringVar(value="none")
 
         # Sampler/steps/cfg shared section (reuse cfg var)
         self.sampler_section = SamplerSection(parent)
         self.sampler_section.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         self.sampler_section.sampler_var = self.sampler_var  # type: ignore[assignment]
-        self.sampler_section.cfg_var = self.cfg_var  # type: ignore[assignment]
-        # Keep steps_var but we don't persist it; still watchable for consistency
+        try:
+            for child in self.sampler_section.winfo_children():
+                child.destroy()
+        except Exception:
+            pass
+        ttk.Label(self.sampler_section, text="Sampler", style="Muted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 4))
+        self.sampler_combo = ttk.Combobox(
+            self.sampler_section,
+            textvariable=self.sampler_var,
+            values=getattr(self.controller, "get_available_samplers", lambda: [])() or ["Euler", "DPM++ 2M"],
+            state="readonly",
+            width=18,
+        )
+        self.sampler_combo.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+
+        ttk.Label(self.sampler_section, text="Steps", style="Muted.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 4))
+        self.steps_spin = tk.Spinbox(
+            self.sampler_section,
+            from_=1,
+            to=200,
+            increment=1,
+            textvariable=self.steps_var,
+            width=6,
+        )
+        self.steps_spin.grid(row=0, column=3, sticky="ew")
+
+        ttk.Label(self.sampler_section, text="CFG", style="Muted.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 4), pady=(6, 0))
+        self.cfg_spin = tk.Spinbox(
+            self.sampler_section,
+            from_=1.0,
+            to=30.0,
+            increment=0.1,
+            textvariable=self.cfg_var,
+            format="%.1f",
+            width=6,
+        )
+        self.cfg_spin.grid(row=1, column=1, sticky="ew", pady=(6, 0))
+        for col in range(4):
+            self.sampler_section.columnconfigure(col, weight=1 if col in (1, 3) else 0)
 
         meta = ttk.Frame(parent, style="Panel.TFrame")
         meta.grid(row=1, column=0, sticky="ew", pady=(0, 8))
 
         ttk.Label(meta, text="Denoise", style="Muted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 4))
-        ttk.Entry(meta, textvariable=self.denoise_var, width=10).grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        slider_frame = ttk.Frame(meta, style="Panel.TFrame")
+        slider_frame.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        EnhancedSlider(
+            slider_frame,
+            variable=self.denoise_var,
+            from_=0.0,
+            to=1.0,
+            resolution=0.01,
+            label="",
+        ).pack(fill="x", expand=True)
 
         ttk.Label(meta, text="Mask mode", style="Muted.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 4))
-        ttk.Entry(meta, textvariable=self.mask_mode_var, width=12).grid(row=0, column=3, sticky="ew")
+        ttk.Combobox(
+            meta,
+            textvariable=self.mask_mode_var,
+            values=["none", "keep", "discard", "auto"],
+            state="readonly",
+            width=12,
+        ).grid(row=0, column=3, sticky="ew")
 
         ttk.Label(meta, text="Width", style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 2))
-        ttk.Entry(meta, textvariable=self.width_var, width=8).grid(row=1, column=1, sticky="ew", padx=(0, 8))
+        tk.Spinbox(meta, from_=64, to=4096, increment=64, textvariable=self.width_var, width=8).grid(
+            row=1, column=1, sticky="ew", padx=(0, 8)
+        )
         ttk.Label(meta, text="Height", style="Muted.TLabel").grid(row=1, column=2, sticky="w", pady=(6, 2))
-        ttk.Entry(meta, textvariable=self.height_var, width=8).grid(row=1, column=3, sticky="ew")
+        tk.Spinbox(meta, from_=64, to=4096, increment=64, textvariable=self.height_var, width=8).grid(
+            row=1, column=3, sticky="ew"
+        )
         for col in range(4):
             meta.columnconfigure(col, weight=1 if col in (1, 3) else 0)
 
@@ -57,33 +118,55 @@ class AdvancedImg2ImgStageCardV2(BaseStageCardV2):
 
         for var in self.watchable_vars():
             try:
-                var.trace_add("write", lambda *_: None)
+                var.trace_add("write", lambda *_: self._notify_change())
             except Exception:
                 pass
 
         parent.columnconfigure(0, weight=1)
 
+    def _notify_change(self) -> None:
+        if self._on_change:
+            try:
+                self._on_change()
+            except Exception:
+                pass
+
+    def set_on_change(self, callback) -> None:
+        self._on_change = callback
+
+    def load_from_section(self, section: dict[str, Any] | None) -> None:
+        data = section or {}
+        self.model_var.set(data.get("model") or data.get("model_name", ""))
+        self.vae_var.set(data.get("vae") or data.get("vae_name", ""))
+        self.sampler_var.set(data.get("sampler_name", ""))
+        self.steps_var.set(int(self._safe_int(data.get("steps", 20), 20)))
+        self.cfg_var.set(float(self._safe_float(data.get("cfg_scale", 7.0), 7.0)))
+        self.denoise_var.set(float(self._safe_float(data.get("denoising_strength", 0.3), 0.3)))
+        self.width_var.set(int(self._safe_int(data.get("width", 0), 0)))
+        self.height_var.set(int(self._safe_int(data.get("height", 0), 0)))
+        self.mask_mode_var.set(str(data.get("mask_mode", "none")))
+
     def load_from_config(self, cfg: dict[str, Any]) -> None:
         section = (cfg or {}).get("img2img", {}) or {}
-        self.sampler_var.set(section.get("sampler_name", ""))
-        self.cfg_var.set(str(section.get("cfg_scale", 7.0)))
-        self.denoise_var.set(str(section.get("denoising_strength", 0.3)))
-        self.width_var.set(str(section.get("width", "")))
-        self.height_var.set(str(section.get("height", "")))
-        self.mask_mode_var.set(str(section.get("mask_mode", "none")))
+        self.load_from_section(section)
 
     def to_config_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
+            "model": self.model_var.get().strip(),
+            "model_name": self.model_var.get().strip(),
+            "vae": self.vae_var.get().strip(),
+            "vae_name": self.vae_var.get().strip(),
             "sampler_name": self.sampler_var.get().strip(),
-            "cfg_scale": float(self._safe_float(self.cfg_var.get(), 7.0)),
-            "denoising_strength": float(self._safe_float(self.denoise_var.get(), 0.3)),
+            "steps": int(self.steps_var.get() or 20),
+            "cfg_scale": float(self.cfg_var.get() or 7.0),
+            "denoising_strength": float(self.denoise_var.get() or 0.3),
         }
-        if self.width_var.get().strip():
-            payload["width"] = int(self._safe_int(self.width_var.get(), 0))
-        if self.height_var.get().strip():
-            payload["height"] = int(self._safe_int(self.height_var.get(), 0))
-        if self.mask_mode_var.get().strip():
-            payload["mask_mode"] = self.mask_mode_var.get().strip()
+        if self.width_var.get():
+            payload["width"] = int(self.width_var.get())
+        if self.height_var.get():
+            payload["height"] = int(self.height_var.get())
+        if self.mask_mode_var.get():
+            payload["mask_mode"] = self.mask_mode_var.get()
         return {"img2img": payload}
 
     def validate(self) -> ValidationResult:
@@ -103,6 +186,9 @@ class AdvancedImg2ImgStageCardV2(BaseStageCardV2):
             self.width_var,
             self.height_var,
             self.mask_mode_var,
+            self.steps_var,
+            self.model_var,
+            self.vae_var,
         ]
 
     @staticmethod

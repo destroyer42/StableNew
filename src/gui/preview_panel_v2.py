@@ -28,9 +28,16 @@ class PreviewPanelV2(ttk.Frame):
         self.body = ttk.Frame(self._scroll.inner, style=body_style)
         self.body.pack(fill=tk.BOTH, expand=True)
 
-        self.current_image_label = ttk.Label(self.body, text="No image")
-        self.current_image_label.pack()
-
+        self.summary_label = ttk.Label(self.body, text="Stages: -", style=theme_mod.STATUS_LABEL_STYLE)
+        self.summary_label.pack(anchor="w", pady=(0, 4))
+        self.mode_label = ttk.Label(self.body, text="Mode: -", style=theme_mod.STATUS_LABEL_STYLE)
+        self.mode_label.pack(anchor="w", pady=(0, 4))
+        self.scope_label = ttk.Label(self.body, text="Scope: -", style=theme_mod.STATUS_LABEL_STYLE)
+        self.scope_label.pack(anchor="w", pady=(0, 4))
+        self.jobs_label = ttk.Label(self.body, text="Jobs: -", style=theme_mod.STATUS_LABEL_STYLE)
+        self.jobs_label.pack(anchor="w", pady=(0, 4))
+        self.current_image_label = ttk.Label(self.body, text="No image", style=theme_mod.STATUS_LABEL_STYLE)
+        self.current_image_label.pack(anchor="w", pady=(4, 2))
         self.metadata_text = tk.Text(self.body, height=5, wrap="word")
         self.metadata_text.pack(fill=tk.X)
 
@@ -44,3 +51,14 @@ class PreviewPanelV2(ttk.Frame):
         """Clear the current image and metadata."""
         self.current_image_label.config(text="No image")
         self.metadata_text.delete(1.0, tk.END)
+
+    def update_from_controls(self, sidebar) -> None:
+        """Update preview summary from sidebar controls."""
+        enabled = getattr(sidebar, "get_enabled_stages", lambda: [])()
+        stages_text = ", ".join([s.title() for s in enabled]) or "-"
+        self.summary_label.config(text=f"Stages: {stages_text}")
+        self.mode_label.config(text=f"Mode: {getattr(sidebar, 'get_run_mode', lambda: '-')()}")
+        self.scope_label.config(text=f"Scope: {getattr(sidebar, 'get_run_scope', lambda: '-')()}")
+        jobs, images_per_job = getattr(sidebar, "get_job_counts", lambda: (0, 0))()
+        total = jobs * max(1, images_per_job)
+        self.jobs_label.config(text=f"Jobs: {jobs} | Images/job: {images_per_job} | Total: {total}")
