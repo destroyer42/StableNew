@@ -41,6 +41,7 @@ class Job:
     completed_at: datetime | None = None
     learning_enabled: bool = False
     randomizer_metadata: Optional[Dict[str, Any]] = None
+    lora_settings: Optional[Dict[str, Dict[str, Any]]] = None
     error_message: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
     payload: Any | None = None

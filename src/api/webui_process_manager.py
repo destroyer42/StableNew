@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import json
 from dataclasses import dataclass, field
 from typing import Mapping, Any
 from pathlib import Path
@@ -10,6 +11,30 @@ import time
 
 class WebUIStartupError(RuntimeError):
     """Raised when WebUI fails to start."""
+
+
+_WEBUI_CACHE_FILE = Path(__file__).parent.parent.parent / "data" / "webui_cache.json"
+
+
+def _load_webui_cache() -> dict[str, Any]:
+    """Load cached WebUI configuration."""
+    try:
+        if _WEBUI_CACHE_FILE.exists():
+            with _WEBUI_CACHE_FILE.open('r') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def _save_webui_cache(cache: dict[str, Any]) -> None:
+    """Save WebUI configuration to cache."""
+    try:
+        _WEBUI_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _WEBUI_CACHE_FILE.open('w') as f:
+            json.dump(cache, f, indent=2)
+    except Exception:
+        pass
 
 
 @dataclass
@@ -48,13 +73,31 @@ class WebUIProcessManager:
         if self._process and self.is_running():
             return self._process
 
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("Starting WebUI process with command: %s in dir: %s", self._config.command, self._config.working_dir)
+
         try:
             self._process = subprocess.Popen(
                 self._config.command,
                 cwd=self._config.working_dir or None,
                 env=self._config.build_env(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=os.name == "nt" and self._config.command[0].endswith(".bat"),  # Use shell for .bat files on Windows
             )
             self._start_time = time.time()
+            # Log process output in background
+            import threading
+            import logging
+            def log_output(stream, name):
+                try:
+                    for line in iter(stream.readline, b''):
+                        logging.info(f"WebUI {name}: {line.decode().strip()}")
+                except Exception:
+                    pass
+            threading.Thread(target=log_output, args=(self._process.stdout, "stdout"), daemon=True).start()
+            threading.Thread(target=log_output, args=(self._process.stderr, "stderr"), daemon=True).start()
         except Exception as exc:  # noqa: BLE001 - surface structured error
             raise WebUIStartupError(f"Failed to start WebUI: {exc}") from exc
 
@@ -118,17 +161,71 @@ def build_default_webui_process_config() -> WebUIProcessConfig | None:
     except Exception:
         return None
 
+    # First try cached location
+    cache = _load_webui_cache()
+    cached_workdir = cache.get('workdir')
+    cached_command = cache.get('command')
+    
+    if cached_workdir and cached_command:
+        workdir_path = Path(cached_workdir)
+        if workdir_path.exists() and workdir_path.is_dir():
+            # Verify the cached command still exists
+            command_path = workdir_path / cached_command[0] if cached_command else None
+            if command_path and command_path.exists():
+                print(f"Using cached WebUI location: {cached_workdir}")
+                config = WebUIProcessConfig(
+                    command=cached_command,
+                    working_dir=cached_workdir,
+                    autostart_enabled=app_config.is_webui_autostart_enabled(),
+                    base_url=os.environ.get("STABLENEW_WEBUI_BASE_URL", "http://127.0.0.1:7860"),
+                )
+                return config
+
+    # Fall back to app config
     workdir = app_config.get_webui_workdir()
-    if workdir is None:
-        workdir = detect_default_webui_workdir()
-
     command = app_config.get_webui_command()
-    if not command:
-        return None
+    
+    if workdir and command:
+        # Cache this valid configuration
+        print(f"Caching WebUI location: {workdir}")
+        _save_webui_cache({
+            'workdir': workdir,
+            'command': command,
+            'timestamp': time.time()
+        })
+        return WebUIProcessConfig(
+            command=command,
+            working_dir=workdir,
+            autostart_enabled=app_config.is_webui_autostart_enabled(),
+            base_url=os.environ.get("STABLENEW_WEBUI_BASE_URL", "http://127.0.0.1:7860"),
+        )
 
-    return WebUIProcessConfig(
-        command=command,
-        working_dir=workdir,
-        autostart_enabled=app_config.is_webui_autostart_enabled(),
-        base_url=os.environ.get("STABLENEW_WEBUI_BASE_URL", "http://127.0.0.1:7860"),
-    )
+    # Last resort: detect automatically (expensive)
+    print("No cached or configured WebUI location found, performing auto-detection...")
+    workdir = detect_default_webui_workdir()
+    if workdir:
+        workdir_path = Path(workdir)
+        # Determine command based on platform
+        if os.name == "nt":
+            command = ["webui-user.bat", "--api", "--xformers"]
+        else:
+            command = ["bash", "webui.sh", "--api"]
+            
+        # Verify command exists
+        command_path = workdir_path / command[0]
+        if command_path.exists():
+            # Cache the detected configuration
+            print(f"Caching detected WebUI location: {workdir}")
+            _save_webui_cache({
+                'workdir': workdir,
+                'command': command,
+                'timestamp': time.time()
+            })
+            return WebUIProcessConfig(
+                command=command,
+                working_dir=workdir,
+                autostart_enabled=app_config.is_webui_autostart_enabled(),
+                base_url=os.environ.get("STABLENEW_WEBUI_BASE_URL", "http://127.0.0.1:7860"),
+            )
+
+    return None

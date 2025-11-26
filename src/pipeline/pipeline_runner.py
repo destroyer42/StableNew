@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from uuid import uuid4
 
 from src.api.client import SDWebUIClient
@@ -42,6 +42,7 @@ class PipelineConfig:
     variant_configs: Optional[List[dict[str, Any]]] = None
     randomizer_mode: Optional[str] = None
     randomizer_plan_size: int = 0
+    lora_settings: Optional[Dict[str, dict[str, Any]]] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -142,6 +143,7 @@ class PipelineRunner:
                         prompt,
                         executor_config.get("img2img", {}),
                         run_dir,
+                        image_name=f"img2img_{stage.order_index}",
                         cancel_token=cancel_token,
                     )
                 elif current_stage == StageTypeEnum.UPSCALE:

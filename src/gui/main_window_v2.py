@@ -13,6 +13,9 @@ from src.gui.sidebar_panel_v2 import SidebarPanelV2
 from src.gui.pipeline_panel_v2 import PipelinePanelV2
 from src.gui.preview_panel_v2 import PreviewPanelV2
 from src.gui.status_bar_v2 import StatusBarV2
+from src.gui.views.prompt_tab_frame import PromptTabFrame
+from src.gui.views.pipeline_tab_frame import PipelineTabFrame
+from src.gui.views.learning_tab_frame import LearningTabFrame
 
 
 class HeaderZone(ttk.Frame):
@@ -96,27 +99,35 @@ class MainWindowV2:
         apply_theme(self.root)
         configure_root_grid(self.root)
 
-        self.sidebar_frame = ttk.Frame(self.root, style="Panel.TFrame")
         self.pipeline_frame = ttk.Frame(self.root, style="Panel.TFrame")
-        self.preview_frame = ttk.Frame(self.root, style="Panel.TFrame")
         self.status_frame = ttk.Frame(self.root, style="StatusBar.TFrame")
-
+        # Compatibility stubs for legacy controllers/tests
         self.header_zone = HeaderZone(self.pipeline_frame)
-        self.left_zone = SidebarPanelV2(
-            self.sidebar_frame,
-            controller=self.packs_controller,
+        self.left_zone = LeftZone(self.pipeline_frame)
+
+        self.pipeline_notebook = ttk.Notebook(self.pipeline_frame)
+        self.prompt_tab = PromptTabFrame(
+            self.pipeline_notebook,
+            style="Panel.TFrame",
             app_state=self.app_state,
-            on_apply_pack=self._handle_apply_pack,
+        )
+        self.prompt_workspace_state = self.prompt_tab.workspace_state
+        self.pipeline_tab = PipelineTabFrame(
+            self.pipeline_notebook,
+            style="Panel.TFrame",
+            prompt_workspace_state=self.prompt_workspace_state,
+            app_state=self.app_state,
+        )
+        self.learning_tab = LearningTabFrame(
+            self.pipeline_notebook,
+            style="Panel.TFrame",
+            app_state=self.app_state,
+            pipeline_controller=self.pipeline_controller,
         )
         self.pipeline_panel = PipelinePanelV2(
-            self.pipeline_frame,
+            self.pipeline_notebook,
             controller=self.pipeline_controller,
             app_state=self.app_state,
-        )
-        self.preview_panel = PreviewPanelV2(
-            self.preview_frame,
-            controller=self.pipeline_controller,
-            theme=None,
         )
         self.bottom_zone = BottomZone(self.status_frame, controller=self.app_controller, app_state=self.app_state)
         # Keep a handle to the v2 status bar for styling/updates.
@@ -127,26 +138,21 @@ class MainWindowV2:
             pass
 
         # Place top-level frames with breathing room
-        self.sidebar_frame.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=(8, 4))
-        self.pipeline_frame.grid(row=0, column=1, sticky="nsew", padx=4, pady=(8, 4))
-        self.preview_frame.grid(row=0, column=2, sticky="nsew", padx=(4, 8), pady=(8, 4))
-        self.status_frame.grid(row=1, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 8))
+        self.pipeline_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8, 4))
+        self.status_frame.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
 
         # Internal layout/weights
-        self.sidebar_frame.rowconfigure(0, weight=1)
-        self.sidebar_frame.columnconfigure(0, weight=1)
+        self.pipeline_frame.rowconfigure(0, weight=0)
         self.pipeline_frame.rowconfigure(1, weight=1)
         self.pipeline_frame.columnconfigure(0, weight=1)
-        self.preview_frame.rowconfigure(0, weight=1)
-        self.preview_frame.columnconfigure(0, weight=1)
 
-        # Header at top of pipeline, pipeline content below
-        self.header_zone.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 8))
-
-        # Sidebar + preview content fill
-        self.left_zone.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
-        self.pipeline_panel.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
-        self.preview_panel.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        # Notebook fills the main workspace
+        self.header_zone.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
+        self.pipeline_notebook.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+        self.pipeline_notebook.add(self.prompt_tab, text="Prompt")
+        self.pipeline_notebook.add(self.pipeline_tab, text="Pipeline")
+        self.pipeline_notebook.add(self.learning_tab, text="Learning")
+        self.pipeline_notebook.add(self.pipeline_panel, text="Run")
 
         # Status/log area at bottom
         self.bottom_zone.pack(fill="both", expand=True, padx=4, pady=4)
@@ -155,7 +161,6 @@ class MainWindowV2:
         self.after = self.root.after  # type: ignore[attr-defined]
 
         self._wire_toolbar_callbacks()
-        self._wire_left_zone_callbacks()
         self._wire_status_bar()
 
         # Make main content row stretch
@@ -173,7 +178,6 @@ class MainWindowV2:
         if self.app_controller is None:
             self.app_controller = controller
             self._wire_toolbar_callbacks()
-            self._wire_left_zone_callbacks()
         if getattr(self, "status_bar_v2", None):
             try:
                 self.status_bar_v2.controller = controller
@@ -181,13 +185,14 @@ class MainWindowV2:
                 pass
 
     def update_pack_list(self, packs: list[str]) -> None:
-        if hasattr(self.left_zone, "set_pack_names"):
+        left = getattr(self, "left_zone", None)
+        if hasattr(left, "set_pack_names"):
             try:
-                self.left_zone.set_pack_names(packs)
+                left.set_pack_names(packs)
                 return
             except Exception:
                 pass
-        lb = getattr(self.left_zone, "packs_list", None)
+        lb = getattr(left, "packs_list", None)
         if lb is None:
             return
         lb.delete(0, "end")
@@ -269,7 +274,7 @@ class MainWindowV2:
                 pass
 
     def _handle_pack_selection(self, ctrl) -> None:
-        lb = getattr(self.left_zone, "packs_list", None)
+        lb = getattr(getattr(self, "left_zone", None), "packs_list", None)
         if lb is None:
             return
         try:

@@ -3,7 +3,9 @@
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from enum import Enum, auto
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ class CancellationError(Exception):
 class CancelToken:
     """Thread-safe cancellation token for cooperative cancellation."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize cancel token."""
         self._cancelled = threading.Event()
         self._lock = threading.Lock()
@@ -67,7 +69,7 @@ class StateManager:
         """Initialize state manager."""
         self._state = initial_state
         self._lock = threading.Lock()
-        self._callbacks: dict[GUIState, list[Callable]] = {state: [] for state in GUIState}
+        self._callbacks: dict[GUIState, list[Callable[[], None]]] = {state: [] for state in GUIState}
         self._transition_callbacks: list[Callable[[GUIState, GUIState], None]] = []
 
     @property
@@ -161,7 +163,7 @@ class StateManager:
 
         return to_state in valid_transitions.get(from_state, set())
 
-    def on_state(self, state: GUIState, callback: Callable) -> None:
+    def on_state(self, state: GUIState, callback: Callable[[], None]) -> None:
         """Register callback for when entering specific state.
 
         Args:
@@ -216,3 +218,38 @@ class StateManager:
     def reset(self) -> None:
         """Reset to IDLE state."""
         self.transition_to(GUIState.IDLE)
+
+
+@dataclass
+class LoraRuntimeSettings:
+    """Runtime settings for a single LoRA."""
+    enabled: bool = True
+    strength: float = 1.0
+
+
+@dataclass
+class PipelineState:
+    """Lightweight in-memory pipeline configuration."""
+
+    run_mode: str = "direct"  # or "queue"
+    run_scope: str = "full"  # selected | from_selected | full
+    batch_runs: int = 1
+    stage_txt2img_enabled: bool = True
+    stage_img2img_enabled: bool = True
+    stage_upscale_enabled: bool = True
+    pending_jobs: int = 0
+    randomizer_mode: str = "off"  # off | sequential | rotate | random
+    max_variants: int = 1
+    lora_settings: Dict[str, LoraRuntimeSettings] = field(default_factory=dict)
+
+    def set_lora_setting(self, name: str, enabled: bool, strength: float) -> None:
+        """Set LoRA runtime settings for a specific LoRA."""
+        self.lora_settings[name] = LoraRuntimeSettings(enabled=enabled, strength=strength)
+
+    def get_lora_setting(self, name: str) -> LoraRuntimeSettings:
+        """Get LoRA runtime settings for a specific LoRA."""
+        return self.lora_settings.get(name, LoraRuntimeSettings())
+
+    def reset_lora_settings(self) -> None:
+        """Reset all LoRA settings to defaults."""
+        self.lora_settings.clear()

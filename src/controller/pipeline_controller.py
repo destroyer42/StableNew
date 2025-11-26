@@ -7,15 +7,19 @@ from src.gui.state import StateManager
 from src.learning.learning_record import LearningRecord, LearningRecordWriter
 from src.controller.job_execution_controller import JobExecutionController
 from src.controller.queue_execution_controller import QueueExecutionController
-from src.queue.job_model import JobStatus
+from src.queue.job_model import JobStatus, Job
 from src.pipeline.stage_sequencer import StageExecutionPlan, build_stage_execution_plan
-from src.pipeline.pipeline_runner import PipelineRunResult, PipelineConfig
+from src.pipeline.pipeline_runner import PipelineRunResult, PipelineConfig, PipelineRunner
 from src.gui.state import GUIState
-from src.config.app_config import is_queue_execution_enabled
-from src.controller.job_history_service import JobHistoryService
-from src.controller.pipeline_config_assembler import PipelineConfigAssembler, GuiOverrides
 from src.controller.webui_connection_controller import WebUIConnectionController, WebUIConnectionState
 from src.config import app_config
+from src.config.app_config import is_queue_execution_enabled
+from src.controller.job_history_service import JobHistoryService
+from src.controller.pipeline_config_assembler import PipelineConfigAssembler, GuiOverrides, RunPlan, PlannedJob
+from src.gui.prompt_workspace_state import PromptWorkspaceState
+from src.gui.state import PipelineState
+from src.api.client import SDWebUIClient
+from src.utils import StructuredLogger
 
 
 class PipelineController(_GUIPipelineController):
@@ -413,6 +417,52 @@ class PipelineController(_GUIPipelineController):
                 self.state_manager.transition_to(GUIState.RUNNING)
             except Exception:
                 pass
+
+    def submit_run_plan(
+        self,
+        run_plan: RunPlan,
+        pipeline_state: PipelineState,
+        app_state: Any,
+    ) -> None:
+        """Submit jobs from a RunPlan to the executor."""
+        if not run_plan.jobs:
+            self._log("RunPlan has no jobs to submit", "WARNING")
+            return
+
+        for planned_job in run_plan.jobs:
+            # Build PipelineConfig for this job
+            config = self._config_assembler.build_from_gui_input(
+                overrides=GuiOverrides(prompt=planned_job.prompt_text),
+                lora_settings=planned_job.lora_settings,
+                randomizer_metadata=planned_job.randomizer_metadata,
+            )
+
+            # Create Job
+            from src.queue.job_model import Job, JobPriority
+            job = Job(
+                job_id="",  # Will be set by queue
+                pipeline_config=config,
+                priority=JobPriority.NORMAL,
+                lora_settings=planned_job.lora_settings,
+                randomizer_metadata=planned_job.randomizer_metadata,
+            )
+
+            # Submit based on run_mode
+            if pipeline_state.run_mode == "queue":
+                self._job_controller.submit_pipeline_run(lambda: self._run_job(job), priority=job.priority)
+            else:
+                # Direct run
+                self._job_controller.submit_pipeline_run(lambda: self._run_job(job), priority=job.priority)
+
+    def _run_job(self, job: Job) -> dict[str, Any]:
+        """Run a single job."""
+        if not job.pipeline_config:
+            return {"error": "No pipeline config"}
+        api_client = SDWebUIClient(base_url="http://127.0.0.1:7860")
+        structured_logger = StructuredLogger()
+        runner = PipelineRunner(api_client, structured_logger)
+        result = runner.run(job.pipeline_config, self.cancel_token)
+        return result.to_dict() if hasattr(result, 'to_dict') else {"result": result}
 
     def get_job_history_service(self) -> JobHistoryService | None:
         """Return a JobHistoryService bound to this controller's queue/history."""

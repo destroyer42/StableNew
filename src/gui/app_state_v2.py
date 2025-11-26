@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, TYPE_CHECKING
 
 from src.gui.gui_invoker import GuiInvoker
+
+if TYPE_CHECKING:  # pragma: no cover
+    from src.gui.prompt_workspace_state import PromptWorkspaceState
 
 Listener = Callable[[], None]
 
@@ -22,6 +25,7 @@ class AppStateV2:
     is_running: bool = False
     status_text: str = "Idle"
     last_error: Optional[str] = None
+    prompt_workspace_state: Optional["PromptWorkspaceState"] = None
 
     def set_invoker(self, invoker: GuiInvoker) -> None:
         """Set an invoker used to marshal notifications onto the GUI thread."""

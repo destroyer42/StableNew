@@ -409,6 +409,29 @@ class AppController:
         self._append_log(f"[controller] Edit Pack -> {pack.path}")
 
     # ------------------------------------------------------------------
+    # Prompt selection helpers (bridge until Pipeline tab refactor)
+    # ------------------------------------------------------------------
+
+    def _get_active_prompt_text(self) -> str:
+        """
+        Prefer PromptWorkspaceState prompt (Prompt tab) when available; fall back to legacy sources.
+
+        This is a temporary bridge until the full Pipeline tab refactor lands.
+        """
+        try:
+            ws = getattr(self.main_window, "prompt_workspace_state", None)
+            if ws is not None:
+                prompt_text = ws.get_current_prompt_text()
+                if prompt_text and prompt_text.strip():
+                    self._append_log("[controller] Using PromptWorkspaceState prompt.")
+                    return prompt_text
+        except Exception:
+            pass
+
+        self._append_log("[controller] Using legacy prompt source (PromptWorkspaceState empty).")
+        return ""
+
+    # ------------------------------------------------------------------
     # Config state helpers
     # ------------------------------------------------------------------
 
@@ -464,7 +487,7 @@ class AppController:
     def _build_pipeline_config(self) -> PipelineConfig:
         current = self.get_current_config()
         pack = self._get_selected_pack()
-        prompt = self._resolve_prompt_from_pack(pack) or current.get("prompt", "")
+        prompt = self._get_active_prompt_text() or self._resolve_prompt_from_pack(pack) or current.get("prompt", "")
         if not prompt:
             prompt = (pack.name if pack else current.get("preset_name")) or "StableNew GUI Run"
 

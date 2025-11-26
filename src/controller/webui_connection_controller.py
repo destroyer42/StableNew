@@ -78,16 +78,28 @@ class WebUIConnectionController:
                 self._logger.debug("WebUI probe failed: %s", exc)
             time.sleep(retry_interval)
 
+        # If still not ready, try to find WebUI on other ports
+        self._logger.info("Trying to auto-detect WebUI on other ports...")
+        from src.api.healthcheck import find_webui_port
+        detected_url = find_webui_port()
+        if detected_url and detected_url != base_url:
+            self._logger.info(f"Found WebUI on different port: {detected_url}")
+            # Update the base_url_provider to use the detected URL
+            self._base_url_provider = lambda: detected_url
+            try:
+                if wait_for_webui_ready(detected_url, timeout=5.0, poll_interval=1.0):
+                    self._set_state(WebUIConnectionState.READY)
+                    return self._state
+            except Exception as e:
+                self._logger.warning(f"Failed to connect to detected WebUI: {e}")
+
         self._set_state(WebUIConnectionState.ERROR)
         return self._state
 
-    def reconnect(self) -> WebUIConnectionState:
-        try:
-            return self.ensure_connected(autostart=True)
-        except Exception as exc:  # pragma: no cover
-            self._logger.warning("WebUI reconnect failed: %s", exc)
-            self._set_state(WebUIConnectionState.ERROR)
-            return self._state
+    def set_base_url(self, url: str) -> None:
+        """Manually set the base URL for WebUI connection."""
+        self._base_url_provider = lambda: url
+        self._logger.info(f"WebUI base URL manually set to: {url}")
 
 
 __all__ = ["WebUIConnectionController", "WebUIConnectionState"]

@@ -28,10 +28,7 @@ from .api.webui_process_manager import (
     WebUIProcessManager,
     build_default_webui_process_config,
 )
-from .api.healthcheck import wait_for_webui_ready
 from .app_factory import build_v2_app
-from .gui.main_window import ENTRYPOINT_GUI_CLASS, StableNewGUI
-from .gui.main_window_v2 import run_app as run_app_v2
 from .utils import setup_logging
 
 _INSTANCE_PORT = 47631
@@ -52,7 +49,7 @@ def _acquire_single_instance_lock() -> socket.socket | None:
     return sock
 
 def bootstrap_webui(config: dict[str, Any]) -> WebUIProcessManager | None:
-    """Best-effort WebUI bootstrap that never blocks GUI startup."""
+    """Bootstrap WebUI using the proper connection controller framework."""
 
     proc_config: WebUIProcessConfig | None = config.get("process_config")
     if proc_config is None and config.get("webui_command"):
@@ -63,41 +60,27 @@ def bootstrap_webui(config: dict[str, Any]) -> WebUIProcessManager | None:
             autostart_enabled=bool(config.get("webui_autostart_enabled")),
             base_url=config.get("webui_base_url"),
         )
+    
     if proc_config is None:
-        logging.info("WebUI autostart is disabled; GUI will launch without waiting.")
-        # Even when disabled, sanity-check health if requested
-        if config.get("webui_base_url"):
-            try:
-                wait_for_webui_ready(config["webui_base_url"], timeout=0.5, poll_interval=0.1)
-            except Exception:
-                pass
+        logging.info("No WebUI configuration available")
         return None
 
-    manager = WebUIProcessManager(proc_config)
-    if proc_config.autostart_enabled:
-        try:
-            manager.start()
-            logging.info("WebUI autostart requested (non-blocking)")
-            try:
-                base_url = proc_config.base_url or config.get("webui_base_url") or "http://127.0.0.1:7860"
-                wait_for_webui_ready(
-                    base_url,
-                    timeout=proc_config.startup_timeout_seconds,
-                    poll_interval=proc_config.poll_interval_seconds,
-                )
-            except Exception:
-                pass
-        except Exception as exc:
-            logging.warning("WebUI autostart failed (non-fatal): %s", exc)
-    else:
-        logging.info("WebUI autostart is disabled; GUI will launch without waiting.")
-        try:
-            base_url = proc_config.base_url or config.get("webui_base_url")
-            if base_url:
-                wait_for_webui_ready(base_url, timeout=proc_config.startup_timeout_seconds, poll_interval=0.25)
-        except Exception:
-            pass
-    return manager
+    # Use the proper connection controller framework
+    from src.controller.webui_connection_controller import WebUIConnectionController
+    connection_controller = WebUIConnectionController()
+    
+    # Try to ensure connection (will start WebUI if configured and needed)
+    try:
+        state = connection_controller.ensure_connected(autostart=proc_config.autostart_enabled)
+        logging.info(f"WebUI connection state: {state}")
+        
+        # Create manager for the window (even if we didn't start it)
+        manager = WebUIProcessManager(proc_config)
+        return manager
+        
+    except Exception as e:
+        logging.warning(f"WebUI bootstrap failed: {e}")
+        return None
 
 
 def _load_webui_config() -> dict[str, Any]:
@@ -127,12 +110,94 @@ def _load_webui_config() -> dict[str, Any]:
 
 
 
+def _async_bootstrap_webui(root: tk.Tk, app_state, window) -> None:
+    """Asynchronously bootstrap WebUI after GUI is loaded."""
+    import threading
+    
+    def _bootstrap_worker():
+        try:
+            config = _load_webui_config()
+            webui_manager = bootstrap_webui(config)
+            if webui_manager:
+                # Update the window with the WebUI manager
+                root.after(0, lambda: _update_window_webui_manager(window, webui_manager))
+                logging.info("WebUI bootstrap completed asynchronously")
+        except Exception as e:
+            logging.warning(f"Async WebUI bootstrap failed: {e}")
+    
+    # Start bootstrap in background thread
+    thread = threading.Thread(target=_bootstrap_worker, daemon=True)
+    thread.start()
+
+
+def _update_window_webui_manager(window, webui_manager: WebUIProcessManager) -> None:
+    """Update the window with the WebUI manager (called from main thread)."""
+    window.webui_process_manager = webui_manager
+    
+    # Set up WebUI status monitoring using the proper framework
+    if hasattr(window, 'status_bar_v2') and window.status_bar_v2:
+        try:
+            webui_panel = getattr(window.status_bar_v2, 'webui_panel', None)
+            if webui_panel:
+                # Create a proper WebUI connection controller
+                from src.controller.webui_connection_controller import WebUIConnectionController
+                connection_controller = WebUIConnectionController()
+                
+                # Connect the status panel to the controller
+                def update_status() -> None:
+                    """Update the status panel with current connection state."""
+                    try:
+                        state = connection_controller.get_state()
+                        logging.info(f"WebUI status update: state = {state}")
+                        webui_panel.set_webui_state(state)
+                    except Exception as e:
+                        logging.warning(f"Status update failed: {e}")
+                        from src.controller.webui_connection_controller import WebUIConnectionState
+                        webui_panel.set_webui_state(WebUIConnectionState.ERROR)
+                
+                # Set up callbacks for the buttons
+                def launch_callback() -> None:
+                    try:
+                        logging.info("Launch WebUI button clicked")
+                        # Try to ensure connection (will start WebUI if needed)
+                        new_state = connection_controller.ensure_connected(autostart=True)
+                        webui_panel.set_webui_state(new_state)
+                    except Exception as e:
+                        logging.warning(f"Failed to launch WebUI: {e}")
+                
+                def retry_callback() -> None:
+                    try:
+                        logging.info("Retry WebUI connection button clicked")
+                        # Try to reconnect
+                        new_state = connection_controller.reconnect()
+                        webui_panel.set_webui_state(new_state)
+                    except Exception as e:
+                        logging.warning(f"Failed to retry WebUI connection: {e}")
+                
+                webui_panel.set_launch_callback(launch_callback)
+                webui_panel.set_retry_callback(retry_callback)
+                
+                # Initial status check
+                update_status()
+                
+                # Set up periodic status checking
+                def periodic_check() -> None:
+                    update_status()
+                    window.after(5000, periodic_check)  # Check every 5 seconds
+                
+                window.after(1000, periodic_check)  # Start checking after 1 second
+                
+        except Exception as e:
+            logging.debug(f"Failed to set up WebUI status monitoring: {e}")
+
+
 def main() -> None:
     """Main function"""
     setup_logging("INFO")
 
     logging.info("Starting StableNew V2 GUI (MainWindowV2)")
-    webui_manager = bootstrap_webui(_load_webui_config())
+    # Don't bootstrap WebUI synchronously - do it asynchronously after GUI loads
+    webui_manager = None
 
     lock_sock = _acquire_single_instance_lock()
     if lock_sock is None:
@@ -153,7 +218,11 @@ def main() -> None:
         print("Tkinter is not available; cannot start StableNew GUI.", file=sys.stderr)
         return
 
-    root, _, _, _ = build_v2_app(root=tk.Tk(), webui_manager=webui_manager)
+    root, app_state, app_controller, window = build_v2_app(root=tk.Tk(), webui_manager=webui_manager)
+    
+    # Start WebUI connection/bootstrap asynchronously after GUI is shown
+    root.after(500, lambda: _async_bootstrap_webui(root, app_state, window))
+    
     root.mainloop()
 
 

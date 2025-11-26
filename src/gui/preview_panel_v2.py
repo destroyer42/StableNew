@@ -27,3 +27,20 @@ class PreviewPanelV2(ttk.Frame):
         self._scroll.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
         self.body = ttk.Frame(self._scroll.inner, style=body_style)
         self.body.pack(fill=tk.BOTH, expand=True)
+
+        self.current_image_label = ttk.Label(self.body, text="No image")
+        self.current_image_label.pack()
+
+        self.metadata_text = tk.Text(self.body, height=5, wrap="word")
+        self.metadata_text.pack(fill=tk.X)
+
+    def set_current_image(self, image_path: str, metadata: dict) -> None:
+        """Set the current image and metadata."""
+        self.current_image_label.config(text=f"Image: {image_path}")
+        self.metadata_text.delete(1.0, tk.END)
+        self.metadata_text.insert(tk.END, str(metadata))
+
+    def clear(self) -> None:
+        """Clear the current image and metadata."""
+        self.current_image_label.config(text="No image")
+        self.metadata_text.delete(1.0, tk.END)

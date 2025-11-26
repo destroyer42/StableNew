@@ -7,6 +7,9 @@ from typing import Any
 
 from src.pipeline.pipeline_runner import PipelineConfig
 from src.utils.config import ConfigManager
+from src.utils.randomizer import PromptRandomizer
+from src.gui.prompt_workspace_state import PromptWorkspaceState
+from src.gui.state import PipelineState
 
 
 @dataclass
@@ -30,6 +33,21 @@ class GuiOverrides:
     metadata: dict[str, Any] | None = None
 
 
+@dataclass
+class PlannedJob:
+    """A single job in a RunPlan."""
+    prompt_text: str
+    lora_settings: dict[str, dict[str, Any]] | None = None
+    randomizer_metadata: dict[str, Any] | None = None
+
+
+@dataclass
+class RunPlan:
+    """Plan for a pipeline run with multiple jobs."""
+    jobs: list[PlannedJob]
+    summary: str = ""
+
+
 class PipelineConfigAssembler:
     """Translate GUI/controller inputs into a PipelineConfig instance."""
 
@@ -44,6 +62,7 @@ class PipelineConfigAssembler:
         overrides: GuiOverrides | dict[str, Any] | None = None,
         randomizer_metadata: dict[str, Any] | None = None,
         learning_metadata: dict[str, Any] | None = None,
+        lora_settings: dict[str, dict[str, Any]] | None = None,
     ) -> PipelineConfig:
         gui_overrides = self._normalize_overrides(overrides)
         base = deepcopy(base_config or self._default_txt2img())
@@ -86,6 +105,7 @@ class PipelineConfigAssembler:
             height=int(merged.get("height", 512)),
             steps=int(merged.get("steps", 20)),
             cfg_scale=float(merged.get("cfg_scale", 7.0)),
+            lora_settings=lora_settings,
             metadata=metadata,
         )
 
@@ -186,3 +206,39 @@ class PipelineConfigAssembler:
             return width, height
         except Exception:
             return None
+
+    def build_run_plan(
+        self,
+        prompt_workspace_state: PromptWorkspaceState,
+        pipeline_state: PipelineState,
+    ) -> RunPlan:
+        """Build a RunPlan from the current prompt and pipeline state."""
+        prompt_text = prompt_workspace_state.get_current_prompt_text()
+        if not prompt_text.strip():
+            return RunPlan(jobs=[], summary="No prompt text")
+
+        # Get randomizer config from pipeline_state
+        randomizer_config = {
+            "enabled": pipeline_state.randomizer_mode != "off",
+            "mode": pipeline_state.randomizer_mode,
+            "max_variants": pipeline_state.max_variants,
+        }
+
+        randomizer = PromptRandomizer(randomizer_config)
+        variants = randomizer.generate(prompt_text)
+
+        jobs = []
+        for variant in variants:
+            # Convert LoraRuntimeSettings to dict
+            lora_dict = {}
+            for name, settings in pipeline_state.lora_settings.items():
+                lora_dict[name] = {"enabled": settings.enabled, "strength": settings.strength}
+            job = PlannedJob(
+                prompt_text=variant.text,
+                lora_settings=lora_dict if lora_dict else None,
+                randomizer_metadata={"variant_label": variant.label} if variant.label else None,
+            )
+            jobs.append(job)
+
+        summary = f"{len(jobs)} job(s) planned"
+        return RunPlan(jobs=jobs, summary=summary)

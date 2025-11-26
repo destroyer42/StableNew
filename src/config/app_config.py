@@ -26,8 +26,8 @@ _webui_health_initial_timeout: float | None = None
 _webui_health_retry_count: int | None = None
 _webui_health_retry_interval: float | None = None
 _webui_health_total_timeout: float | None = None
-STABLENEW_WEBUI_ROOT=r"C:\Users\rob\stable-diffusion-webui"
-STABLENEW_WEBUI_COMMAND=r"C:\Users\rob\stable-diffusion-webui\webui-user.bat"
+STABLENEW_WEBUI_ROOT=""
+STABLENEW_WEBUI_COMMAND=""
 
 def learning_enabled_default() -> bool:
     """Return default for learning toggle (opt-in by default)."""
@@ -394,15 +394,15 @@ def set_webui_autostart_enabled(value: bool) -> None:
 
 
 def webui_autostart_enabled_default() -> bool:
-    flag = os.environ.get("STABLENEW_WEBUI_AUTOSTART", "false").lower()
+    flag = os.environ.get("STABLENEW_WEBUI_AUTOSTART", "true").lower()
     return flag in {"1", "true", "yes", "on"}
 
 
 def webui_health_initial_timeout_seconds_default() -> float:
     try:
-        return float(os.environ.get("STABLENEW_WEBUI_HEALTH_INITIAL_TIMEOUT", "2.0"))
+        return float(os.environ.get("STABLENEW_WEBUI_HEALTH_INITIAL_TIMEOUT", "5.0"))
     except Exception:
-        return 2.0
+        return 5.0
 
 
 def webui_health_retry_count_default() -> int:
@@ -421,9 +421,9 @@ def webui_health_retry_interval_seconds_default() -> float:
 
 def webui_health_total_timeout_seconds_default() -> float:
     try:
-        return float(os.environ.get("STABLENEW_WEBUI_HEALTH_TOTAL_TIMEOUT", "20.0"))
+        return float(os.environ.get("STABLENEW_WEBUI_HEALTH_TOTAL_TIMEOUT", "60.0"))
     except Exception:
-        return 20.0
+        return 60.0
 
 
 def is_webui_autostart_enabled() -> bool:
