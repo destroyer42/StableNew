@@ -12,6 +12,9 @@ from src.gui.preview_panel_v2 import PreviewPanelV2
 
 class PipelineTabFrame(ttk.Frame):
     """Layout scaffold for the Pipeline tab."""
+    # Panel width variables for easy adjustment
+    SIDEBAR_MIN_WIDTH = 320
+    CENTRAL_MIN_WIDTH = 480
 
     def __init__(
         self,
@@ -35,8 +38,8 @@ class PipelineTabFrame(ttk.Frame):
         # Body with three columns
         self.body_frame = ttk.Frame(self, padding=8, style="Panel.TFrame")
         self.body_frame.grid(row=0, column=0, sticky="nsew")
-        self.body_frame.columnconfigure(0, weight=1)
-        self.body_frame.columnconfigure(1, weight=2)
+        self.body_frame.columnconfigure(0, weight=0)
+        self.body_frame.columnconfigure(1, weight=1)  # 66% of previous width
         self.body_frame.columnconfigure(2, weight=1)
         self.body_frame.rowconfigure(0, weight=1)
 
@@ -47,12 +50,17 @@ class PipelineTabFrame(ttk.Frame):
             theme=self.theme,
             on_change=lambda: self._handle_sidebar_change(),
         )
+        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, 4))
+        self.sidebar.configure(width=480)
+        self.sidebar.update_idletasks()
+        self.body_frame.grid_propagate(False)
+
         self.stage_scroll = ScrollableFrame(self.body_frame, style="Panel.TFrame")
         self.stage_cards_frame = self.stage_scroll.inner
-        self.preview_panel = PreviewPanelV2(self.body_frame, controller=self.pipeline_controller, theme=self.theme)
-
-        self.sidebar.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
         self.stage_scroll.grid(row=0, column=1, sticky="nsew", padx=4)
+        self.stage_scroll.inner.update_idletasks()
+
+        self.preview_panel = PreviewPanelV2(self.body_frame, controller=self.pipeline_controller, theme=self.theme)
         self.preview_panel.grid(row=0, column=2, sticky="nsew", padx=(4, 0))
 
         self.stage_cards_panel = StageCardsPanel(

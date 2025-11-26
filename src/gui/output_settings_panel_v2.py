@@ -6,7 +6,6 @@ import tkinter as tk
 from tkinter import ttk
 
 from src.config import app_config
-from src.gui import theme as theme_mod
 
 
 class OutputSettingsPanelV2(ttk.Frame):
@@ -15,13 +14,9 @@ class OutputSettingsPanelV2(ttk.Frame):
     FORMATS = ("png", "jpg", "webp")
     SEED_MODES = ("fixed", "increment", "random")
 
-    def __init__(self, master: tk.Misc, *, theme=None) -> None:
-        style_name = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
-        super().__init__(master, style=style_name, padding=theme_mod.PADDING_MD)
-        self.theme = theme or theme_mod
-
-        header_style = getattr(self.theme, "STATUS_STRONG_LABEL_STYLE", theme_mod.STATUS_STRONG_LABEL_STYLE)
-        ttk.Label(self, text="Output Settings", style=header_style).pack(anchor=tk.W, pady=(0, 6))
+    def __init__(self, master: tk.Misc) -> None:
+        super().__init__(master, style="Panel.TFrame", padding=8)
+        ttk.Label(self, text="Output Settings", style="Heading.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
 
         self.output_dir_var = tk.StringVar(value=app_config.output_dir_default())
         self.filename_pattern_var = tk.StringVar(value=app_config.filename_pattern_default())
@@ -29,28 +24,30 @@ class OutputSettingsPanelV2(ttk.Frame):
         self.batch_size_var = tk.StringVar(value=str(app_config.batch_size_default()))
         self.seed_mode_var = tk.StringVar(value=app_config.seed_mode_default())
 
-        self._build_row("Output Dir", ttk.Entry(self, textvariable=self.output_dir_var))
-        self._build_row("Filename", ttk.Entry(self, textvariable=self.filename_pattern_var))
+        self._build_row("Output Dir", ttk.Entry(self, textvariable=self.output_dir_var), 1)
+        self._build_row("Filename", ttk.Entry(self, textvariable=self.filename_pattern_var), 2)
         self._build_row(
             "Format",
             ttk.Combobox(self, textvariable=self.image_format_var, values=self.FORMATS, state="readonly", width=8),
+            3
         )
         self._build_row(
             "Batch Size",
             ttk.Spinbox(self, from_=1, to=99, increment=1, textvariable=self.batch_size_var, width=6),
+            4
         )
         self._build_row(
             "Seed Mode",
             ttk.Combobox(self, textvariable=self.seed_mode_var, values=self.SEED_MODES, state="readonly", width=10),
+            5
         )
 
-    def _build_row(self, label: str, widget: tk.Widget) -> None:
-        row = ttk.Frame(self, style=getattr(self.theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE))
-        row.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
-        ttk.Label(row, text=label, style=getattr(self.theme, "STATUS_LABEL_STYLE", theme_mod.STATUS_LABEL_STYLE)).pack(
-            side=tk.LEFT
-        )
-        widget.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        self.columnconfigure(1, weight=1)
+
+    def _build_row(self, label: str, widget: tk.Widget, row_idx: int) -> None:
+        label_widget = ttk.Label(self, text=label, style="TLabel")
+        label_widget.grid(row=row_idx, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
+        widget.grid(row=row_idx, column=1, sticky="ew", pady=(0, 4))
 
     def get_output_overrides(self) -> dict[str, object]:
         return {
@@ -72,7 +69,7 @@ class OutputSettingsPanelV2(ttk.Frame):
         batch = overrides.get("batch_size")
         if batch is not None:
             try:
-                self.batch_size_var.set(str(int(batch)))
+                self.batch_size_var.set(str(int(float(str(batch)))))
             except Exception:
                 pass
         seed = overrides.get("seed_mode")
@@ -82,7 +79,7 @@ class OutputSettingsPanelV2(ttk.Frame):
     @staticmethod
     def _safe_int(value: object, default: int) -> int:
         try:
-            return int(value)
+            return int(float(str(value)))
         except Exception:
             return default
 

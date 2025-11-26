@@ -7,7 +7,6 @@ from tkinter import ttk
 from typing import Iterable
 
 from src.config import app_config
-from src.gui import theme as theme_mod
 from src.gui.model_list_adapter_v2 import ModelListAdapterV2
 
 
@@ -18,22 +17,17 @@ class ModelManagerPanelV2(ttk.Frame):
         self,
         master: tk.Misc,
         *,
-        theme=None,
         adapter: ModelListAdapterV2 | None = None,
         models: Iterable[str] | None = None,
         vaes: Iterable[str] | None = None,
     ) -> None:
-        style_name = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
-        super().__init__(master, style=style_name, padding=theme_mod.PADDING_MD)
-
-        self.theme = theme or theme_mod
+        super().__init__(master, style="Panel.TFrame", padding=8)
         self.adapter = adapter or ModelListAdapterV2()
 
         self.model_var = tk.StringVar(value=app_config.get_core_model_name())
         self.vae_var = tk.StringVar(value=app_config.get_core_vae_name())
 
-        header_style = getattr(self.theme, "STATUS_STRONG_LABEL_STYLE", theme_mod.STATUS_STRONG_LABEL_STYLE)
-        ttk.Label(self, text="Model Manager", style=header_style).pack(anchor=tk.W, pady=(0, 6))
+        # Removed redundant "Model Manager" label (card already titled)
 
         self.model_combo = self._build_combo(self.model_var, models or [])
         self._build_row("Model", self.model_combo)
@@ -41,17 +35,21 @@ class ModelManagerPanelV2(ttk.Frame):
         self.vae_combo = self._build_combo(self.vae_var, vaes or [])
         self._build_row("VAE", self.vae_combo)
 
-        ttk.Button(self, text="Refresh", command=self.refresh_lists, style=getattr(self.theme, "BUTTON_PRIMARY_STYLE", None)).pack(
-            anchor=tk.E, pady=(theme_mod.PADDING_SM, 0)
-        )
+        refresh_btn = ttk.Button(self, text="Refresh", command=self.refresh_lists, style="Primary.TButton")
+        # Place the button in the next available row, right-aligned
+        row_idx = getattr(self, '_row_idx', 0)
+        refresh_btn.grid(row=row_idx, column=1, sticky="e", pady=(4, 0))
+        setattr(self, '_row_idx', row_idx + 1)
 
     def _build_row(self, label: str, widget: tk.Widget) -> None:
-        row = ttk.Frame(self, style=getattr(self.theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE))
-        row.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
-        ttk.Label(row, text=label, style=getattr(self.theme, "STATUS_LABEL_STYLE", theme_mod.STATUS_LABEL_STYLE)).pack(
-            side=tk.LEFT
-        )
-        widget.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        row_idx = getattr(self, '_row_idx', 0)
+        label_widget = ttk.Label(self, text=label, style="TLabel")
+        label_widget.grid(row=row_idx, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
+        if isinstance(widget, ttk.Combobox):
+            widget.config(width=12)
+        widget.grid(row=row_idx, column=1, sticky="ew", pady=(0, 4))
+        self.columnconfigure(1, weight=1)
+        setattr(self, '_row_idx', row_idx + 1)
 
     def _build_combo(self, variable: tk.StringVar, values: Iterable[str]) -> ttk.Combobox:
         combo = ttk.Combobox(
@@ -59,6 +57,7 @@ class ModelManagerPanelV2(ttk.Frame):
             textvariable=variable,
             values=tuple(values),
             state="normal",
+            style="Dark.TCombobox"
         )
         return combo
 

@@ -125,6 +125,12 @@ class PipelineRunner:
                 )
                 if current_stage == StageTypeEnum.TXT2IMG:
                     negative = executor_config.get("txt2img", {}).get("negative_prompt", "")
+                    global_neg = getattr(config, "global_negative", None)
+                    if global_neg and global_neg.get("enabled") and global_neg.get("text"):
+                        if negative:
+                            negative = f"{negative}, {global_neg['text']}"
+                        else:
+                            negative = global_neg["text"]
                     last_image_meta = self._call_stage(
                         self._pipeline.run_txt2img_stage,
                         prompt,
@@ -137,10 +143,18 @@ class PipelineRunner:
                 elif current_stage == StageTypeEnum.IMG2IMG:
                     if not last_image_meta or not last_image_meta.get("path"):
                         raise ValueError("img2img requires input image from previous stage")
+                    negative = executor_config.get("img2img", {}).get("negative_prompt", "")
+                    global_neg = getattr(config, "global_negative", None)
+                    if global_neg and global_neg.get("enabled") and global_neg.get("text"):
+                        if negative:
+                            negative = f"{negative}, {global_neg['text']}"
+                        else:
+                            negative = global_neg["text"]
                     last_image_meta = self._call_stage(
                         self._pipeline.run_img2img_stage,
                         Path(last_image_meta["path"]),
                         prompt,
+                        negative,
                         executor_config.get("img2img", {}),
                         run_dir,
                         image_name=f"img2img_{stage.order_index}",
@@ -149,9 +163,17 @@ class PipelineRunner:
                 elif current_stage == StageTypeEnum.UPSCALE:
                     if not last_image_meta or not last_image_meta.get("path"):
                         raise ValueError("upscale requires input image from previous stage")
+                    negative = executor_config.get("upscale", {}).get("negative_prompt", "")
+                    global_neg = getattr(config, "global_negative", None)
+                    if global_neg and global_neg.get("enabled") and global_neg.get("text"):
+                        if negative:
+                            negative = f"{negative}, {global_neg['text']}"
+                        else:
+                            negative = global_neg["text"]
                     last_image_meta = self._call_stage(
                         self._pipeline.run_upscale_stage,
                         Path(last_image_meta["path"]),
+                        negative,
                         executor_config.get("upscale", {}),
                         run_dir,
                         image_name=Path(last_image_meta["path"]).stem,

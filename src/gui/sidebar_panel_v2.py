@@ -1,12 +1,36 @@
-"""Sidebar panel scaffold for GUI v2."""
-
 from __future__ import annotations
+import tkinter as tk
+from tkinter import ttk
+from typing import Callable
+
+class _SidebarCard(ttk.Frame):
+    """Modular card for sidebar sections, matching central panel layout."""
+    def __init__(self, master: tk.Misc, title: str, *, build_child: Callable[[ttk.Frame], ttk.Frame], **kwargs) -> None:
+        super().__init__(master, **kwargs)
+        self.columnconfigure(0, weight=1)
+        header = ttk.Frame(self)
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
+        label = ttk.Label(header, text=title, style="Dark.TLabel")
+        label.grid(row=0, column=0, sticky="w")
+        self.body = ttk.Frame(self, padding=6, style="Panel.TFrame")
+        self.body.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        child = build_child(self.body)
+        # Patch all child widgets for dark mode styles
+        for w in child.winfo_children():
+            if isinstance(w, ttk.Entry) or isinstance(w, ttk.Spinbox):
+                w.configure(style="Dark.TEntry")
+            elif isinstance(w, ttk.Combobox):
+                w.configure(style="Dark.TCombobox")
+            elif isinstance(w, ttk.Label):
+                w.configure(style="Dark.TLabel")
+        child.pack(fill="both", expand=True)
+"""Sidebar panel scaffold for GUI v2."""
 
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
-from . import theme as theme_mod
 from .core_config_panel_v2 import CoreConfigPanelV2
 from .model_list_adapter_v2 import ModelListAdapterV2
 from .model_manager_panel_v2 import ModelManagerPanelV2
@@ -19,24 +43,24 @@ from .widgets.scrollable_frame_v2 import ScrollableFrame
 
 class SidebarPanelV2(ttk.Frame):
     """Container for sidebar content (core config + negative prompt + packs + pipeline controls)."""
+    # Card width variable for easy adjustment
+    CARD_BASE_WIDTH = 240
+    CARD_WIDTH = 80
 
     def __init__(
         self,
         master: tk.Misc,
         *,
-        controller=None,
-        app_state=None,
-        theme=None,
+        controller: object = None,
+        app_state: object = None,
         prompt_pack_adapter: PromptPackAdapterV2 | None = None,
         on_apply_pack: Callable[[str, PromptPackSummary | None], None] | None = None,
         on_change: Callable[[], None] | None = None,
         **kwargs,
     ) -> None:
-        style_name = getattr(theme, "PIPELINE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
-        super().__init__(master, style=style_name, padding=theme_mod.PADDING_SM, **kwargs)
+        super().__init__(master, style="Panel.TFrame", padding=8, width=320, **kwargs)
         self.controller = controller
         self.app_state = app_state
-        self.theme = theme
         self.prompt_pack_adapter = prompt_pack_adapter or PromptPackAdapterV2()
         self._on_apply_pack = on_apply_pack
         self._on_change = on_change
@@ -47,98 +71,184 @@ class SidebarPanelV2(ttk.Frame):
         }
         self.run_mode_var = tk.StringVar(value="direct")
         self.run_scope_var = tk.StringVar(value="full")
+        self.grid_propagate(False)
+        self.header_label = ttk.Label(self, text="Pipeline Controls", style="Heading.TLabel")
+        self.header_label.grid(row=0, column=0, sticky="w", pady=(0, 4))
 
-        header_style = getattr(theme, "PIPELINE_HEADING_STYLE", theme_mod.STATUS_STRONG_LABEL_STYLE)
-        self.header_label = ttk.Label(self, text="Pipeline Controls", style=header_style)
-        self.header_label.pack(anchor=tk.W, pady=(0, 4))
+        # Sidebar cards for each section
+        # Nest Stages, Run Mode, Run Scope horizontally in a frame
+        self.top_controls_row = ttk.Frame(self)
+        self.top_controls_row.grid(row=1, column=0, sticky="ew", padx=8, pady=(8, 4))
+        # 3 columns, all equal width, rightmost aligns with right edge of main cards
+        for i in range(3):
+            self.top_controls_row.columnconfigure(i, weight=1)
 
-        body_style = getattr(theme, "PIPELINE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
+        card_width = 120
+        card_height = 80
+        self.top_controls_bg = ttk.Frame(self, style="Panel.TFrame")
+        self.top_controls_bg.grid(row=1, column=0, sticky="ew", padx=8, pady=(8, 4))
+        self.top_controls_bg.columnconfigure(0, weight=1)
+        self.top_controls_bg.columnconfigure(1, weight=1)
+        self.top_controls_bg.columnconfigure(2, weight=1)
 
-        # Stage toggles
-        stage_frame = ttk.LabelFrame(self, text="Stages", style="Dark.TLabelframe")
-        stage_frame.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
-        for name, var in self.stage_states.items():
-            ttk.Checkbutton(stage_frame, text=name, variable=var, command=self._emit_change, style="Dark.TCheckbutton").pack(
-                anchor="w"
-            )
-
-        # Run mode and scope
-        run_frame = ttk.LabelFrame(self, text="Run Mode", style="Dark.TLabelframe")
-        run_frame.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
-        ttk.Radiobutton(run_frame, text="Direct", value="direct", variable=self.run_mode_var, command=self._on_run_mode_change).pack(
-            anchor="w"
+        self.stages_card = _SidebarCard(
+            self.top_controls_bg,
+            title="Stages",
+            build_child=lambda parent: self._build_stages_section(parent),
+            width=card_width,
+            height=card_height
         )
-        ttk.Radiobutton(run_frame, text="Queue", value="queue", variable=self.run_mode_var, command=self._on_run_mode_change).pack(
-            anchor="w"
+        self.stages_card.grid(row=0, column=0, sticky="new", padx=(0, 8), pady=0)
+
+        self.run_mode_card = _SidebarCard(
+            self.top_controls_bg,
+            title="Run Mode",
+            build_child=lambda parent: self._build_run_mode_section(parent),
+            width=card_width,
+            height=card_height
         )
+        self.run_mode_card.grid(row=0, column=1, sticky="new", padx=(0, 8), pady=0)
 
-        scope_frame = ttk.LabelFrame(self, text="Run Scope", style="Dark.TLabelframe")
-        scope_frame.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
-        for label, val in [("Selected only", "selected"), ("From selected", "from_selected"), ("Full pipeline", "full")]:
-            ttk.Radiobutton(scope_frame, text=label, value=val, variable=self.run_scope_var, command=self._emit_change).pack(
-                anchor="w"
+        self.run_scope_card = _SidebarCard(
+            self.top_controls_bg,
+            title="Run Scope",
+            build_child=lambda parent: self._build_run_scope_section(parent),
+            width=card_width,
+            height=card_height
+        )
+        self.run_scope_card.grid(row=0, column=2, sticky="new", padx=(0, 0), pady=0)
+
+        # Ensure right edge of run_scope_card aligns with right edge of model_manager_card/core_config_card
+        self.grid_columnconfigure(0, weight=1)
+
+
+        self.core_config_card = _SidebarCard(
+            self,
+            title="Core Config",
+            build_child=lambda parent: CoreConfigPanelV2(parent, show_label=False)
+        )
+        self.core_config_card.grid(row=5, column=0, sticky="ew", padx=8, pady=(0, 4))
+
+
+        self.output_settings_card = _SidebarCard(
+            self,
+            title="Output Settings",
+            build_child=lambda parent: OutputSettingsPanelV2(parent)
+        )
+        self.output_settings_card.grid(row=6, column=0, sticky="ew", padx=8, pady=(0, 4))
+
+
+        self.global_negative_enabled_var: tk.BooleanVar = tk.BooleanVar(value=False)
+        self.global_negative_text_var: tk.StringVar = tk.StringVar(value="")
+
+        self.model_adapter = ModelListAdapterV2(lambda: getattr(self.controller, "client", None))
+        # TODO: Replace with actual sampler adapter if available
+        self.sampler_adapter = self.model_adapter
+        self.core_config_card = _SidebarCard(
+            self,
+            title="Core Config",
+            build_child=lambda parent: CoreConfigPanelV2(
+                parent,
+                show_label=False,
+                include_vae=True,
+                include_refresh=True,
+                model_adapter=self.model_adapter,
+                vae_adapter=self.model_adapter,
+                sampler_adapter=self.sampler_adapter
             )
+        )
+        self.core_config_card.grid(row=4, column=0, sticky="ew", padx=8, pady=(0, 4))
 
-        # Run controls
-        run_controls = ttk.Frame(self, style=body_style)
-        run_controls.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
-        self.run_now_btn = ttk.Button(run_controls, text="Run Now", style="Pipeline.TButton")
-        self.run_now_btn.pack(fill=tk.X, pady=(0, theme_mod.PADDING_XS))
-        self.add_to_queue_btn = ttk.Button(run_controls, text="Add to Queue", style="Pipeline.TButton")
-        self.add_to_queue_btn.pack(fill=tk.X, pady=(0, theme_mod.PADDING_XS))
-        self._refresh_run_mode_widgets()
+        self.output_settings_card = _SidebarCard(
+            self,
+            title="Output Settings",
+            build_child=lambda parent: OutputSettingsPanelV2(parent)
+        )
+        self.output_settings_card.grid(row=6, column=0, sticky="ew", padx=8, pady=(0, 4))
 
-        self._scroll = ScrollableFrame(self, style=body_style)
-        self._scroll.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
-        body_parent = self._scroll.inner
-        self.body = body_parent  # backward-compat hook for existing wiring
+        self.global_negative_card = _SidebarCard(
+            self,
+            title="Global Negative",
+            build_child=lambda parent: self._build_global_negative_section(parent)
+        )
+        self.global_negative_card.grid(row=7, column=0, sticky="ew", padx=8, pady=(0, 4))
 
-        adapter = ModelListAdapterV2(lambda: getattr(self.controller, "client", None))
-        self.model_manager_panel = ModelManagerPanelV2(body_parent, theme=theme, adapter=adapter)
-        self.model_manager_panel.pack(fill=tk.X, pady=(0, theme_mod.PADDING_MD))
 
-        self.core_config_panel = CoreConfigPanelV2(body_parent, theme=theme)
-        self.core_config_panel.pack(fill=tk.X, pady=(0, theme_mod.PADDING_MD))
+        self.prompt_pack_card = _SidebarCard(
+            self,
+            title="Prompt Pack",
+            build_child=lambda parent: self._build_prompt_pack_section(parent)
+        )
+        self.prompt_pack_card.grid(row=8, column=0, sticky="ew", padx=8, pady=(0, 4))
 
-        self.negative_prompt_panel = NegativePromptPanelV2(body_parent, theme=theme)
-        self.negative_prompt_panel.pack(fill=tk.X, pady=(0, theme_mod.PADDING_MD))
+    def _build_stages_section(self, parent: ttk.Frame) -> ttk.Frame:
+        frame = ttk.Frame(parent, style="Panel.TFrame")
+        for idx, (name, var) in enumerate(self.stage_states.items()):
+            cb = ttk.Checkbutton(frame, text=name.title(), variable=var, command=self._emit_change, style="Dark.TCheckbutton")
+            cb.grid(row=idx, column=0, sticky="w", pady=2)
+        return frame
 
-        self.output_settings_panel = OutputSettingsPanelV2(body_parent, theme=theme)
-        self.output_settings_panel.pack(fill=tk.X, pady=(0, theme_mod.PADDING_MD))
+    def _build_run_mode_section(self, parent: ttk.Frame) -> ttk.Frame:
+        frame = ttk.Frame(parent, style="Panel.TFrame")
+        rb1 = ttk.Radiobutton(frame, text="Direct", value="direct", variable=self.run_mode_var, command=self._on_run_mode_change, style="Dark.TRadiobutton")
+        rb1.grid(row=0, column=0, sticky="w", pady=2)
+        rb2 = ttk.Radiobutton(frame, text="Queue", value="queue", variable=self.run_mode_var, command=self._on_run_mode_change, style="Dark.TRadiobutton")
+        rb2.grid(row=1, column=0, sticky="w", pady=2)
+        return frame
 
+    def _build_prompt_pack_section(self, parent: ttk.Frame) -> ttk.Frame:
+        frame = ttk.Frame(parent)
         self.prompt_pack_panel = PromptPackPanelV2(
-            body_parent,
-            theme=theme,
+            frame,
             packs=[],
             on_apply=self._handle_apply_pack,
         )
-        self.prompt_pack_panel.pack(fill=tk.BOTH, expand=True)
-        self.packs_list = self.prompt_pack_panel.listbox  # legacy compatibility
+        self.prompt_pack_panel.pack(fill="both", expand=True)
+        return frame
 
-        self.refresh_prompt_packs()
-        self._emit_change()
+    def _build_run_scope_section(self, parent: ttk.Frame) -> ttk.Frame:
+        frame = ttk.Frame(parent, style="Panel.TFrame")
+        for idx, (label, val) in enumerate([("Selected only", "selected"), ("From selected", "from_selected"), ("Full pipeline", "full")]):
+            rb = ttk.Radiobutton(frame, text=label, value=val, variable=self.run_scope_var, command=self._emit_change, style="Dark.TRadiobutton")
+            rb.grid(row=idx, column=0, sticky="w", pady=2)
+        return frame
+
+    def _build_global_negative_section(self, parent: ttk.Frame) -> ttk.Frame:
+        frame = ttk.Frame(parent)
+        enable_cb = ttk.Checkbutton(
+            frame,
+            text="Enable",
+            variable=self.global_negative_enabled_var,
+            style="Dark.TCheckbutton",
+        )
+        enable_cb.grid(row=0, column=0, sticky="w", pady=(0, 2))
+        entry = ttk.Entry(
+            frame,
+            textvariable=self.global_negative_text_var,
+            width=24,
+        )
+        entry.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=(0, 2))
+        frame.columnconfigure(1, weight=1)
+        return frame
+
+        # Prompt Pack Panel (below grid)
+        # Removed obsolete code: old layout and duplicate panel instantiations
 
     def refresh_prompt_packs(self) -> None:
         if not self.prompt_pack_adapter:
             return
+            # Add vertical padding between all direct children for spacing
+            for child in self.winfo_children():
+                child.grid_configure(pady=8)
         try:
             summaries = self.prompt_pack_adapter.load_summaries()
         except Exception:
             summaries = []
-        self.prompt_pack_panel.set_packs(summaries)
-        # Keep the legacy list view in sync for AppController-based flows.
-        if getattr(self, "packs_list", None):
-            self.packs_list.delete(0, tk.END)
-            for summary in summaries:
-                self.packs_list.insert(tk.END, summary.name)
+        # Prompt pack panel functionality removed in card refactor
 
     def set_pack_names(self, names: list[str]) -> None:
         """Best-effort helper for simple string lists (used by AppController)."""
-        if not getattr(self, "packs_list", None):
-            return
-        self.packs_list.delete(0, tk.END)
-        for name in names:
-            self.packs_list.insert(tk.END, name)
+        # set_pack_names functionality removed in card refactor
 
     # --- Pipeline control helpers -------------------------------------
     def get_enabled_stages(self) -> list[str]:
@@ -167,13 +277,14 @@ class SidebarPanelV2(ttk.Frame):
         self._refresh_run_mode_widgets()
         self._emit_change()
 
+    # No sidebar Run Now button or Add to Queue button in new layout
     def _refresh_run_mode_widgets(self) -> None:
-        if self.run_mode_var.get() == "queue":
-            self.add_to_queue_btn.state(["!disabled"])
-            self.add_to_queue_btn.pack(fill=tk.X, pady=(0, theme_mod.PADDING_XS))
-        else:
-            self.add_to_queue_btn.state(["disabled"])
-            self.add_to_queue_btn.pack_forget()
+        pass
+    def get_global_negative_config(self) -> dict[str, object]:
+        return {
+            "enabled": bool(self.global_negative_enabled_var.get()),
+            "text": self.global_negative_text_var.get().strip(),
+        }
 
     def _handle_apply_pack(self, summary: PromptPackSummary) -> None:
         prompt_text = ""
@@ -191,33 +302,41 @@ class SidebarPanelV2(ttk.Frame):
     def get_model_overrides(self) -> dict[str, object]:
         panel = getattr(self, "model_manager_panel", None)
         if panel:
-            return panel.get_selections()
+            return panel.get_selections()  # type: ignore
         return {}
 
     def get_core_overrides(self) -> dict[str, object]:
-        if self.core_config_panel:
-            return self.core_config_panel.get_overrides()
+        for child in self.core_config_card.body.winfo_children():
+            if hasattr(child, 'get_overrides'):
+                result = child.get_overrides()
+                if isinstance(result, dict):
+                    return result
         return {}
 
     def get_negative_prompt(self) -> str:
-        if self.negative_prompt_panel:
-            return self.negative_prompt_panel.get_negative_prompt()
+        # Negative prompt card removed; always return empty string
         return ""
 
     def get_resolution(self) -> tuple[int, int]:
-        if self.core_config_panel and getattr(self.core_config_panel, "resolution_panel", None):
-            return self.core_config_panel.resolution_panel.get_resolution()
+        for child in self.core_config_card.body.winfo_children():
+            if hasattr(child, 'resolution_panel') and hasattr(child.resolution_panel, 'get_resolution'):
+                result = child.resolution_panel.get_resolution()
+                if (isinstance(result, tuple) and len(result) == 2 and all(isinstance(x, int) for x in result)):
+                    return result
         return 512, 512
 
     def get_resolution_preset(self) -> str:
-        if self.core_config_panel and getattr(self.core_config_panel, "resolution_panel", None):
-            return self.core_config_panel.resolution_panel.get_preset_label()
+        for child in self.core_config_card.body.winfo_children():
+            if hasattr(child, 'resolution_panel') and hasattr(child.resolution_panel, 'get_preset_label'):
+                result = child.resolution_panel.get_preset_label()
+                if isinstance(result, str):
+                    return result
         return ""
 
     def get_output_overrides(self) -> dict[str, object]:
         panel = getattr(self, "output_settings_panel", None)
         if panel:
-            return panel.get_output_overrides()
+            return panel.get_output_overrides()  # type: ignore
         return {}
 
 

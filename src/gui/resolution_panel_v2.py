@@ -29,7 +29,7 @@ class ResolutionPanelV2(ttk.Frame):
         "9:16": (9, 16),
     }
 
-    def __init__(self, master: tk.Misc, *, theme=None, presets: dict[str, tuple[int, int]] | None = None) -> None:
+    def __init__(self, master: tk.Misc, *, theme: object = None, presets: dict[str, tuple[int, int]] | None = None) -> None:
         style_name = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
         super().__init__(master, style=style_name, padding=theme_mod.PADDING_MD)
         self.theme = theme or theme_mod
@@ -91,10 +91,10 @@ class ResolutionPanelV2(ttk.Frame):
         self.preset_var.set(label)
         self.set_resolution(*dims, preserve_preset=True)
 
-    def _on_preset_selected(self, _event=None) -> None:
+    def _on_preset_selected(self, _event: object = None) -> None:
         self.apply_preset(self.preset_var.get())
 
-    def _on_ratio_selected(self, _event=None) -> None:
+    def _on_ratio_selected(self, _event: object = None) -> None:
         ratio = self.RATIOS.get(self.ratio_var.get())
         if not ratio:
             return

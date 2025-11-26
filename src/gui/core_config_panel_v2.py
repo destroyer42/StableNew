@@ -7,7 +7,6 @@ from tkinter import ttk
 from typing import Iterable
 
 from src.config import app_config
-from src.gui import theme as theme_mod
 from src.gui.resolution_panel_v2 import ResolutionPanelV2
 
 
@@ -18,60 +17,68 @@ class CoreConfigPanelV2(ttk.Frame):
         self,
         master: tk.Misc,
         *,
-        theme=None,
         models: Iterable[str] | None = None,
+        vaes: Iterable[str] | None = None,
         samplers: Iterable[str] | None = None,
+        show_label: bool = True,
+        include_vae: bool = False,
+        include_refresh: bool = False,
+        model_adapter: object = None,
+        vae_adapter: object = None,
+        sampler_adapter: object = None,
     ) -> None:
-        style_name = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
-        super().__init__(master, style=style_name, padding=theme_mod.PADDING_MD)
-
-        self.theme = theme or theme_mod
+        super().__init__(master, style="Panel.TFrame", padding=8)
 
         # Vars seeded from app_config defaults
         self.model_var = tk.StringVar(value=app_config.get_core_model_name())
+        self.vae_var = tk.StringVar(value=app_config.get_core_vae_name())
         self.sampler_var = tk.StringVar(value=app_config.get_core_sampler_name())
         self.steps_var = tk.StringVar(value=str(app_config.get_core_steps()))
         self.cfg_var = tk.StringVar(value=str(app_config.get_core_cfg_scale()))
 
-        header_style = getattr(theme, "STATUS_STRONG_LABEL_STYLE", theme_mod.STATUS_STRONG_LABEL_STYLE)
-        ttk.Label(self, text="Core Config", style=header_style).pack(anchor=tk.W, pady=(0, 6))
+        if show_label:
+            ttk.Label(self, text="Core Config", style="Heading.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
 
-        self._build_field(
-            label="Model",
-            widget=self._build_combo(self.model_var, models or []),
-        )
-        self._build_field(
-            label="Sampler",
-            widget=self._build_combo(self.sampler_var, samplers or []),
-        )
-        self._build_field(
-            label="Steps",
-            widget=self._build_spin(self.steps_var, from_=1, to=200, increment=1),
-        )
-        self._build_field(
-            label="CFG",
-            widget=self._build_spin(self.cfg_var, from_=0.0, to=30.0, increment=0.5),
-        )
+        row_idx = 1
+        self._build_row("Model", self._build_combo(self.model_var, models or []), row_idx)
+        row_idx += 1
+        if include_vae:
+            self._build_row("VAE", self._build_combo(self.vae_var, vaes or []), row_idx)
+            if include_refresh:
+                refresh_btn = ttk.Button(self, text="Refresh", style="Primary.TButton", command=self._on_refresh)
+                refresh_btn.grid(row=row_idx, column=2, sticky="e", padx=(8, 0), pady=(0, 4))
+            row_idx += 1
+        self._build_row("Sampler", self._build_combo(self.sampler_var, samplers or []), row_idx)
+        row_idx += 1
+        self._build_row("Steps", self._build_spin(self.steps_var, from_=1, to=200, increment=1), row_idx)
+        row_idx += 1
+        self._build_row("CFG", self._build_spin(self.cfg_var, from_=0.0, to=30.0, increment=0.5), row_idx)
+        row_idx += 1
 
         # Resolution sub-panel
-        self.resolution_panel = ResolutionPanelV2(self, theme=self.theme)
+        self.resolution_panel = ResolutionPanelV2(self)
         self.resolution_var = self.resolution_panel.preset_var
-        self.resolution_panel.pack(fill=tk.X, pady=(theme_mod.PADDING_SM, 0))
+        self.resolution_panel.grid(row=row_idx, column=0, columnspan=3, sticky="ew", pady=(4, 0))
 
-    def _build_field(self, *, label: str, widget: tk.Widget) -> None:
-        row = ttk.Frame(self, style=getattr(self.theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE))
-        row.pack(fill=tk.X, pady=(0, theme_mod.PADDING_SM))
-        ttk.Label(row, text=label, style=getattr(self.theme, "STATUS_LABEL_STYLE", theme_mod.STATUS_LABEL_STYLE)).pack(
-            side=tk.LEFT
-        )
-        widget.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        self.columnconfigure(1, weight=1)
+        self.columnconfigure(2, weight=1)
+
+    def _on_refresh(self) -> None:
+        # TODO: Implement refresh logic for model/vae lists
+        pass
+
+    def _build_row(self, label: str, widget: tk.Widget, row_idx: int) -> None:
+        label_widget = ttk.Label(self, text=label, style="Dark.TLabel")
+        label_widget.grid(row=row_idx, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
+        widget.grid(row=row_idx, column=1, sticky="ew", pady=(0, 4))
 
     def _build_combo(self, variable: tk.StringVar, values: Iterable[str]) -> ttk.Combobox:
         combo = ttk.Combobox(
             self,
             textvariable=variable,
             values=tuple(values),
-            state="normal",
+            state="readonly",
+            style="Dark.TCombobox"
         )
         return combo
 
@@ -82,6 +89,7 @@ class CoreConfigPanelV2(ttk.Frame):
             to=to,
             increment=increment,
             textvariable=variable,
+            style="Dark.TEntry"
         )
         return spin
 
@@ -122,21 +130,21 @@ class CoreConfigPanelV2(ttk.Frame):
                 self.resolution_panel.apply_preset(str(preset))
             if width is not None and height is not None:
                 try:
-                    self.resolution_panel.set_resolution(int(width), int(height))
+                    self.resolution_panel.set_resolution(int(float(str(width))), int(float(str(height))))
                 except Exception:
                     pass
 
     @staticmethod
     def _safe_int(value: object, default: int) -> int:
         try:
-            return int(value)
+            return int(float(str(value)))
         except Exception:
             return default
 
     @staticmethod
     def _safe_float(value: object, default: float) -> float:
         try:
-            return float(value)
+            return float(str(value))
         except Exception:
             return default
 
