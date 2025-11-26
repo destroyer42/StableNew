@@ -10,6 +10,7 @@ from src.gui.learning_state import LearningState
 from src.gui.views.experiment_design_panel import ExperimentDesignPanel
 from src.gui.views.learning_plan_table import LearningPlanTable
 from src.gui.views.learning_review_panel import LearningReviewPanel
+from src.learning.learning_record import LearningRecordWriter
 
 
 class LearningTabFrame(ttk.Frame):
@@ -20,12 +21,16 @@ class LearningTabFrame(ttk.Frame):
         self.app_state = app_state
         self.pipeline_controller = pipeline_controller
 
+        # Initialize learning record writer
+        self.learning_record_writer = LearningRecordWriter("data/learning_records.jsonl")
+
         # Initialize learning state and controller
         self.learning_state = LearningState()
         self.learning_controller = LearningController(
             learning_state=self.learning_state,
             prompt_workspace_state=getattr(self.app_state, 'prompt_workspace_state', None) if self.app_state else None,
             pipeline_controller=self.pipeline_controller,
+            learning_record_writer=self.learning_record_writer,
         )
 
         # Configure main layout

@@ -4,6 +4,10 @@ from typing import Any, Optional
 
 from src.gui.learning_state import LearningExperiment, LearningState, LearningVariant
 from src.gui.prompt_workspace_state import PromptWorkspaceState
+from src.learning.learning_record import LearningRecord
+from src.learning.learning_record_builder import build_learning_record
+from src.learning.learning_record import LearningRecordWriter
+from src.learning.recommendation_engine import RecommendationEngine
 
 
 class LearningController:
@@ -17,6 +21,7 @@ class LearningController:
         pipeline_controller: Optional[Any] = None,  # PipelineController reference
         plan_table: Optional[Any] = None,  # LearningPlanTable reference
         review_panel: Optional[Any] = None,  # LearningReviewPanel reference
+        learning_record_writer: Optional[LearningRecordWriter] = None,  # LearningRecordWriter reference
     ) -> None:
         self.learning_state = learning_state
         self.prompt_workspace_state = prompt_workspace_state
@@ -24,6 +29,12 @@ class LearningController:
         self.pipeline_controller = pipeline_controller
         self._plan_table = plan_table
         self._review_panel = review_panel
+        self._learning_record_writer = learning_record_writer
+
+        # Initialize recommendation engine if record writer is available
+        self._recommendation_engine: Optional[RecommendationEngine] = None
+        if learning_record_writer:
+            self._recommendation_engine = RecommendationEngine(learning_record_writer.records_path)
 
     def update_experiment_design(self, experiment_data: dict[str, Any]) -> None:
         """Update the current experiment design from form data."""
@@ -86,6 +97,28 @@ class LearningController:
         if self._plan_table and hasattr(self._plan_table, 'update_plan'):
             self._plan_table.update_plan(self.learning_state.plan)
 
+    def _update_variant_status(self, variant_index: int, status: str) -> None:
+        """Update the status of a specific variant in the table."""
+        if self._plan_table and hasattr(self._plan_table, 'update_row_status'):
+            self._plan_table.update_row_status(variant_index, status)
+
+    def _update_variant_images(self, variant_index: int, completed: int, planned: int) -> None:
+        """Update the image count of a specific variant in the table."""
+        if self._plan_table and hasattr(self._plan_table, 'update_row_images'):
+            self._plan_table.update_row_images(variant_index, completed, planned)
+
+    def _highlight_variant(self, variant_index: int, highlight: bool = True) -> None:
+        """Highlight or unhighlight a specific variant in the table."""
+        if self._plan_table and hasattr(self._plan_table, 'highlight_row'):
+            self._plan_table.highlight_row(variant_index, highlight)
+
+    def _get_variant_index(self, variant: LearningVariant) -> int:
+        """Get the index of a variant in the current plan."""
+        try:
+            return self.learning_state.plan.index(variant)
+        except ValueError:
+            return -1
+
     def run_plan(self) -> None:
         """Execute the current learning plan."""
         if not self.learning_state.plan:
@@ -94,12 +127,16 @@ class LearningController:
         if not self.pipeline_controller:
             return
 
+        # Clear all highlights before starting
+        if self._plan_table and hasattr(self._plan_table, 'clear_highlights'):
+            self._plan_table.clear_highlights()
+
         # Submit jobs for each variant
         for variant in self.learning_state.plan:
             if variant.status == "pending":
                 self._submit_variant_job(variant)
 
-        # Update table
+        # Update table (fallback for any variants that didn't get live updates)
         self._update_plan_table()
 
     def _submit_variant_job(self, variant: LearningVariant) -> None:
@@ -122,8 +159,17 @@ class LearningController:
 
             if success and variant.status != "completed":
                 variant.status = "running"
-            else:
+                # Update table with new status
+                variant_index = self._get_variant_index(variant)
+                if variant_index >= 0:
+                    self._update_variant_status(variant_index, "running")
+                    self._highlight_variant(variant_index, True)
+            elif not success:
                 variant.status = "failed"
+                # Update table with failed status
+                variant_index = self._get_variant_index(variant)
+                if variant_index >= 0:
+                    self._update_variant_status(variant_index, "failed")
 
         except Exception as e:
             variant.status = "failed"
@@ -170,8 +216,12 @@ class LearningController:
             for image_path in result["images"]:
                 variant.image_refs.append(image_path)
 
-        # Update UI
-        self._update_plan_table()
+        # Update UI with live updates
+        variant_index = self._get_variant_index(variant)
+        if variant_index >= 0:
+            self._update_variant_status(variant_index, "completed")
+            self._update_variant_images(variant_index, variant.completed_images, variant.planned_images)
+            self._highlight_variant(variant_index, False)  # Remove highlight
 
         # Update review panel if this variant is selected
         if self._review_panel and hasattr(self._review_panel, 'display_variant_results'):
@@ -181,8 +231,11 @@ class LearningController:
         """Handle failure of a variant job."""
         variant.status = "failed"
 
-        # Update UI
-        self._update_plan_table()
+        # Update UI with live updates
+        variant_index = self._get_variant_index(variant)
+        if variant_index >= 0:
+            self._update_variant_status(variant_index, "failed")
+            self._highlight_variant(variant_index, False)  # Remove highlight
 
     def on_job_completed(self, job_id: str, result: dict[str, Any]) -> None:
         """Handle completion of a learning job."""
@@ -192,5 +245,120 @@ class LearningController:
 
     def record_rating(self, image_ref: str, rating: int, notes: str = "") -> None:
         """Record a rating for a learning image."""
-        # Placeholder - no implementation yet
-        pass
+        if not self._learning_record_writer:
+            raise RuntimeError("LearningRecordWriter not configured")
+
+        if not self.learning_state.current_experiment:
+            raise RuntimeError("No current experiment")
+
+        # Find the variant that contains this image
+        target_variant = None
+        for variant in self.learning_state.plan:
+            if image_ref in variant.image_refs:
+                target_variant = variant
+                break
+
+        if not target_variant:
+            raise ValueError(f"Image {image_ref} not found in any variant")
+
+        # Create a learning record for this rating
+        experiment = self.learning_state.current_experiment
+
+        # Build base config from experiment
+        base_config = {
+            "prompt": experiment.prompt_text,
+            "stage": experiment.stage,
+            experiment.variable_under_test.lower(): target_variant.param_value
+        }
+
+        # Create variant config
+        variant_config = {
+            experiment.variable_under_test.lower(): target_variant.param_value
+        }
+
+        # Create learning record
+        record = LearningRecord.from_pipeline_context(
+            base_config=base_config,
+            variant_configs=[variant_config],
+            randomizer_mode="learning_experiment",
+            randomizer_plan_size=1,
+            metadata={
+                "experiment_name": experiment.name,
+                "experiment_description": experiment.description,
+                "variable_under_test": experiment.variable_under_test,
+                "variant_value": target_variant.param_value,
+                "image_path": image_ref,
+                "user_rating": rating,
+                "user_notes": notes,
+                "learning_context": {
+                    "experiment_id": experiment.name,
+                    "variant_id": target_variant.id if hasattr(target_variant, 'id') else str(target_variant.param_value),
+                    "variant_name": f"{experiment.variable_under_test}={target_variant.param_value}"
+                }
+            }
+        )
+
+        # Write the record
+        self._learning_record_writer.append_record(record)
+
+        # Update recommendations after recording a rating
+        self.update_recommendations()
+
+    def update_recommendations(self) -> None:
+        """Update recommendations based on latest learning data."""
+        if not self._recommendation_engine:
+            return
+
+        # Get current prompt and stage for recommendations
+        prompt_text = ""
+        stage = "txt2img"
+
+        if self.learning_state.current_experiment:
+            prompt_text = self.learning_state.current_experiment.prompt_text
+            stage = self.learning_state.current_experiment.stage
+        elif self.prompt_workspace_state:
+            # Fallback to current prompt workspace
+            prompt_text = self.prompt_workspace_state.get_current_prompt_text()
+            stage = "txt2img"  # Default stage
+
+        if prompt_text:
+            recommendations = self._recommendation_engine.recommend(prompt_text, stage)
+
+            # Update review panel with new recommendations
+            if self._review_panel and hasattr(self._review_panel, 'update_recommendations'):
+                self._review_panel.update_recommendations(recommendations)
+
+    def get_recommendations_for_current_prompt(self) -> Optional[Any]:
+        """Get recommendations for the current prompt and stage."""
+        if not self._recommendation_engine:
+            return None
+
+        # Get current prompt and stage
+        prompt_text = ""
+        stage = "txt2img"
+
+        if self.learning_state.current_experiment:
+            prompt_text = self.learning_state.current_experiment.prompt_text
+            stage = self.learning_state.current_experiment.stage
+        elif self.prompt_workspace_state:
+            prompt_text = self.prompt_workspace_state.get_current_prompt_text()
+            stage = "txt2img"
+
+        if prompt_text:
+            return self._recommendation_engine.recommend(prompt_text, stage)
+
+        return None
+
+    def refresh_recommendations(self) -> None:
+        """Force refresh of recommendations, clearing any cache."""
+        if self._recommendation_engine:
+            # Force reload by clearing cache timestamp
+            self._recommendation_engine._cache_timestamp = 0.0
+            self.update_recommendations()
+
+    def on_variant_selected(self, variant_index: int) -> None:
+        """Handle selection of a variant in the table."""
+        if 0 <= variant_index < len(self.learning_state.plan):
+            variant = self.learning_state.plan[variant_index]
+            if self._review_panel and hasattr(self._review_panel, 'display_variant_results'):
+                self._review_panel.display_variant_results(variant, self.learning_state.current_experiment)

@@ -59,6 +59,9 @@ class LearningPlanTable(ttk.Frame):
         self.tree.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
 
+d        # Add selection binding
+        self.tree.bind('<<TreeviewSelect>>', self._on_row_selected)
+
     def update_plan(self, plan: list[LearningVariant]) -> None:
         """Update the table with the current learning plan."""
         # Clear existing items
@@ -71,10 +74,71 @@ class LearningPlanTable(ttk.Frame):
                 "",
                 "end",
                 values=(
-                    f"#{i}",
+                    f"#{i+1}",
                     str(variant.param_value),
                     "txt2img",  # TODO: Get from experiment stage
                     variant.status.title(),
                     f"{variant.completed_images}/{variant.planned_images}"
                 )
             )
+
+    def _on_row_selected(self, event: Any) -> None:
+        """Handle row selection in the table."""
+        selection = self.tree.selection()
+        if selection:
+            item = selection[0]
+            # Get the row index (variant number - 1)
+            values = self.tree.item(item, "values")
+            if values:
+                try:
+                    variant_num = int(values[0].replace("#", ""))
+                    self._notify_row_selected(variant_num - 1)  # Convert to 0-based index
+                except (ValueError, IndexError):
+                    pass
+
+    def _notify_row_selected(self, index: int) -> None:
+        """Notify controller of row selection."""
+        # This will be called by the controller to handle selection
+        if hasattr(self.master, 'learning_controller'):
+            controller = self.master.learning_controller
+            if hasattr(controller, 'on_variant_selected'):
+                controller.on_variant_selected(index)
+
+    def update_row_status(self, index: int, status: str) -> None:
+        """Update the status of a specific row."""
+        try:
+            item = self.tree.get_children()[index]
+            current_values = list(self.tree.item(item, "values"))
+            current_values[3] = status.title()  # Status column is index 3
+            self.tree.item(item, values=current_values)
+        except (IndexError, TypeError):
+            # Row doesn't exist or invalid data
+            pass
+
+    def update_row_images(self, index: int, completed: int, planned: int) -> None:
+        """Update the images count of a specific row."""
+        try:
+            item = self.tree.get_children()[index]
+            current_values = list(self.tree.item(item, "values"))
+            current_values[4] = f"{completed}/{planned}"  # Images column is index 4
+            self.tree.item(item, values=current_values)
+        except (IndexError, TypeError):
+            # Row doesn't exist or invalid data
+            pass
+
+    def highlight_row(self, index: int, highlight: bool = True) -> None:
+        """Highlight or unhighlight a specific row."""
+        try:
+            item = self.tree.get_children()[index]
+            if highlight:
+                self.tree.item(item, tags=("highlight",))
+            else:
+                self.tree.item(item, tags=())
+        except (IndexError, TypeError):
+            # Row doesn't exist
+            pass
+
+    def clear_highlights(self) -> None:
+        """Clear all row highlights."""
+        for item in self.tree.get_children():
+            self.tree.item(item, tags=())
