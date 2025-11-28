@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional
+from typing import Optional, Any
 
 from src.gui.stage_cards_v2.validation_result import ValidationResult
 
@@ -15,10 +15,15 @@ class BaseStageCardV2(ttk.Frame):
         master: tk.Misc,
         title: str,
         description: Optional[str] = None,
-        **kwargs,
+        *,
+        config_manager: Any = None,
+        **kwargs: Any,
     ) -> None:
-        super().__init__(master, style="Card.TFrame", padding=6, **kwargs)
+        # Remove config_manager from kwargs if present
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k != "config_manager"}
+        super().__init__(master, style="Card.TFrame", padding=6, **filtered_kwargs)
 
+        self.config_manager = config_manager
         self._title = title
         self._description = description
         self._build_header()
@@ -64,11 +69,11 @@ class BaseStageCardV2(ttk.Frame):
         message = result.message or ""
         self.validation_label.config(text=message)
 
-    def load_from_config(self, cfg):
+    def load_from_config(self, cfg: dict[str, object]) -> None:
         """Optional config loader for subclasses."""
         return None
 
-    def to_config_dict(self) -> dict:
+    def to_config_dict(self) -> dict[str, object]:
         """Optional config serializer for subclasses."""
         return {}
 

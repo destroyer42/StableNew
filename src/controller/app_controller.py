@@ -23,11 +23,16 @@ from typing import Callable, Optional
 import threading
 
 from src.api.client import SDWebUIClient
+from src.api.webui_resources import WebUIResource
+from src.pipeline.last_run_store_v2_5 import LastRunConfigV2_5
 from src.gui.main_window_v2 import MainWindow
 from src.pipeline.pipeline_runner import PipelineConfig, PipelineRunner
 from src.utils import StructuredLogger
 from src.utils.file_io import read_prompt_pack
 from src.utils.prompt_packs import PromptPackInfo, discover_packs
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 class LifecycleState(Enum):
@@ -103,11 +108,29 @@ class CancelToken:
 
 
 class AppController:
-    def run_txt2img_once(self, config: dict | None = None) -> None:
-        """
-        Minimal V2.5 happy path: run txt2img pipeline once.
-        Accepts a config dict (or uses defaults), calls pipeline, and updates GUI feedback.
-        """
+    from src.api.webui_resources import WebUIResource
+    from src.pipeline.last_run_store_v2_5 import LastRunConfigV2_5
+
+    def list_models(self) -> list[WebUIResource]:
+        return self._resource_service.list_models()
+
+    def list_vaes(self) -> list[WebUIResource]:
+        return self._resource_service.list_vaes()
+
+    def list_upscalers(self) -> list[WebUIResource]:
+        return self._resource_service.list_upscalers()
+
+    def list_hypernetworks(self) -> list[WebUIResource]:
+        return self._resource_service.list_hypernetworks()
+
+    def list_embeddings(self) -> list[WebUIResource]:
+        return self._resource_service.list_embeddings()
+
+    def get_last_run_config(self) -> LastRunConfigV2_5 | None:
+        if not hasattr(self, "_last_run_store"):
+            from src.pipeline.last_run_store_v2_5 import LastRunStoreV2_5
+        return self._last_run_store.load()
+    def run_txt2img_once(self, config: dict[str, Any] | None = None) -> None:
         self._append_log("[controller] run_txt2img_once called.")
         if config is None:
             config = {
@@ -179,9 +202,15 @@ class AppController:
     # ------------------------------------------------------------------
 
     def _attach_to_gui(self) -> None:
-        header = self.main_window.header_zone
-        left = self.main_window.left_zone
-        bottom = self.main_window.bottom_zone
+        mw = self.main_window
+        missing = [name for name in ("header_zone", "left_zone", "bottom_zone") if not hasattr(mw, name)]
+        if missing:
+            print(f"AppController._attach_to_gui: main_window missing zones {missing}; deferring wiring")
+            return
+
+        header = mw.header_zone
+        left = mw.left_zone
+        bottom = mw.bottom_zone
 
         # Header events
         header.run_button.configure(command=self.run_txt2img_once)
@@ -198,6 +227,10 @@ class AppController:
 
         # Initial API status (placeholder)
         bottom.api_status_label.configure(text="API: Unknown")
+
+        # Flush deferred status if any
+        if getattr(self, "_pending_status_text", None):
+            self._update_status(self._pending_status_text)
 
     # ------------------------------------------------------------------
     # Internal helpers (state & logging)
@@ -230,10 +263,44 @@ class AppController:
         self.main_window.after(0, lambda: self._set_lifecycle(new_state, error))
 
     def _update_status(self, text: str) -> None:
-        self.main_window.bottom_zone.status_label.configure(text=f"Status: {text}")
+        """Update status bar text if the bottom zone is ready; otherwise cache it."""
+        self._pending_status_text = text
+
+        bottom_zone = getattr(self.main_window, "bottom_zone", None)
+        if bottom_zone is None:
+            logger.debug(
+                "AppController._update_status(%s) called before bottom_zone exists; deferring",
+                text,
+            )
+            return
+
+        status_label = getattr(bottom_zone, "status_label", None)
+        if status_label is None:
+            logger.debug(
+                "AppController._update_status(%s) called before status_label exists on bottom_zone; deferring",
+                text,
+            )
+            return
+
+        status_label.configure(text=f"Status: {text}")
 
     def _append_log(self, text: str) -> None:
-        log_widget = self.main_window.bottom_zone.log_text
+        bottom_zone = getattr(self.main_window, "bottom_zone", None)
+        if bottom_zone is None:
+            logger.debug(
+                "AppController._append_log(%s) called before bottom_zone exists; deferring",
+                text,
+            )
+            return
+
+        log_widget = getattr(bottom_zone, "log_text", None)
+        if log_widget is None:
+            logger.debug(
+                "AppController._append_log(%s) called before log_text exists on bottom_zone; deferring",
+                text,
+            )
+            return
+
         log_widget.insert("end", text + "\n")
         log_widget.see("end")
 
@@ -460,34 +527,27 @@ class AppController:
     # Config state helpers
     # ------------------------------------------------------------------
 
-    def get_available_models(self) -> list[str]:
-        return ["StableNew-XL", "SDXL-Lightning", "SD15-Legacy"]
 
-    def get_available_samplers(self) -> list[str]:
-        return ["Euler", "Euler a", "DPM++ 2M", "DPM++ SDE Karras"]
-
+    # --- V2.5 resource discovery wiring ---
+    # Duplicate resource list methods removed; use the main definitions above.
     def get_current_config(self) -> dict[str, float | int | str]:
         cfg = self.state.current_config
         return {
             "model": cfg.model_name or self.get_available_models()[0],
             "sampler": cfg.sampler_name or self.get_available_samplers()[0],
-            "width": cfg.width,
             "height": cfg.height,
             "steps": cfg.steps,
             "cfg_scale": cfg.cfg_scale,
         }
-
     def update_config(self, **kwargs: float | int | str) -> None:
         mapping = {
             "model": "model_name",
             "sampler": "sampler_name",
-            "width": "width",
             "height": "height",
             "steps": "steps",
             "cfg_scale": "cfg_scale",
         }
         cfg = self.state.current_config
-
         for field, value in kwargs.items():
             attr = mapping.get(field)
             if not attr:

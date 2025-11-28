@@ -30,6 +30,29 @@ class WebUIResourceService:
         self.root_path = Path(self.webui_root or "stable-diffusion-webui")
 
     def list_models(self) -> list[WebUIResource]:
+        # If no client, always use filesystem fallback
+        def is_in_temp_dir(file: Path) -> bool:
+            # Only include files strictly under the provided webui_root
+            try:
+                return str(file.resolve()).startswith(str(self.root_path.resolve()))
+            except Exception:
+                return False
+
+        if self.client is None:
+            model_dir = self.root_path / "models" / "Stable-diffusion"
+            resources = []
+            if model_dir.exists():
+                for ext in ("*.ckpt", "*.safetensors"):
+                    for file in model_dir.glob(ext):
+                        if is_in_temp_dir(file):
+                            name = file.stem
+                            resources.append(WebUIResource(
+                                type=WebUIResourceType.MODEL,
+                                name=name,
+                                display_name=name,
+                                raw={"path": str(file)},
+                            ))
+            return resources
         # Try API first
         try:
             api_models = self.client.get_models()
@@ -45,15 +68,17 @@ class WebUIResourceService:
         # Fallback to filesystem
         model_dir = self.root_path / "models" / "Stable-diffusion"
         resources = []
-        for ext in ("*.ckpt", "*.safetensors"):
-            for file in model_dir.glob(ext):
-                name = file.stem
-                resources.append(WebUIResource(
-                    type=WebUIResourceType.MODEL,
-                    name=name,
-                    display_name=name,
-                    raw={"path": str(file)},
-                ))
+        if model_dir.exists():
+            for ext in ("*.ckpt", "*.safetensors"):
+                for file in model_dir.glob(ext):
+                    if is_in_temp_dir(file):
+                        name = file.stem
+                        resources.append(WebUIResource(
+                            type=WebUIResourceType.MODEL,
+                            name=name,
+                            display_name=name,
+                            raw={"path": str(file)},
+                        ))
         return resources
 
     def list_vaes(self) -> list[WebUIResource]:

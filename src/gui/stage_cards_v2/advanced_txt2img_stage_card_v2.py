@@ -14,7 +14,7 @@ from src.gui.stage_cards_v2.validation_result import ValidationResult
 class AdvancedTxt2ImgStageCardV2(BaseStageCardV2):
     panel_header = "Txt2Img Configuration"
 
-    def __init__(self, master: tk.Misc, *, controller=None, theme=None, **kwargs: Any) -> None:
+    def __init__(self, master: tk.Misc, *, controller: Any = None, theme: Any = None, **kwargs: Any) -> None:
         self.controller = controller
         self.theme = theme
         self._on_change = None
@@ -36,7 +36,7 @@ class AdvancedTxt2ImgStageCardV2(BaseStageCardV2):
         self.sampler_section = SamplerSection(parent)
         self.sampler_section.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         # Link primary sampler vars to section vars to preserve API
-        self.sampler_section.sampler_var = self.sampler_var  # type: ignore[assignment]
+        self.sampler_section.sampler_var = self.sampler_var
         # Replace sampler section widgets with spinboxes/bound vars
         try:
             for child in self.sampler_section.winfo_children():
@@ -44,11 +44,12 @@ class AdvancedTxt2ImgStageCardV2(BaseStageCardV2):
         except Exception:
             pass
         ttk.Label(self.sampler_section, text="Sampler", style="Muted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 4))
-        sampler_values = getattr(self.controller, "get_available_samplers", lambda: [])() if self.controller else []
+        sampler_resources = self.controller.list_upscalers() if self.controller and hasattr(self.controller, "list_upscalers") else []
+        sampler_values = [r.display_name for r in sampler_resources] if sampler_resources else getattr(self.controller, "get_available_samplers", lambda: [])() if self.controller else ["Euler", "DPM++ 2M"]
         self.sampler_combo = ttk.Combobox(
             self.sampler_section,
             textvariable=self.sampler_var,
-            values=sampler_values or ["Euler", "DPM++ 2M"],
+            values=sampler_values,
             state="readonly",
             width=18,
         )
@@ -83,48 +84,95 @@ class AdvancedTxt2ImgStageCardV2(BaseStageCardV2):
         meta = ttk.Frame(parent, style="Panel.TFrame")
         meta.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         ttk.Label(meta, text="Model", style="Muted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 4))
-        model_values = getattr(self.controller, "get_available_models", lambda: [])() if self.controller else []
-        ttk.Combobox(
+        model_resources = self.controller.list_models() if self.controller and hasattr(self.controller, "list_models") else []
+        model_display_names = [r.display_name for r in model_resources] if model_resources else ["sd_xl_base_1.0", "sd15"]
+        self.model_combo = ttk.Combobox(
             meta,
             textvariable=self.model_var,
-            values=model_values or ["sd_xl_base_1.0", "sd15"],
+            values=model_display_names,
             state="readonly",
             width=18,
-        ).grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        )
+        self.model_combo.grid(row=0, column=1, sticky="ew", padx=(0, 8))
         ttk.Label(meta, text="VAE", style="Muted.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 4))
-        ttk.Combobox(
+        vae_resources = self.controller.list_vaes() if self.controller and hasattr(self.controller, "list_vaes") else []
+        vae_display_names = [r.display_name for r in vae_resources] if vae_resources else ["default"]
+        self.vae_combo = ttk.Combobox(
             meta,
             textvariable=self.vae_var,
-            values=getattr(self.controller, "get_available_vaes", lambda: [])() if self.controller else ["default"],
+            values=vae_display_names,
             state="readonly",
             width=18,
-        ).grid(row=0, column=3, sticky="ew")
+        )
+        self.vae_combo.grid(row=0, column=3, sticky="ew")
+        # Map display_name to internal name for config
+        self._model_name_map = {r.display_name: r.name for r in model_resources}
+        self._vae_name_map = {r.display_name: r.name for r in vae_resources}
+        def on_model_selected(*_: Any) -> None:
+            selected_display = self.model_var.get()
+            selected_name = self._model_name_map.get(selected_display, selected_display)
+            # Update config dict for payload correctness
+            if hasattr(self, 'config') and isinstance(self.config, dict):
+                self.config["model"] = selected_name
+                self.config["model_name"] = selected_name
+            if hasattr(self.controller, "on_model_selected"):
+                self.controller.on_model_selected(selected_name)
+        def on_vae_selected(*_: Any) -> None:
+            selected_display = self.vae_var.get()
+            selected_name = self._vae_name_map.get(selected_display, selected_display)
+            # Update config dict for payload correctness
+            if hasattr(self, 'config') and isinstance(self.config, dict):
+                self.config["vae"] = selected_name
+                self.config["vae_name"] = selected_name
+            if hasattr(self.controller, "on_vae_selected"):
+                self.controller.on_vae_selected(selected_name)
+        self.model_var.trace_add("write", on_model_selected)
+        self.vae_var.trace_add("write", on_vae_selected)
+
+        # Preload last-run config if available
+        if self.controller and hasattr(self.controller, "get_last_run_config"):
+            last_run = self.controller.get_last_run_config()
+            if last_run:
+                # Set dropdowns to last-run values if present
+                model_display = next((d for d, n in self._model_name_map.items() if n == getattr(last_run, "model", None)), None)
+                vae_display = next((d for d, n in self._vae_name_map.items() if n == getattr(last_run, "vae", None)), None)
+                if model_display:
+                    self.model_var.set(model_display)
+                if vae_display:
+                    self.vae_var.set(vae_display)
+                if hasattr(last_run, "sampler_name"):
+                    self.sampler_var.set(getattr(last_run, "sampler_name", ""))
+                if hasattr(last_run, "scheduler"):
+                    self.scheduler_var.set(getattr(last_run, "scheduler", ""))
+                if hasattr(last_run, "steps"):
+                    self.steps_var.set(getattr(last_run, "steps", 20))
+                if hasattr(last_run, "cfg_scale"):
+                    self.cfg_var.set(getattr(last_run, "cfg_scale", 7.0))
+                if hasattr(last_run, "width"):
+                    self.width_var.set(getattr(last_run, "width", 512))
+                if hasattr(last_run, "height"):
+                    self.height_var.set(getattr(last_run, "height", 512))
 
         ttk.Label(meta, text="Scheduler", style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 2))
-        ttk.Entry(meta, textvariable=self.scheduler_var, width=14).grid(row=1, column=1, sticky="ew", padx=(0, 8))
-        ttk.Label(meta, text="Clip skip", style="Muted.TLabel").grid(row=1, column=2, sticky="w", pady=(6, 2))
-        tk.Spinbox(meta, from_=1, to=8, increment=1, textvariable=self.clip_skip_var, width=6).grid(
-            row=1, column=3, sticky="ew"
+        scheduler_values = getattr(self.controller, "get_available_schedulers", lambda: [])() if self.controller else ["Normal", "Karras"]
+        self.scheduler_combo = ttk.Combobox(
+            meta,
+            textvariable=self.scheduler_var,
+            values=scheduler_values,
+            state="readonly",
+            width=14,
         )
+        self.scheduler_combo.grid(row=1, column=1, sticky="ew", padx=(0, 8))
+        ttk.Label(meta, text="Clip skip", style="Muted.TLabel").grid(row=1, column=2, sticky="w", pady=(6, 2))
+        self.clip_skip_spin = tk.Spinbox(meta, from_=1, to=8, increment=1, textvariable=self.clip_skip_var, width=6)
+        self.clip_skip_spin.grid(row=1, column=3, sticky="ew")
 
         ttk.Label(meta, text="Width", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(6, 2))
-        tk.Spinbox(
-            meta,
-            from_=64,
-            to=4096,
-            increment=64,
-            textvariable=self.width_var,
-            width=8,
-        ).grid(row=2, column=1, sticky="ew", padx=(0, 8))
+        self.width_spin = tk.Spinbox(meta, from_=64, to=4096, increment=64, textvariable=self.width_var, width=8)
+        self.width_spin.grid(row=2, column=1, sticky="ew", padx=(0, 8))
         ttk.Label(meta, text="Height", style="Muted.TLabel").grid(row=2, column=2, sticky="w", pady=(6, 2))
-        tk.Spinbox(
-            meta,
-            from_=64,
-            to=4096,
-            increment=64,
-            textvariable=self.height_var,
-            width=8,
-        ).grid(row=2, column=3, sticky="ew")
+        self.height_spin = tk.Spinbox(meta, from_=64, to=4096, increment=64, textvariable=self.height_var, width=8)
+        self.height_spin.grid(row=2, column=3, sticky="ew")
         for col in range(4):
             meta.columnconfigure(col, weight=1 if col in (1, 3) else 0)
 
@@ -141,7 +189,7 @@ class AdvancedTxt2ImgStageCardV2(BaseStageCardV2):
 
         parent.columnconfigure(0, weight=1)
 
-    def set_on_change(self, callback) -> None:
+    def set_on_change(self, callback: Any) -> None:
         self._on_change = callback
 
     def _notify_change(self) -> None:
@@ -168,12 +216,15 @@ class AdvancedTxt2ImgStageCardV2(BaseStageCardV2):
         self.load_from_section(section)
 
     def to_config_dict(self) -> dict[str, Any]:
+        # Use internal names for model/vae, and all selected values for payload correctness
+        model_name = self._model_name_map.get(self.model_var.get(), self.model_var.get().strip())
+        vae_name = self._vae_name_map.get(self.vae_var.get(), self.vae_var.get().strip())
         return {
             "txt2img": {
-                "model": self.model_var.get().strip(),
-                "model_name": self.model_var.get().strip(),
-                "vae": self.vae_var.get().strip(),
-                "vae_name": self.vae_var.get().strip(),
+                "model": model_name,
+                "model_name": model_name,
+                "vae": vae_name,
+                "vae_name": vae_name,
                 "sampler_name": self.sampler_var.get().strip(),
                 "scheduler": self.scheduler_var.get().strip(),
                 "steps": int(self.steps_var.get() or 20),
@@ -181,6 +232,7 @@ class AdvancedTxt2ImgStageCardV2(BaseStageCardV2):
                 "width": int(self.width_var.get() or 512),
                 "height": int(self.height_var.get() or 512),
                 "clip_skip": int(self.clip_skip_var.get() or 2),
+                "seed": int(self.seed_var.get() or 0),
             }
         }
 
