@@ -1,257 +1,251 @@
-# StableNew — AI Coding Agent Instructions
+# StableNew – GitHub Copilot Repository Instructions (V2/V2.5) (11/26/2025-1519)
 
-# CODEX 5.1 MAX – StableNew Project Instructions (Extended Version)
-
-## 1. Overview
-This document defines the operational doctrine for all AI-assisted development inside the StableNew Project. It governs:
-
-- ChatGPT (Architect/Controller)  
-- GitHub Copilot / **Codex 5.1 MAX** (Implementer)  
-- ChatGPT Test Agent (Tester)  
-- All future development threads in this ChatGPT Project Folder
-
-It ensures architectural consistency, safe refactors, and predictable behavior across sessions.
-
-Authoritative project docs that Codex must respect on every PR:
-
-- `docs/architecture/ARCHITECTURE_v2_COMBINED.md`  
-- `docs/StableNew_Roadmap_v2.0.md`  
-- `docs/CODEX_PR_Usage_SOP_COMBINED.md`  
-- `docs/codex_context/PIPELINE_RULES.md`  
-- `docs/LEARNING_SYSTEM_SPEC.md`  
-- `docs/CODING_STANDARDS.md`  
-- `docs/PROJECT_CONTEXT.md`  
+These instructions tell GitHub Copilot how to work effectively in this repository.  
+They are **repository-wide**, not task-specific. Copilot should trust these over ad-hoc guesses and only explore when something is missing or clearly outdated.
 
 ---
 
-# 2. Guiding Doctrine
+## 1. High-Level Overview
 
-## 2.1 Purpose
-StableNew V2 exists to stabilize, simplify, and modernize the StableNew codebase, improving:
+**What this repo is**
 
-- Reliability  
-- Architecture clarity  
-- Test coverage  
-- GUI usability  
-- Pipeline robustness  
-- Maintainability  
-- AI-assisted contribution safety  
+- StableNew is a **Stable Diffusion WebUI automation pipeline** with a **Tk/Ttk desktop GUI**.
+- It orchestrates text-to-image / image-to-image / upscaling pipelines, randomization, and (increasingly) learning-driven defaults.
+- The focus in this repo is **V2+**, with **V1 classified as legacy** and being migrated into an `archive/` area. Copilot must treat `archive/` and `*_OLD` files as **read-only reference**, not active code.
 
-## 2.2 Golden Rules
+**Tech stack**
 
-1. **Failing test first**.  
-2. **One PR = One Concern.**  
-3. **Small, incremental diffs.**  
-4. **Pipeline runs in worker threads.**  
-5. **CancelToken honored at every stage.**  
-6. **Randomizer/matrix logic are pure functions.**  
-7. **Prompt sanitization is mandatory.**  
-8. **GUI is UI-only.**  
-9. **StructuredLogger writes all manifests.**  
-10. **Architecture_v2 (combined doc) is the single source of truth.**
+- Language: **Python 3.11+** (see `pyproject.toml` → `requires-python = ">=3.11"` and target version `py311`).
+- GUI: `tkinter`, `ttk`, `ttkbootstrap`, plus custom V2 panels.
+- Tests: `pytest` (+ `pytest-xvfb` in CI for GUI tests).
+- Linting: `ruff` (see CI workflow).
+- Packaging/build: `setuptools` via `pyproject.toml`.
+- Some JS/Node tooling exists (`package-lock.json`) but is not the main execution path.
 
----
+**Scaled-down mental model**
 
-# 3. Roles
-
-## 3.1 ChatGPT (Architect)
-Must:
-- Produce Codex-first PRs.
-- Require tests before code.
-- Reference Architecture_v2, Roadmap_v2.0, Pipeline Rules, Learning Spec.
-- Request missing info.
-
-Must NOT:
-- Perform large refactors.
-- Mix GUI + pipeline logic.
-- Modify code outside PR scope.
-
-## 3.2 Codex 5.1 MAX (Implementer)
-
-Codex must:
-- Apply diffs **exactly** as written.
-- Change only **Allowed Files**.
-- Ask if unsure.
-- Run tests exactly as PR specifies.
-- Respect all authoritative docs.
-
-Codex must NOT:
-- Guess behaviors.
-- Move/rename files unrequested.
-- Introduce dependencies.
-- Auto-refactor other modules.
-- Invent new PRs.
-
-## 3.3 Tester (ChatGPT)
-- Designs failing tests.
-- Ensures deterministic tests.
-- Validates lifecycle, CancelToken, threading.
-- Protects architectural separation.
+- User runs a **Tkinter GUI**.
+- GUI talks to **controllers**.
+- Controllers orchestrate **pipelines** and **learning/randomizer** logic.
+- Pipelines talk to **api** layer, workers, disk, etc.
+- Tests verify each layer separately; CI runs lint + tests on push/PR.
 
 ---
 
-# 4. Workflow
+## 2. Build, Run, and Test Instructions
 
-## 4.1 PR Flow
-1. User request  
-2. ChatGPT PR  
-3. User approve  
-4. ChatGPT diffs  
-5. Codex implements  
-6. Codex runs tests  
-7. ChatGPT reviews  
-8. Approve/Revise  
+Copilot should **assume these commands are canonical**.  
+Only search the repo for alternatives if these clearly fail.
 
-## 4.2 TDD
-1. Write failing tests  
-2. Run tests (RED)  
-3. Implement minimum code  
-4. Run tests (GREEN)  
-5. Refactor only within PR scope  
+### 2.1 Environment setup
 
----
+Always assume:
 
-# 5. Architecture Rules
+1. Python 3.11+ installed.
+2. A virtualenv is recommended:
 
-## 5.1 GUI Layer
-- Tk/Ttk only  
-- No pipeline logic  
-- Only calls controller  
-- Thread-safe updates with root.after()
+   - POSIX:
+     ```bash
+     python3 -m venv .venv
+     source .venv/bin/activate
+     ```
+   - Windows:
+     ```cmd
+     python -m venv .venv
+     .venv\Scripts\activate
+     ```
 
-## 5.2 Controller Layer
-- Owns lifecycle state  
-- Owns CancelToken  
-- Owns worker threads  
-- Validates config  
-- No pipeline work  
-- No file writing  
+3. Install dependencies:
 
-## 5.3 Pipeline Layer
-- txt2img → adetailer → img2img → upscale → video  
-- No GUI references  
-- No randomizer logic  
-- API client + StructuredLogger only  
-- Returns structured outputs  
+   ```bash
+   pip install -r requirements.txt
+If editable install is needed (less common):
 
-## 5.4 Randomizer Layer
-- Pure functions  
-- Wildcard + matrix logic separated  
-- Sanitization required  
-- Preview/pipeline parity  
+bash
+Copy code
+pip install -e .
+2.2 Running the app
+For manual verification of GUI-related changes:
 
-## 5.5 API Layer
-- ApiResponse wrapper  
-- Retry/backoff  
-- No GUI or pipeline logic  
+bash
+Copy code
+python -m src.main
+Copilot should not change the entrypoint module (currently src/main.py) unless a human request explicitly asks for that.
 
-## 5.6 Logger / Learning Layers
-- StructuredLogger atomic writes  
-- LearningRecordWriter JSONL append  
-- No controller/GUI logic  
+2.3 Tests
+Default local test run:
 
----
+bash
+Copy code
+pytest -q
+For more detail (or to mirror CI):
 
-# 6. PR Structure Requirements
+bash
+Copy code
+pytest -vv --maxfail=1 --disable-warnings --showlocals
+On CI, tests are wrapped in xvfb for GUI; locally on a desktop machine, just running pytest is sufficient.
 
-1. Title  
-2. Summary  
-3. Problem  
-4. Goals  
-5. Non-goals  
-6. Allowed Files  
-7. Forbidden Files  
-8. Step-by-step Implementation  
-9. Required Tests  
-10. Acceptance Criteria  
-11. Rollback Plan  
-12. Codex Constraints  
-13. Smoke Test Checklist  
+Copilot should treat “tests pass locally” as a hard requirement before concluding a change is “complete” (even if CI workflow uses || true).
 
----
+2.4 Linting
+Primary lint command (mirrors CI):
 
-# 7. Memory Keys (Always Loaded)
+bash
+Copy code
+ruff check src
+Copilot should fix lint findings in touched files rather than disabling rules or modifying the CI workflow.
 
-- ARCHITECTURE_v2_COMBINED.md  
-- StableNew_Roadmap_v2.0.md  
-- CODEX_PR_Usage_SOP_COMBINED.md  
-- PIPELINE_RULES.md  
-- LEARNING_SYSTEM_SPEC.md  
-- CODING_STANDARDS.md  
-- PROJECT_CONTEXT.md  
-- GUI skeleton  
-- Controller skeleton  
-- Randomizer summary  
-- StructuredLogger plan  
-- PR bundle map  
-- Known issues  
-- Threading fix plan  
+2.5 Repo tooling
+There are helper tools under tools/. One important one:
 
----
+bash
+Copy code
+python -m tools.inventory_repo
+This regenerates:
 
-# 8. Repo Organization
+repo_inventory.json
 
-```
-src/
-  gui/
-  controller/
-  pipeline/
-  api/
-  learning/
-  utils/
-docs/
-  architecture/
-  pr_templates/
-  schemas/
-  agents/
-tests/
-  controller/
-  pipeline/
-  gui/
-  learning/
-  utils/
-  config/
-```
+docs/ACTIVE_MODULES.md
 
-Forbidden:
-- Root-level untyped modules  
-- Versioned folders  
-- Duplicate agent instructions  
-- Multiple READMEs  
+docs/LEGACY_CANDIDATES.md
 
----
+Copilot should not rewrite these tools or the generated docs unless explicitly requested; they define the current understanding of active vs legacy modules.
 
-# 9. Testing Doctrine
+3. Project Layout and Architectural Rules
+Copilot should respect this layout and avoid cross-layer violations.
 
-Tests MUST:
-- Be deterministic  
-- Validate lifecycle & CancelToken  
-- Mock API  
-- Validate manifests  
-- Validate randomization  
-- No real windows  
-- No timing sleeps  
-- No network calls  
+3.1 Root layout
+Important paths in the repo root:
 
----
+pyproject.toml – Python package metadata; target Python version; formatting config.
 
-# 10. ChatGPT Behavioral Constraints
+requirements.txt – runtime + dev requirements.
 
-ChatGPT MUST:
-- Follow Architecture_v2  
-- Use TDD  
-- Ask for clarification  
-- Keep diffs tiny  
-- Avoid rewrites  
+README.md – high-level overview and contributor notes.
 
-ChatGPT MUST NOT:
-- Add abstractions  
-- Modify stable modules  
-- Merge concerns  
-- Break controller/pipeline rules  
+docs/ – architecture, roadmap, journey tests, and other design docs.
 
----
+src/ – main application code.
 
-# 11. Conclusion
-These rules govern **all** PRs created by ChatGPT and implemented by **Co-pilot** or **Codex 5.1 MAX**.
-They ensure safe, consistent, maintainable development across StableNew V2.
+tests/ – pytest suite, structured roughly in parallel to src/.
+
+tools/ – helper/maintenance scripts (inventory, migration, etc.).
+
+archive/ – legacy/V1; read-only; do not add new logic here.
+
+3.2 src/ architecture
+Within src/, the key directories:
+
+src/gui/
+Tk/Ttk GUI layer (windows, panels, stage cards).
+Must only depend on controller, utils, and well-defined adapters.
+Prefer V2 files such as *_v2.py and panels_v2/.
+Do not re-introduce V1 layouts or mix legacy stage cards back into core flows.
+
+src/controller/
+Application and pipeline controllers (AppController, pipeline orchestration, config assembly, cancel tokens, learning hooks).
+May call into pipeline, learning, api, and utils, but not into GUI.
+
+src/pipeline/
+Pipeline definitions, config objects, and stage execution logic.
+Pure / deterministic logic where possible. No Tk imports here.
+
+src/learning/
+Learning system (learning records, datasets, JSONL writers, learning plans).
+Should not import GUI. Minor controller coupling via contracts is acceptable.
+
+src/api/
+Process manager, WebUI client, health checks. Responsible for dealing with external Stable Diffusion / WebUI processes.
+
+src/utils/
+Logging, config helpers, generic utilities. GUI and controllers may depend on this, but avoid creating new circular dependencies.
+
+src/ai/, src/cluster/, src/queue/, src/services/
+Additional layers for settings generation, worker registry, future distributed features.
+Treat these as pure Python logic with clear boundaries; no Tk imports.
+
+Rule for Copilot:
+
+Never make GUI modules depend on pipeline/learning directly.
+GUI → controller → pipeline/learning/api, not the other way around.
+
+Prefer modifying V2 modules listed in docs/ACTIVE_MODULES.md.
+Do not add new behavior to archived / legacy files.
+
+3.3 tests/ layout
+tests/ai_v2/, tests/api/, tests/controller/, tests/pipeline/, tests/gui_v2/, etc.
+Mirror the src/ structure; new tests should follow this pattern.
+
+Some tests/**/legacy or tests/gui_v1_legacy directories may exist: these are for reference only and should not be extended for new features.
+
+Rule for Copilot:
+
+For every non-trivial change in src/, either:
+
+Update existing tests that cover the changed behavior, or
+
+Add new tests in the corresponding tests/<layer>/ directory.
+
+Do not delete tests simply because they fail; fix the code or, if the test is truly obsolete, clearly mark it as such in a minimal change.
+
+4. Behavioral Expectations for Copilot
+These are general, non task-specific rules that apply to all changes Copilot proposes:
+
+Small, focused changes
+
+Keep modifications scoped to a single subsystem (e.g., GUI only, or controller only) unless the architecture clearly requires touching both.
+
+Avoid broad refactors or repo-wide search-and-replace.
+
+Respect existing patterns
+
+Before adding a new helper or module, briefly search for similar existing functions/classes and reuse the pattern.
+
+Follow the layering rules: do not introduce new cross-layer dependencies.
+
+Syntax and correctness
+
+When editing a file, ensure the final code is syntactically valid.
+Avoid leaving partial blocks, unresolved merge markers, or unused imports.
+
+Prefer changes that keep type/usage consistent with existing code; avoid introducing obvious type mismatches.
+
+Tests and lint before “done”
+
+Assume the human will run at least:
+
+ruff check src
+
+pytest -q
+
+Propose changes that are very likely to pass both. Do not rely on changing CI config to “make things green.”
+
+Legacy awareness
+
+Treat archive/ and any (OLD) or legacy-marked files as read-only, used only as references when porting behavior into V2.
+
+New logic should land in V2 modules and follow ARCHITECTURE_v2 and other docs under docs/.
+
+Documentation and naming
+
+When adding new design/PR helper docs under docs/ or src/docs/, prefer including a V2.5 + date/time suffix in the filename when consistent with existing docs (e.g., *_V2.5_2025-11-26.md).
+
+For code files, follow the existing naming patterns (*_v2.py for new GUI components, etc.) rather than inventing new suffixes.
+
+5. How Copilot Should Use These Instructions
+Trust this file first.
+Use these commands, layouts, and rules as ground truth.
+
+Only run additional repo searches (e.g., scanning for build steps, hunting for entrypoints) if:
+
+A command here fails in a way that indicates the instructions are outdated, or
+
+The human explicitly says the instructions are wrong.
+
+When in doubt about where to place new code:
+
+Prefer V2 modules in src/ that match the layer you’re working in.
+
+Mirror the structure in tests/ for any new tests.
+
+If these instructions ever conflict with a future, clearly-marked architecture doc in docs/, that doc takes precedence – but Copilot should assume this file is current unless told otherwise.

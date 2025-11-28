@@ -3,6 +3,44 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+class Theme:
+    """
+    Minimal V2 Theme contract for GUI tests and runtime.
+    """
+    def apply_ttk_styles(self, root_or_style) -> None:
+        """
+        Apply ttk styles required by GUI V2 components and tests.
+        Safe to call multiple times; must not raise.
+        """
+        try:
+            style = root_or_style
+            if not isinstance(style, ttk.Style):
+                style = ttk.Style(master=root_or_style)
+            # Ensure key styles exist for tests
+            style.configure("Primary.TButton", background=ACCENT_GOLD, foreground=TEXT_PRIMARY)
+            style.configure("Panel.TFrame", background=BACKGROUND_ELEVATED)
+            style.configure("StatusBar.TFrame", background=BACKGROUND_DARK)
+            style.configure("Surface.TFrame", background=BACKGROUND_ELEVATED)
+            style.configure("Pipeline.TFrame", background=BACKGROUND_ELEVATED)
+            style.configure("PipelineHeading.TLabel", foreground=ACCENT_GOLD, font=(DEFAULT_FONT_FAMILY, HEADING_FONT_SIZE, "bold"))
+            style.configure("StatusStrong.TLabel", foreground=ACCENT_GOLD, font=(DEFAULT_FONT_FAMILY, HEADING_FONT_SIZE, "bold"))
+            style.configure("Dark.TLabel", foreground=TEXT_PRIMARY, background=BACKGROUND_DARK)
+            style.configure("Dark.TEntry", fieldbackground=BACKGROUND_ELEVATED, foreground=TEXT_PRIMARY)
+            style.configure("Dark.TCombobox", fieldbackground=BACKGROUND_ELEVATED, foreground=TEXT_PRIMARY)
+        except Exception:
+            pass
+
+    def apply_root(self, root) -> None:
+        """
+        Apply global styles to the given Tk root widget.
+        Safe to call multiple times; must not raise.
+        """
+        try:
+            apply_theme(root)
+        except Exception:
+            pass
+from tkinter import ttk
+
 # Palette
 BACKGROUND_DARK = "#121212"
 BACKGROUND_ELEVATED = "#1E1E1E"

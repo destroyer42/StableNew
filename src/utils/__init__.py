@@ -36,7 +36,11 @@ _LAZY_IMPORTS: Dict[str, Tuple[str, str]] = {
     "get_prompt_packs": ("src.utils.file_io", "get_prompt_packs"),
     "get_safe_filename": ("src.utils.file_io", "get_safe_filename"),
     "find_webui_api_port": ("src.utils.webui_discovery", "find_webui_api_port"),
-    "wait_for_webui_ready": ("src.utils.webui_discovery", "wait_for_webui_ready"),
+    # 🔴 OLD (remove this)
+    # "wait_for_webui_ready": ("src.utils.webui_discovery", "wait_for_webui_ready"),
+
+    # 🟢 NEW – route all utils.wait_for_webui_ready calls to the V2.5 healthcheck
+    "wait_for_webui_ready": ("src.api.healthcheck", "wait_for_webui_ready"),
 }
 
 

@@ -103,13 +103,38 @@ class CancelToken:
 
 
 class AppController:
+    def run_txt2img_once(self, config: dict | None = None) -> None:
+        """
+        Minimal V2.5 happy path: run txt2img pipeline once.
+        Accepts a config dict (or uses defaults), calls pipeline, and updates GUI feedback.
+        """
+        self._append_log("[controller] run_txt2img_once called.")
+        if config is None:
+            config = {
+                "prompt": "A beautiful landscape, trending on artstation",
+                "model": "stable-diffusion-v1-5",
+                "sampler": "Euler a",
+                "width": 512,
+                "height": 512,
+                "steps": 20,
+                "cfg_scale": 7.0,
+            }
+        try:
+            result = self.pipeline_runner.run_txt2img_once(config)
+            msg = f"Pipeline finished: {result.get('output_path', 'No output path')}"
+            self._append_log(msg)
+            self._update_status(msg)
+        except Exception as exc:
+            self._append_log(f"Pipeline error: {exc!r}")
+            self._update_status(f"Error: {exc!r}")
+
     """
     Orchestrates GUI events and (eventually) pipeline execution.
 
     Responsibilities:
-    - Maintain lifecycle state (IDLE/RUNNING/STOPPING/ERROR).
-    - Bridge GUI interactions to the pipeline, config, and randomizer.
-    - Provide high-level methods for GUI callbacks.
+        - Maintain lifecycle state (IDLE/RUNNING/STOPPING/ERROR).
+        - Bridge GUI interactions to the pipeline, config, and randomizer.
+        - Provide high-level methods for GUI callbacks.
 
     'threaded' controls whether runs happen in a worker thread (True, default)
     or synchronously (False, ideal for tests).
@@ -159,7 +184,7 @@ class AppController:
         bottom = self.main_window.bottom_zone
 
         # Header events
-        header.run_button.configure(command=self.on_run_clicked)
+        header.run_button.configure(command=self.run_txt2img_once)
         header.stop_button.configure(command=self.on_stop_clicked)
         header.preview_button.configure(command=self.on_preview_clicked)
         header.settings_button.configure(command=self.on_open_settings)

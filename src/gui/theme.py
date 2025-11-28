@@ -57,6 +57,9 @@ PIPELINE_BUTTON_STYLE = "Pipeline.TButton"
 
 class Theme:
     """Helper with Tk widget styling methods (legacy UI expectations)."""
+    def apply_ttk_styles(self, root_or_style) -> None:
+        from src.gui.theme_v2 import Theme as ThemeV2
+        ThemeV2().apply_ttk_styles(root_or_style)
 
 
 

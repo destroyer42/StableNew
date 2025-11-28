@@ -47,7 +47,32 @@ class PipelineConfig:
 
 
 class PipelineRunner:
-    """Adapter that drives the real multi-stage Pipeline executor."""
+    """
+    Adapter that drives the real multi-stage Pipeline executor.
+    """
+
+    def run_txt2img_once(self, config: dict[str, Any]) -> dict[str, Any]:
+        """
+        Minimal V2.5 happy path: run txt2img once and return result dict.
+        """
+        # Build minimal payload for txt2img
+        payload = {
+            "prompt": config.get("prompt", "A beautiful landscape, trending on artstation"),
+            "negative_prompt": config.get("negative_prompt", ""),
+            "steps": config.get("steps", 20),
+            "cfg_scale": config.get("cfg_scale", 7.0),
+            "width": config.get("width", 512),
+            "height": config.get("height", 512),
+            "sampler_name": config.get("sampler", "Euler a"),
+            "batch_size": 1,
+            "n_iter": 1,
+        }
+        result = self._api_client.txt2img(payload)
+        # Return a minimal result dict for GUI feedback
+        if result and "images" in result:
+            # Simulate output path for feedback
+            return {"output_path": "(image generated)", **result}
+        return {"output_path": "(no image generated)", **(result or {})}
 
     def __init__(
         self,
@@ -255,7 +280,7 @@ class PipelineRunner:
         self._last_run_result = result
         return result
 
-    def _call_stage(self, fn: Callable, *args, **kwargs):
+    def _call_stage(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Invoke a stage function, tolerating implementations without cancel_token."""
         try:
             return fn(*args, **kwargs)

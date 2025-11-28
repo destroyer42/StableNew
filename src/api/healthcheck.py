@@ -10,15 +10,20 @@ class WebUIHealthCheckTimeout(TimeoutError):
 
 
 def wait_for_webui_ready(base_url: str, timeout: float = 30.0, poll_interval: float = 0.5) -> bool:
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.debug(
+        "healthcheck.wait_for_webui_ready called with base_url=%s timeout=%s poll_interval=%s",
+        base_url,
+        timeout,
+        poll_interval,
+    )
     """Poll a lightweight WebUI endpoint until it responds or timeout occurs."""
 
     deadline = time.time() + max(timeout, 0)
     poll_delay = max(poll_interval, 0.01)
     last_error: Exception | None = None
     probe_url = f"{base_url.rstrip('/')}/sdapi/v1/progress"
-    
-    import logging
-    logger = logging.getLogger(__name__)
     logger.info(f"Probing WebUI at: {probe_url}")
 
     while time.time() < deadline:

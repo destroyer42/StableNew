@@ -198,9 +198,15 @@ class SidebarPanelV2(ttk.Frame):
 
     def _build_prompt_pack_section(self, parent: ttk.Frame) -> ttk.Frame:
         frame = ttk.Frame(parent)
+        packs = []
+        if self.prompt_pack_adapter:
+            try:
+                packs = self.prompt_pack_adapter.load_summaries()
+            except Exception:
+                packs = []
         self.prompt_pack_panel = PromptPackPanelV2(
             frame,
-            packs=[],
+            packs=packs,
             on_apply=self._handle_apply_pack,
         )
         self.prompt_pack_panel.pack(fill="both", expand=True)
