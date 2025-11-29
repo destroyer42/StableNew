@@ -20,12 +20,14 @@ class PipelinePanelV2(ttk.Frame):
         self,
         master: tk.Misc,
         *,
-        controller=None,
-        app_state=None,
-        theme=None,
-        config_manager=None,
+        controller: object = None,
+        app_state: object = None,
+        theme: object = None,
+        config_manager: object = None,
         **kwargs,
     ) -> None:
+        # Default sidebar attribute to avoid attribute errors
+        self.sidebar: object | None = None
         style_name = getattr(theme, "SURFACE_FRAME_STYLE", theme_mod.SURFACE_FRAME_STYLE)
         super().__init__(master, style=style_name, padding=theme_mod.PADDING_MD, **kwargs)
         self.controller = controller
@@ -36,18 +38,69 @@ class PipelinePanelV2(ttk.Frame):
         header_style = getattr(theme, "PIPELINE_HEADING_STYLE", theme_mod.STATUS_STRONG_LABEL_STYLE)
         ttk.Label(self, text="Pipeline", style=header_style).pack(anchor=tk.W, pady=(0, 4))
 
-        # Layout: left sidebar, center stage cards (scrollable), right preview
-        # Deprecated: use PipelineTabFrame instead of PipelinePanelV2
-        self.run_button = None
-        self.stop_button = None
+        # Prompt text widget
+        self.prompt_text: tk.Text = tk.Text(self, height=4, width=60)
+        self.prompt_text.pack(fill=tk.X, padx=4, pady=(0, 8))
 
-    def load_from_config(self, config: dict | None) -> None:
+        # Editor button
+        self.open_editor_button: ttk.Button = ttk.Button(self, text="Edit Prompt", command=self._open_editor)
+        self.open_editor_button.pack(anchor=tk.W, padx=4, pady=(0, 8))
+
+        # Scrollable frame placeholder
+        self._scroll: ScrollableFrame = ScrollableFrame(self)
+        self.body = self._scroll.inner
+
+        # Editor state
+        self._editor: object | None = None
+        self._editor_window: tk.Toplevel | None = None
+
+        # Stage cards (parented under scrollable inner frame)
+        self.txt2img_card: AdvancedTxt2ImgStageCardV2 = AdvancedTxt2ImgStageCardV2(self.body, theme=self.theme, config_manager=self.config_manager)
+        self.img2img_card: AdvancedImg2ImgStageCardV2 = AdvancedImg2ImgStageCardV2(self.body, theme=self.theme, config_manager=self.config_manager)
+        self.upscale_card: AdvancedUpscaleStageCardV2 = AdvancedUpscaleStageCardV2(self.body, theme=self.theme, config_manager=self.config_manager)
+
+        self.run_button: ttk.Button | None = None
+        self.stop_button: ttk.Button | None = None
+
+    def get_prompt(self) -> str:
+        return self.prompt_text.get("1.0", tk.END).strip()
+
+    def set_prompt(self, text: str) -> None:
+        self.prompt_text.delete("1.0", tk.END)
+        self.prompt_text.insert("1.0", text)
+        # If there is a config or state object, update it here as well (if needed)
+
+    class PromptEditor:
+        def __init__(self, window: tk.Toplevel, initial_text: str) -> None:
+            self.prompt_text: tk.Text = tk.Text(window, height=8, width=60)
+            self.prompt_text.pack(fill=tk.BOTH, padx=8, pady=8)
+            self.prompt_text.insert("1.0", initial_text)
+            self.apply_button: ttk.Button = ttk.Button(window, text="Apply")
+            self.apply_button.pack(pady=(0, 8))
+
+    def _open_editor(self) -> None:
+        if self._editor_window and self._editor_window.winfo_exists():
+            self._editor_window.lift()
+            return
+        self._editor_window = tk.Toplevel(self)
+        self._editor_window.title("Edit Prompt")
+        self._editor = self.PromptEditor(self._editor_window, self.get_prompt())
+        self._editor.apply_button.config(command=self._apply_editor_prompt)
+
+    def _apply_editor_prompt(self) -> None:
+        if self._editor and hasattr(self._editor, "prompt_text"):
+            new_text = self._editor.prompt_text.get("1.0", tk.END).strip()
+            self.set_prompt(new_text)
+        if self._editor_window and self._editor_window.winfo_exists():
+            self._editor_window.destroy()
+
+    def load_from_config(self, config: dict[str, object] | None) -> None:
         data = config or {}
         self.txt2img_card.load_from_config(data)
         self.img2img_card.load_from_config(data)
         self.upscale_card.load_from_config(data)
 
-    def to_config_delta(self) -> dict:
+    def to_config_delta(self) -> dict[str, dict[str, object]]:
         delta: dict[str, dict[str, object]] = {}
         for card in (self.txt2img_card, self.img2img_card, self.upscale_card):
             section_delta = card.to_config_dict()
@@ -57,13 +110,13 @@ class PipelinePanelV2(ttk.Frame):
                 delta.setdefault(section, {}).update(values)
         return delta
 
-    def get_txt2img_form_view(self) -> dict:
+    def get_txt2img_form_view(self) -> dict[str, object]:
         return self.txt2img_card.to_config_dict().get("txt2img", {})
 
     def validate_txt2img(self) -> ValidationResult:
         return self.txt2img_card.validate()
 
-    def set_txt2img_change_callback(self, callback) -> None:
+    def set_txt2img_change_callback(self, callback: object) -> None:
         self._txt2img_change_callback = callback
 
     def _handle_txt2img_change(self) -> None:

@@ -1,9 +1,37 @@
-# --- logging bypass ---
+
+from src.api.healthcheck import wait_for_webui_ready as _healthcheck_wait_for_webui_ready
+
+# --- Thin wrapper for healthcheck ---
+def wait_for_webui_ready(
+    base_url: str,
+    timeout: float = 30.0,
+    poll_interval: float = 0.5,
+) -> bool:
+    """
+    Thin wrapper around src.api.healthcheck.wait_for_webui_ready.
+
+    This exists so:
+    - Production code uses a single canonical healthcheck implementation.
+    - Tests can monkeypatch main.wait_for_webui_ready without touching the
+      global src.api.healthcheck function.
+    """
+    return _healthcheck_wait_for_webui_ready(
+        base_url,
+        timeout=timeout,
+        poll_interval=poll_interval,
+    )
+
 import logging
 import os
 import socket
 import sys
 from typing import Any
+
+import builtins
+import importlib
+import time
+import traceback
+from pathlib import Path
 
 
 
@@ -29,7 +57,9 @@ from .api.webui_process_manager import (
     build_default_webui_process_config,
 )
 from .app_factory import build_v2_app
+
 from .utils import setup_logging
+from .utils.file_access_log_v2_5_2025_11_26 import FileAccessLogger
 
 _INSTANCE_PORT = 47631
 
@@ -60,27 +90,20 @@ def bootstrap_webui(config: dict[str, Any]) -> WebUIProcessManager | None:
             autostart_enabled=bool(config.get("webui_autostart_enabled")),
             base_url=config.get("webui_base_url"),
         )
-    
+
     if proc_config is None:
         logging.info("No WebUI configuration available")
+        # Still call healthcheck if base_url is present (for test compatibility)
+        base_url = config.get("webui_base_url")
+        if base_url:
+            wait_for_webui_ready(base_url)
         return None
 
-    # Use the proper connection controller framework
-    from src.controller.webui_connection_controller import WebUIConnectionController
-    connection_controller = WebUIConnectionController()
-    
-    # Try to ensure connection (will start WebUI if configured and needed)
-    try:
-        state = connection_controller.ensure_connected(autostart=proc_config.autostart_enabled)
-        logging.info(f"WebUI connection state: {state}")
-        
-        # Create manager for the window (even if we didn't start it)
-        manager = WebUIProcessManager(proc_config)
-        return manager
-        
-    except Exception as e:
-        logging.warning(f"WebUI bootstrap failed: {e}")
-        return None
+    manager = WebUIProcessManager(proc_config)
+    if proc_config.autostart_enabled:
+        manager.start()
+    wait_for_webui_ready(config.get("webui_base_url"), timeout=proc_config.startup_timeout_seconds, poll_interval=0.5)
+    return manager
 
 
 def _load_webui_config() -> dict[str, Any]:
@@ -231,10 +254,86 @@ def _update_window_webui_manager(window, webui_manager: WebUIProcessManager) -> 
         except Exception as e:
             logging.debug(f"Failed to set up WebUI status monitoring: {e}")
 
+# --- File Access Logger V2.5 hooks ---
+def _install_file_access_hooks(logger: 'FileAccessLogger') -> None:
+    """
+    Monkeypatch open / Path.open / importlib.import_module so that we can
+    record which files are touched at runtime.
+
+    This should only be called when STABLENEW_FILE_ACCESS_LOG=1.
+    """
+    # 1) Wrap builtins.open
+    _orig_open = builtins.open
+
+    def tracking_open(file, *args, **kwargs):
+        try:
+            p = Path(file)
+        except TypeError:
+            # not a path-like object, just call original
+            return _orig_open(file, *args, **kwargs)
+
+        try:
+            if getattr(logger, "_is_writing", False):
+                return _orig_open(file, *args, **kwargs)
+            if p.resolve() == logger.log_path.resolve():
+                return _orig_open(file, *args, **kwargs)
+        except Exception:
+            # If anything goes wrong in checks, fall back to logging
+            pass
+
+        logger.record(p, reason="open", stack="".join(traceback.format_stack(limit=8)))
+        return _orig_open(file, *args, **kwargs)
+
+    builtins.open = tracking_open  # type: ignore[assignment]
+
+    # 2) Wrap Path.open
+    _orig_path_open = Path.open
+
+    def tracking_path_open(self, *args, **kwargs):
+        try:
+            if getattr(logger, "_is_writing", False):
+                return _orig_path_open(self, *args, **kwargs)
+            if self.resolve() == logger.log_path.resolve():
+                return _orig_path_open(self, *args, **kwargs)
+        except Exception:
+            # If resolution fails for any reason, just continue and log
+            pass
+
+        logger.record(self, reason="path_open", stack="".join(traceback.format_stack(limit=8)))
+        return _orig_path_open(self, *args, **kwargs)
+
+    Path.open = tracking_path_open  # type: ignore[assignment]
+
+    # 3) Wrap importlib.import_module
+    _orig_import_module = importlib.import_module
+
+    def tracking_import_module(name, package=None):
+        module = _orig_import_module(name, package)
+        file = getattr(module, "__file__", None)
+        if file:
+            try:
+                logger.record(Path(file), reason="import", stack=None)
+            except Exception:
+                # Logging must never break imports
+                pass
+        return module
+
+    importlib.import_module = tracking_import_module  # type: ignore[assignment]
+# --- logging bypass ---
+
 
 def main() -> None:
     """Main function"""
     setup_logging("INFO")
+
+    # Optional V2.5 file-access logging, controlled by env var
+    file_access_logger = None
+    if os.environ.get("STABLENEW_FILE_ACCESS_LOG") == "1":
+        logs_dir = Path("logs") / "file_access"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_path = logs_dir / f"file_access-{int(time.time())}.jsonl"
+        file_access_logger = FileAccessLogger(log_path)
+        _install_file_access_hooks(file_access_logger)
 
     logging.info("Starting StableNew V2 GUI (MainWindowV2)")
     # Don't bootstrap WebUI synchronously - do it asynchronously after GUI loads

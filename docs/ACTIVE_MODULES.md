@@ -1,106 +1,72 @@
 # Active Modules
 
-Generated: 2025-11-25T02:49:25.652738Z
+Generated: 2025-11-26T23:18:09.993776Z
 
-Total tracked files: 331
-Reachable from src/main.py: 98
+Total tracked files: 341
+Reachable from src/main.py: 64
 
 ## List
-- `src/ai/settings_generator_adapter.py`
-- `src/ai/settings_generator_contract.py`
-- `src/ai/settings_generator_driver.py`
 - `src/api/__init__.py`
 - `src/api/client.py`
 - `src/api/healthcheck.py`
 - `src/api/webui_process_manager.py`
-- `src/cluster/worker_model.py`
-- `src/cluster/worker_registry.py`
-- `src/config/app_config.py`
+- `src/app_factory.py` (gui)
 - `src/controller/__init__.py`
 - `src/controller/app_controller.py` (gui)
-- `src/controller/job_execution_controller.py`
-- `src/controller/job_history_service.py`
-- `src/controller/learning_execution_controller.py`
-- `src/controller/pipeline_config_assembler.py`
-- `src/controller/pipeline_controller.py`
-- `src/controller/queue_execution_controller.py`
-- `src/controller/settings_suggestion_controller.py`
 - `src/controller/webui_connection_controller.py`
 - `src/gui/__init__.py` (gui)
-- `src/gui/advanced_prompt_editor.py` (gui)
 - `src/gui/api_status_panel.py` (gui)
-- `src/gui/app_layout_v2.py` (gui)
-- `src/gui/config_panel.py` (gui)
-- `src/gui/controller.py` (gui)
+- `src/gui/app_state_v2.py` (gui)
+- `src/gui/controllers/learning_controller.py` (gui)
 - `src/gui/core_config_panel_v2.py` (gui)
-- `src/gui/engine_settings_dialog.py` (gui)
 - `src/gui/enhanced_slider.py` (gui)
-- `src/gui/job_history_panel_v2.py` (gui)
-- `src/gui/learning_review_dialog_v2.py` (gui)
-- `src/gui/log_panel.py` (gui)
-- `src/gui/main_window.py` (gui)
+- `src/gui/gui_invoker.py` (gui)
+- `src/gui/layout_v2.py` (gui)
+- `src/gui/learning_state.py` (gui)
 - `src/gui/main_window_v2.py` (gui)
 - `src/gui/model_list_adapter_v2.py` (gui)
 - `src/gui/model_manager_panel_v2.py` (gui)
+- `src/gui/models/prompt_metadata.py` (gui)
+- `src/gui/models/prompt_pack_model.py` (gui)
 - `src/gui/negative_prompt_panel_v2.py` (gui)
 - `src/gui/output_settings_panel_v2.py` (gui)
-- `src/gui/panels_v2/__init__.py` (gui)
-- `src/gui/panels_v2/pipeline_panel_v2.py` (gui)
-- `src/gui/panels_v2/preview_panel_v2.py` (gui)
-- `src/gui/panels_v2/randomizer_panel_v2.py` (gui)
-- `src/gui/panels_v2/sidebar_panel_v2.py` (gui)
-- `src/gui/panels_v2/status_bar_v2.py` (gui)
-- `src/gui/pipeline_command_bar_v2.py` (gui)
-- `src/gui/pipeline_controls_panel.py` (gui)
 - `src/gui/pipeline_panel_v2.py` (gui)
 - `src/gui/preview_panel_v2.py` (gui)
 - `src/gui/prompt_pack_adapter_v2.py` (gui)
-- `src/gui/prompt_pack_panel.py` (gui)
 - `src/gui/prompt_pack_panel_v2.py` (gui)
-- `src/gui/randomizer_panel_v2.py` (gui)
+- `src/gui/prompt_workspace_state.py` (gui)
 - `src/gui/resolution_panel_v2.py` (gui)
-- `src/gui/scrolling.py` (gui)
 - `src/gui/sidebar_panel_v2.py` (gui)
 - `src/gui/stage_cards_v2/advanced_img2img_stage_card_v2.py` (gui)
 - `src/gui/stage_cards_v2/advanced_txt2img_stage_card_v2.py` (gui)
 - `src/gui/stage_cards_v2/advanced_upscale_stage_card_v2.py` (gui)
+- `src/gui/stage_cards_v2/base_stage_card_v2.py` (gui)
+- `src/gui/stage_cards_v2/components.py` (gui)
 - `src/gui/stage_cards_v2/validation_result.py` (gui)
 - `src/gui/state.py` (gui)
 - `src/gui/status_bar_v2.py` (gui)
-- `src/gui/theme.py` (gui)
-- `src/gui/tooltip.py` (gui)
-- `src/gui_v2/adapters/learning_adapter_v2.py`
-- `src/gui_v2/adapters/pipeline_adapter_v2.py`
-- `src/gui_v2/adapters/randomizer_adapter_v2.py`
-- `src/gui_v2/adapters/status_adapter_v2.py`
-- `src/learning/dataset_builder.py`
-- `src/learning/learning_adapter.py`
-- `src/learning/learning_execution.py`
-- `src/learning/learning_plan.py`
+- `src/gui/theme_v2.py` (gui)
+- `src/gui/utils/lora_embedding_parser.py` (gui)
+- `src/gui/views/experiment_design_panel.py` (gui)
+- `src/gui/views/learning_plan_table.py` (gui)
+- `src/gui/views/learning_review_panel.py` (gui)
+- `src/gui/views/learning_tab_frame.py` (gui)
+- `src/gui/views/pipeline_tab_frame.py` (gui)
+- `src/gui/views/prompt_tab_frame.py` (gui)
+- `src/gui/views/stage_cards_panel.py` (gui)
+- `src/gui/widgets/matrix_helper_widget.py` (gui)
+- `src/gui/widgets/scrollable_frame_v2.py` (gui)
 - `src/learning/learning_profile_sidecar.py`
 - `src/learning/learning_record.py`
 - `src/learning/learning_record_builder.py`
-- `src/learning/learning_runner.py`
-- `src/learning/model_profiles.py`
+- `src/learning/recommendation_engine.py`
 - `src/learning/run_metadata.py`
 - `src/main.py` (gui)
 - `src/pipeline/executor.py`
 - `src/pipeline/pipeline_runner.py`
 - `src/pipeline/stage_sequencer.py`
-- `src/pipeline/variant_planner.py`
-- `src/queue/__init__.py`
-- `src/queue/job_history_store.py`
-- `src/queue/job_model.py`
-- `src/queue/job_queue.py`
-- `src/queue/single_node_runner.py`
-- `src/services/config_service.py`
 - `src/utils/__init__.py`
-- `src/utils/aesthetic_detection.py`
 - `src/utils/config.py`
+- `src/utils/file_access_log_v2_5_2025_11_26.py`
 - `src/utils/file_io.py`
-- `src/utils/preferences.py`
 - `src/utils/prompt_packs.py`
-- `src/utils/randomizer.py`
-- `src/utils/state.py`
-- `src/utils/webui_discovery.py`
-- `src/utils/webui_launcher.py`

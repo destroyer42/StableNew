@@ -99,64 +99,11 @@ class MainWindowV2:
         apply_theme(self.root)
         configure_root_grid(self.root)
 
-        self.pipeline_frame = ttk.Frame(self.root, style="Panel.TFrame")
-        self.status_frame = ttk.Frame(self.root, style="StatusBar.TFrame")
-        # Compatibility stubs for legacy controllers/tests
-        self.header_zone = HeaderZone(self.pipeline_frame)
-        self.left_zone = LeftZone(self.pipeline_frame)
 
-        self.pipeline_notebook = ttk.Notebook(self.pipeline_frame)
-        self.prompt_tab = PromptTabFrame(
-            self.pipeline_notebook,
-            style="Panel.TFrame",
-            app_state=self.app_state,
-        )
-        self.prompt_workspace_state = self.prompt_tab.workspace_state
-        self.pipeline_tab = PipelineTabFrame(
-            self.pipeline_notebook,
-            style="Panel.TFrame",
-            prompt_workspace_state=self.prompt_workspace_state,
-            app_state=self.app_state,
-            pipeline_controller=self.pipeline_controller,
-            theme=getattr(self.app_state, "theme", None),
-        )
-        self.learning_tab = LearningTabFrame(
-            self.pipeline_notebook,
-            style="Panel.TFrame",
-            app_state=self.app_state,
-            pipeline_controller=self.pipeline_controller,
-        )
-        self.pipeline_panel = PipelinePanelV2(
-            self.pipeline_notebook,
-            controller=self.pipeline_controller,
-            app_state=self.app_state,
-        )
-        self.bottom_zone = BottomZone(self.status_frame, controller=self.app_controller, app_state=self.app_state)
-        # Keep a handle to the v2 status bar for styling/updates.
-        self.status_bar_v2 = self.bottom_zone.status_bar_v2
-        try:
-            self.status_bar_v2.app_state = self.app_state
-        except Exception:
-            pass
-
-        # Place top-level frames with breathing room
-        self.pipeline_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8, 4))
-        self.status_frame.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
-
-        # Internal layout/weights
-        self.pipeline_frame.rowconfigure(0, weight=0)
-        self.pipeline_frame.rowconfigure(1, weight=1)
-        self.pipeline_frame.columnconfigure(0, weight=1)
-
-        # Notebook fills the main workspace
-        self.header_zone.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
-        self.pipeline_notebook.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
-        self.pipeline_notebook.add(self.prompt_tab, text="Prompt")
-        self.pipeline_notebook.add(self.pipeline_tab, text="Pipeline")
-        self.pipeline_notebook.add(self.learning_tab, text="Learning")
-
-        # Status/log area at bottom
-        self.bottom_zone.pack(fill="both", expand=True, padx=4, pady=4)
+        # Use LayoutManagerV2 for all panel placement
+        from src.gui.panels_v2.layout_manager_v2 import LayoutManagerV2
+        self.layout_manager_v2 = LayoutManagerV2(self)
+        self.layout_manager_v2.attach_panels()
 
         # Provide delegation helpers expected by controllers/tests
         self.after = self.root.after  # type: ignore[attr-defined]

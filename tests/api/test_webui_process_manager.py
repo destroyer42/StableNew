@@ -9,6 +9,10 @@ from src.api.webui_process_manager import WebUIProcessConfig, WebUIProcessManage
 class _DummyProcess:
     def __init__(self):
         self.terminated = False
+        # Add dummy stdout/stderr streams to avoid AttributeError in manager.start()
+        import io
+        self.stdout = io.BytesIO(b'')
+        self.stderr = io.BytesIO(b'')
 
     def poll(self):
         return None

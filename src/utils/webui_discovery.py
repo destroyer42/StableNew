@@ -1,3 +1,7 @@
+# NOTE: WebUI readiness checks have moved to src.api.healthcheck.wait_for_webui_ready.
+# This module is kept only as a compatibility shim and is a candidate for archive/.
+
+from src.api.healthcheck import wait_for_webui_ready  # use the new unified contract
 # --- Compatibility shim class for GUI code expecting a service object ---
 
 
@@ -55,7 +59,8 @@ class WebUIDiscovery:
 
     def ensure_ready(self, api_url: str, max_wait_seconds: int = 60) -> bool:
         """Block until the API reports a loaded model (or timeout)."""
-        return wait_for_webui_ready(api_url, max_wait_seconds)
+        # delegate to the canonical healthcheck; keep legacy arg name for callers
+        return wait_for_webui_ready(api_url, timeout=max_wait_seconds)
 
     def launch_if_needed(self, webui_path: Path, wait_time: int = 10) -> bool:
         """Try to launch WebUI if not already running; returns True if available."""
@@ -147,39 +152,9 @@ def find_webui_api_port(
     return None
 
 
-def wait_for_webui_ready(api_url: str, max_wait_seconds: int = 60) -> bool:
-    """
-    Wait for WebUI to be ready and model loaded.
-
-    Args:
-        api_url: Full API URL
-        max_wait_seconds: Maximum time to wait
-
-    Returns:
-        True if WebUI is ready, False if timeout
-    """
-    # time already imported at top
-
-    start_time = time.time()
-    while time.time() - start_time < max_wait_seconds:
-        try:
-            # Check if API responds
-            response = requests.get(f"{api_url}/sdapi/v1/options", timeout=5)
-            if response.status_code == 200:
-                options = response.json()
-
-                # Check if model is loaded (has a current model)
-                if options.get("sd_model_checkpoint"):
-                    logger.info(f"WebUI ready with model: {options['sd_model_checkpoint']}")
-                    return True
-
-        except Exception as e:
-            logger.debug(f"WebUI not ready yet: {e}")
-
-        time.sleep(2)
-
-    logger.error(f"WebUI did not become ready within {max_wait_seconds} seconds")
-    return False
+def _wait_for_webui_ready_legacy(api_url: str, max_wait_seconds: int = 60) -> bool:
+    """Legacy helper – kept only for reference; no longer used at runtime."""
+    # ...legacy implementation...
 
 
 def launch_webui_safely(webui_path: Path, timeout: int = 60) -> bool:

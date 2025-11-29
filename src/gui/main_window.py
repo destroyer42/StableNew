@@ -36,7 +36,12 @@ from src.controller.settings_suggestion_controller import SettingsSuggestionCont
 from src.ai.settings_generator_contract import SuggestionIntent
 from src.gui.scrolling import enable_mousewheel, make_scrollable
 from src.gui.state import GUIState, StateManager
-from src.gui.theme import Theme
+from src.gui.theme_v2 import Theme
+from src.gui.main_window_v2 import MainWindowV2
+
+# V2 GUI alias for entrypoint wiring
+StableNewGUI = MainWindowV2
+ENTRYPOINT_GUI_CLASS = StableNewGUI
 from src.gui.tooltip import Tooltip
 from src.api.webui_process_manager import WebUIProcessManager
 from src.pipeline.executor import Pipeline

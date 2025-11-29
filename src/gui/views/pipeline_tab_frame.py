@@ -43,17 +43,24 @@ class PipelineTabFrame(ttk.Frame):
         self.body_frame.columnconfigure(2, weight=1)
         self.body_frame.rowconfigure(0, weight=1)
 
+        # Scrollable left column for sidebar/global negative/prompt packs
+        self.left_scroll = ScrollableFrame(self.body_frame, style="Panel.TFrame")
+        self.left_inner = self.left_scroll.inner
+        self.left_scroll.grid(row=0, column=0, sticky="nsw", padx=(0, 4))
+        self.left_inner.update_idletasks()
+        self.body_frame.grid_propagate(False)
+
         self.sidebar = SidebarPanelV2(
-            self.body_frame,
+            self.left_inner,
             controller=self.pipeline_controller,
             app_state=self.app_state,
             theme=self.theme,
             on_change=lambda: self._handle_sidebar_change(),
         )
-        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, 4))
-        self.sidebar.configure(width=480)
-        self.sidebar.update_idletasks()
-        self.body_frame.grid_propagate(False)
+        self.sidebar.pack(fill="x", pady=(0, 8))
+
+        # Add global negative prompt and prompt pack selector here as needed
+        # ...existing code for global negative/prompt packs if present...
 
         self.stage_scroll = ScrollableFrame(self.body_frame, style="Panel.TFrame")
         self.stage_cards_frame = self.stage_scroll.inner

@@ -118,7 +118,25 @@ class SDWebUIClient:
         for attempt in range(retries):
             try:
                 response = requests.request(method.upper(), url, timeout=timeout_value, **kwargs)
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except requests.HTTPError as http_exc:
+                    # Log method, URL, status code, and truncated response text
+                    status_code = getattr(response, 'status_code', None)
+                    resp_text = getattr(response, 'text', None)
+                    if resp_text:
+                        truncated_text = resp_text[:4000] + ("..." if len(resp_text) > 4000 else "")
+                    else:
+                        truncated_text = None
+                    logger.warning(
+                        "HTTPError %s %s status=%s: %s\nResponse text (truncated): %s",
+                        method.upper(),
+                        url,
+                        status_code,
+                        http_exc,
+                        truncated_text,
+                    )
+                    raise
                 return response
             except Exception as exc:  # noqa: BLE001 - broad to ensure retries
                 last_exception = exc
